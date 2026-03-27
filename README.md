@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Cohold
 
 Monorepo for the Cohold fractional real estate investment platform.
