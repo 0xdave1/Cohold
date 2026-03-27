@@ -1,0 +1,373 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// End-user accounts hold liquid balances via Wallet[] (per currency).
+/// Synthetic users (platform@internal, escrow-*) hold ESCROW / PLATFORM funds — never mix with real users in application logic.
+model User {
+  id                    String             @id @default(uuid())
+  email                 String             @unique
+  emailVerifiedAt       DateTime?
+  firstName             String?
+  lastName              String?
+  phoneNumber           String?
+  phoneCountryCode      String?
+  nationality           String?
+  houseNumber           String?
+  streetName            String?
+  city                  String?
+  state                 String?
+  bvn                   String?            @unique
+  paystackCustomerCode  String?            @unique
+  username              String?            @unique
+  passwordHash          String
+  kycStatus             KycStatus          @default(PENDING)
+  kycVerification       KycVerification?
+  onboardingCompletedAt DateTime?
+  wallets               Wallet[]
+  investments           Investment[]
+  investmentReturns     InvestmentReturn[]
+  transactions          Transaction[]      @relation("UserTransactions")
+  virtualAccounts       VirtualAccount[]
+  isFrozen              Boolean            @default(false)
+  lastLoginAt           DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@index([email])
+  @@index([username])
+}
+
+model Admin {
+  id            String             @id @default(uuid())
+  email         String             @unique
+  passwordHash  String
+  role          AdminRole          @default(DATA_UPLOADER)
+  fullName      String?
+  phoneNumber   String?
+  accountStatus AdminAccountStatus @default(ACTIVE)
+  lastLoginAt   DateTime?
+  activities    AdminActivityLog[]
+  distributions Distribution[]
+  kycReviews    KycVerification[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([accountStatus])
+  @@index([email])
+}
+
+enum AdminAccountStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+model Wallet {
+  id            String        @id @default(uuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  currency      Currency
+  balance       Decimal       @default(0) @db.Decimal(19, 4)
+  ledgerEntries Transaction[] @relation("WalletTransactions")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([userId, currency])
+  @@index([userId, currency])
+}
+
+model Transaction {
+  id                String               @id @default(uuid())
+  walletId          String?
+  wallet            Wallet?              @relation("WalletTransactions", fields: [walletId], references: [id])
+  userId            String?
+  user              User?                @relation("UserTransactions", fields: [userId], references: [id])
+  reference         String               @unique
+  externalReference String?
+  type              TransactionType
+  status            TransactionStatus
+  amount            Decimal              @db.Decimal(19, 4)
+  /// Fee portion (e.g. investment fee, profit-based sell fee, ROI platform cut). Nullable for legacy rows.
+  fee               Decimal?             @db.Decimal(19, 4)
+  /// Net principal / net to user depending on context (see metadata.ledgerRole when needed).
+  netAmount         Decimal?             @db.Decimal(19, 4)
+  currency          Currency
+  direction         TransactionDirection
+  metadata          Json?
+  propertyId        String?
+  property          Property?            @relation("PropertyTransactions", fields: [propertyId], references: [id])
+  investmentId      String?
+  investment        Investment?          @relation("InvestmentLedgerTx", fields: [investmentId], references: [id])
+  /// Groups all legs of one business operation (BUY/SELL/ROI/swap) for audit — equals primary tx reference where possible.
+  groupId           String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([userId])
+  @@index([walletId])
+  @@index([reference])
+  @@index([groupId])
+  @@index([externalReference])
+  @@index([createdAt])
+  @@index([type])
+  @@index([propertyId])
+  @@index([investmentId])
+}
+
+model Property {
+  id                String             @id @default(uuid())
+  title             String
+  description       String
+  location          String
+  status            PropertyStatus     @default(PUBLISHED)
+  totalValue        Decimal            @db.Decimal(24, 8)
+  sharePrice        Decimal            @db.Decimal(24, 8)
+  currency          Currency
+  minInvestment     Decimal            @db.Decimal(19, 4)
+  currentRaised     Decimal            @default(0) @db.Decimal(24, 8)
+  sharesTotal       Decimal            @db.Decimal(24, 8)
+  sharesSold        Decimal            @default(0) @db.Decimal(24, 8)
+  /// Annual yield as a unitless rate, e.g. 0.125 = 12.5% per year (used for scheduled ROI math).
+  annualYield       Decimal?           @db.Decimal(12, 8)
+  deletedAt         DateTime?
+  documents         PropertyDocument[]
+  images            PropertyImage[]
+  investments       Investment[]
+  investmentReturns InvestmentReturn[]
+  distributions     Distribution[]
+  transactions      Transaction[]      @relation("PropertyTransactions")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([status, createdAt])
+  @@index([deletedAt])
+}
+
+model PropertyDocument {
+  id         String   @id @default(uuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+  type       String
+  s3Key      String
+  createdAt  DateTime @default(now())
+}
+
+model PropertyImage {
+  id         String   @id @default(uuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+  url        String
+  position   Int
+  createdAt  DateTime @default(now())
+
+  @@index([propertyId])
+}
+
+model Investment {
+  id                 String               @id @default(uuid())
+  userId             String
+  propertyId         String
+  user               User                 @relation(fields: [userId], references: [id])
+  property           Property             @relation(fields: [propertyId], references: [id])
+  /// Principal invested in this position (cost basis pool for sells).
+  amount             Decimal              @db.Decimal(19, 4)
+  currency           Currency
+  shares             Decimal              @db.Decimal(24, 8)
+  sharePrice         Decimal              @db.Decimal(24, 8)
+  ownershipPercent   Decimal              @db.Decimal(10, 6)
+  /// Cumulative net ROI credited to the user wallet from this position.
+  totalReturns       Decimal              @default(0) @db.Decimal(19, 4)
+  status             InvestmentStatus     @default(ACTIVE)
+  clientReference    String?              @unique
+  payouts            DistributionPayout[]
+  ledgerTransactions Transaction[]        @relation("InvestmentLedgerTx")
+  investmentReturns  InvestmentReturn[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@index([userId])
+  @@index([propertyId])
+  @@index([userId, propertyId])
+}
+
+/// Scheduled ROI accrual per investment position — source of truth for yield paid (not frontend estimates).
+model InvestmentReturn {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id])
+  propertyId   String
+  property     Property   @relation(fields: [propertyId], references: [id])
+  investmentId String
+  investment   Investment @relation(fields: [investmentId], references: [id])
+  amount       Decimal    @db.Decimal(19, 4)
+  fee          Decimal    @db.Decimal(19, 4)
+  netAmount    Decimal    @db.Decimal(19, 4)
+  period       String
+  status       String
+  createdAt    DateTime   @default(now())
+
+  @@unique([investmentId, period])
+  @@index([userId])
+  @@index([propertyId, period])
+}
+
+model KycVerification {
+  id                 String    @id @default(uuid())
+  userId             String    @unique
+  user               User      @relation(fields: [userId], references: [id])
+  status             KycStatus @default(PENDING)
+  governmentIdType   String?
+  governmentIdNumber String?
+  documentKey        String?
+  failureReason      String?
+  requiresReview     Boolean   @default(false)
+  reviewedById       String?
+  reviewedBy         Admin?    @relation(fields: [reviewedById], references: [id])
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([status, createdAt])
+}
+
+model VirtualAccount {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  provider      String
+  accountNumber String   @unique
+  accountName   String
+  bankName      String
+  currency      Currency
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId, currency])
+}
+
+model Distribution {
+  id           String               @id @default(uuid())
+  propertyId   String
+  property     Property             @relation(fields: [propertyId], references: [id])
+  totalAmount  Decimal              @db.Decimal(19, 4)
+  platformFee  Decimal              @default(0) @db.Decimal(19, 4)
+  currency     Currency
+  status       DistributionStatus   @default(PENDING)
+  executedById String
+  executedBy   Admin                @relation(fields: [executedById], references: [id])
+  payouts      DistributionPayout[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@index([propertyId, status])
+}
+
+model DistributionPayout {
+  id             String       @id @default(uuid())
+  distributionId String
+  investmentId   String
+  amount         Decimal      @db.Decimal(19, 4)
+  currency       Currency
+  distribution   Distribution @relation(fields: [distributionId], references: [id])
+  investment     Investment   @relation(fields: [investmentId], references: [id])
+  createdAt      DateTime     @default(now())
+
+  @@index([distributionId])
+  @@index([investmentId])
+}
+
+model AdminActivityLog {
+  id         String   @id @default(uuid())
+  adminId    String
+  admin      Admin    @relation(fields: [adminId], references: [id])
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([adminId, createdAt])
+}
+
+model PaystackWebhookEvent {
+  id          String    @id @default(uuid())
+  event       String
+  reference   String?
+  payload     Json?
+  processed   Boolean   @default(false)
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  @@index([reference])
+  @@index([event, createdAt])
+}
+
+enum Currency {
+  NGN
+  USD
+  GBP
+  EUR
+}
+
+enum KycStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  REQUIRES_REVIEW
+}
+
+enum AdminRole {
+  DATA_UPLOADER
+  APPROVER
+  SUPER_ADMIN
+  COMPLIANCE_ADMIN
+}
+
+enum TransactionType {
+  WALLET_TOP_UP
+  WALLET_WITHDRAWAL
+  WALLET_SWAP
+  P2P_TRANSFER
+  INVESTMENT
+  BUY
+  SELL
+  ROI
+  PROPERTY_FUNDING
+  DISTRIBUTION
+  FEE
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum TransactionDirection {
+  CREDIT
+  DEBIT
+}
+
+enum PropertyStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+enum InvestmentStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum DistributionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}

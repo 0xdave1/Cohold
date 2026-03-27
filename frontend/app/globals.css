@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+    /* Auth / onboarding (Figma) */
+    --auth-bg: 60 20% 98%;
+    --auth-card: 0 0% 100%;
+    --auth-heading: 0 0% 20%;
+    --auth-body: 0 0% 40%;
+    --auth-input-border: 0 0% 88%;
+    --cohold-blue: 206 78% 24%;
+    --cohold-blue-hover: 206 78% 20%;
+    --cohold-icon-bg: 45 33% 94%;
+    --cohold-link: 211 100% 50%;
+    --auth-radius: 10px;
+    --auth-radius-lg: 12px;
+    --auth-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --auth-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06);
+    /* Dashboard (Figma home) */
+    --dashboard-bg: 45 33% 97%;
+    --dashboard-card: 0 0% 100%;
+    --dashboard-heading: 0 0% 15%;
+    --dashboard-body: 0 0% 45%;
+    --dashboard-muted: 0 0% 65%;
+    --dashboard-border: 0 0% 90%;
+    --dashboard-nav-active: 206 78% 24%;
+    /* Home (Figma): balance card elevation, action blue */
+    --home-card-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    --home-action-blue: 211 100% 50%;
+    --home-nav-active: 38 92% 50%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

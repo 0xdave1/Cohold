@@ -1,0 +1,14 @@
+node_modules
+.next
+.env
+.env.*
+!.env.example
+*.log
+.git
+.gitignore
+README.md
+coverage
+.idea
+.vscode
+*.md
+storybook-static

@@ -1,0 +1,15 @@
+{
+  "name": "cohold",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cohold – Backend (NestJS) and Frontend (Next.js) monorepo",
+  "scripts": {
+    "dev": "npm run dev:backend",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install"
+  }
+}

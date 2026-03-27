@@ -1,0 +1,77 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { PrismaModule } from './prisma/prisma.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { AdminAuthModule } from './modules/admin-auth/admin-auth.module';
+import { UsersModule } from './modules/users/users.module';
+import { WalletModule } from './modules/wallet/wallet.module';
+import { PaymentModule } from './modules/payment/payment.module';
+import { InvestmentModule } from './modules/investment/investment.module';
+import { PropertyModule } from './modules/property/property.module';
+import { KycModule } from './modules/kyc/kyc.module';
+import { VirtualAccountModule } from './modules/virtual-account/virtual-account.module';
+import { PaystackModule } from './modules/paystack/paystack.module';
+import { TransferModule } from './modules/transfer/transfer.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { DistributionModule } from './modules/distribution/distribution.module';
+import { WebhookModule } from './modules/webhook/webhook.module';
+import { QueueModule } from './modules/queue/queue.module';
+// Redis temporarily disabled – CacheModule kept; CacheService uses in-memory fallback
+import { CacheModule as CoholdCacheModule } from './modules/cache/cache.module';
+import { SearchModule } from './modules/search/search.module';
+import { GatewayModule } from './modules/gateway/gateway.module';
+import { EmailModule } from './modules/email/email.module';
+import { StorageModule } from './modules/storage/storage.module';
+import { FxModule } from './modules/fx/fx.module';
+import configuration from './config/configuration';
+import { validationSchema } from './config/validation';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+// Auth guards are applied at controller level to avoid mixing user/admin tokens globally.
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [configuration],
+      validationSchema,
+    }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60,
+        limit: 100,
+      },
+    ]),
+    PrismaModule,
+    CoholdCacheModule, // uses in-memory cache while Redis disabled
+    QueueModule,
+    SearchModule,
+    GatewayModule,
+    EmailModule,
+    StorageModule,
+    FxModule,
+    // Domain modules
+    AuthModule,
+    AdminAuthModule,
+    UsersModule,
+    WalletModule,
+    PaymentModule,
+    InvestmentModule,
+    PropertyModule,
+    KycModule,
+    VirtualAccountModule,
+    PaystackModule,
+    TransferModule,
+    AdminModule,
+    DistributionModule,
+    WebhookModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
+})
+export class AppModule {}
+

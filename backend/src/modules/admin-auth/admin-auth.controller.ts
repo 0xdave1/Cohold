@@ -1,0 +1,16 @@
+import { Body, Controller, Post } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { AdminAuthService } from './admin-auth.service';
+import { AdminLoginDto } from './dto/admin-login.dto';
+
+@ApiTags('admin-auth')
+@Controller('admin-auth')
+export class AdminAuthController {
+  constructor(private readonly adminAuthService: AdminAuthService) {}
+
+  @Post('login')
+  async login(@Body() dto: AdminLoginDto) {
+    return this.adminAuthService.login(dto);
+  }
+}
+
