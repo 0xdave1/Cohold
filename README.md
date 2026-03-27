@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Cohold
 
 Monorepo for the Cohold fractional real estate investment platform.
@@ -56,3 +57,6 @@ Runs Postgres, Redis, backend API, and Next.js frontend.
 - **API docs:** http://localhost:4000/docs  
 
 Frontend build args (`NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_API_URL`) are set in `docker-compose.yml` for local use. Override in the `frontend` service `build.args` for production.
+=======
+# Cohold
+>>>>>>> 62ed5e6728c64016634480496131d4270ad27912
