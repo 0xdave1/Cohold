@@ -1,9 +1,12 @@
 'use client';
 
+import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { formatMoney } from '@/lib/hooks/use-wallet';
 
-export default function WithdrawSuccessPage() {
+export const dynamic = 'force-dynamic';
+
+function WithdrawSuccessContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const amount = searchParams.get('amount') ?? '100000';
@@ -54,5 +57,13 @@ export default function WithdrawSuccessPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function WithdrawSuccessPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <WithdrawSuccessContent />
+    </Suspense>
   );
 }

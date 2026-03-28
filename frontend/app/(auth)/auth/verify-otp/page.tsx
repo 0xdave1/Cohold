@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { Suspense, useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/hooks/use-auth';
@@ -8,7 +8,9 @@ import { getApiErrorMessage } from '@/lib/api/errors';
 import { EnvelopeIcon } from '@/components/auth/AuthIcons';
 import { auth } from '@/components/auth/auth-styles';
 
-export default function VerifyOtpPage() {
+export const dynamic = 'force-dynamic';
+
+function VerifyOtpContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const email = searchParams.get('email') ?? '';
@@ -44,10 +46,7 @@ export default function VerifyOtpPage() {
     try {
       if (purpose === 'signup') {
         const res = await completeSignup.mutateAsync({ email, otp: otpString });
-        if (res.success) {
-          // useAuth completeSignup onSuccess redirects to /onboarding/personal-details
-          return;
-        }
+        if (res.success) return;
         setError(res.error ?? 'Verification failed');
       } else {
         await verifyOtp.mutateAsync({ email, otp: otpString });
@@ -110,5 +109,13 @@ export default function VerifyOtpPage() {
         </Link>
       </p>
     </main>
+  );
+}
+
+export default function VerifyOtpPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <VerifyOtpContent />
+    </Suspense>
   );
 }

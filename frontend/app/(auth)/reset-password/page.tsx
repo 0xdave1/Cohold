@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/hooks/use-auth';
+
+export const dynamic = 'force-dynamic';
 
 function Eye({ className }: { className?: string }) {
   return (
@@ -15,6 +17,7 @@ function Eye({ className }: { className?: string }) {
     </svg>
   );
 }
+
 function EyeOff({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -33,11 +36,11 @@ const resetPasswordSchema = z.object({
 
 type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>;
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const searchParams = useSearchParams();
   const email = searchParams.get('email') ?? '';
   const otp = searchParams.get('otp') ?? '';
-  
+
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -58,7 +61,7 @@ export default function ResetPasswordPage() {
     }
 
     setError(null);
-    
+
     try {
       const res = await resetPassword.mutateAsync({
         email,
@@ -66,13 +69,11 @@ export default function ResetPasswordPage() {
         newPassword: values.newPassword,
         confirmPassword: values.confirmPassword,
       });
-      
+
       if (!res.success) {
         setError(res.error ?? 'Unable to reset password. Please try again.');
         return;
       }
-
-      // Success - redirect handled by mutation
     } catch (e: any) {
       setError(e.response?.data?.error ?? 'Unable to reset password. Please try again.');
     }
@@ -109,6 +110,7 @@ export default function ResetPasswordPage() {
           </div>
           {form.formState.errors.newPassword && <p className="text-xs text-red-600">{form.formState.errors.newPassword.message}</p>}
         </div>
+
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-auth-heading">Confirm password</label>
           <div className="relative">
@@ -124,11 +126,21 @@ export default function ResetPasswordPage() {
           </div>
           {form.formState.errors.confirmPassword && <p className="text-xs text-red-600">{form.formState.errors.confirmPassword.message}</p>}
         </div>
+
         {error && <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">{error}</div>}
+
         <button type="submit" disabled={resetPassword.isPending} className="w-full rounded-xl bg-cohold-blue py-3 text-[15px] font-semibold text-white shadow-[var(--auth-shadow)] hover:bg-[hsl(var(--cohold-blue-hover))] disabled:cursor-not-allowed disabled:opacity-60">
           {resetPassword.isPending ? 'Resetting...' : 'Complete'}
         </button>
       </form>
     </main>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <ResetPasswordContent />
+    </Suspense>
   );
 }
