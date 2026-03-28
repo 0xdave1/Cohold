@@ -21,7 +21,7 @@ export const validationSchema = Joi.object({
   PAYSTACK_SECRET_KEY: Joi.string().required(),
   PAYSTACK_WEBHOOK_SECRET: Joi.string().required(),
   PAYSTACK_BASE_URL: Joi.string().uri().default('https://api.paystack.co'),
-  FRONTEND_URL: Joi.string().uri().default('http://localhost:3001'),
+  FRONTEND_URL: Joi.string().uri().default('http://cohold.vercel.app'),
 
   S3_ACCESS_KEY: Joi.string().required(),
   S3_SECRET_KEY: Joi.string().required(),

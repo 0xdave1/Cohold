@@ -27,7 +27,7 @@ export default registerAs('config', () => ({
     baseUrl: process.env.PAYSTACK_BASE_URL ?? 'https://api.paystack.co',
   },
   /** Public app URL for Paystack redirect after card payment (e.g. http://localhost:3001) */
-  frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:3001',
+  frontendUrl: process.env.FRONTEND_URL ?? 'http://cohold.vercel.app',
   s3: {
     accessKey: process.env.S3_ACCESS_KEY,
     secretKey: process.env.S3_SECRET_KEY,
