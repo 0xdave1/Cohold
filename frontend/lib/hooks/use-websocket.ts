@@ -6,11 +6,14 @@ import { useAuthStore } from '@/stores/auth.store';
  * WebSocket hook for real-time updates.
  * Connects to backend WebSocket gateway based on user role.
  */
-export function useWebSocket(namespace: '/ws/user' | '/ws/admin', callbacks: {
+export function useWebSocket(namespace: '/ws/user' | '/ws/admin' | '/ws/support', callbacks: {
   onKycStatus?: (data: { status: string }) => void;
   onInvestmentProgress?: (data: { propertyId: string; progress: number }) => void;
   onAlert?: (data: { type: string; message: string }) => void;
   onTransaction?: (data: { type: string; amount: string; currency: string }) => void;
+  onSupportMessage?: (data: any) => void;
+  onSupportPresence?: (data: any) => void;
+  onSupportTyping?: (data: any) => void;
 }) {
   const socketRef = useRef<Socket | null>(null);
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -51,6 +54,16 @@ export function useWebSocket(namespace: '/ws/user' | '/ws/admin', callbacks: {
 
     if (callbacks.onTransaction) {
       socket.on('transaction', callbacks.onTransaction);
+    }
+
+    if (callbacks.onSupportMessage) {
+      socket.on('support:message.new', callbacks.onSupportMessage);
+    }
+    if (callbacks.onSupportPresence) {
+      socket.on('support:presence.update', callbacks.onSupportPresence);
+    }
+    if (callbacks.onSupportTyping) {
+      socket.on('support:typing', callbacks.onSupportTyping);
     }
 
     return () => {

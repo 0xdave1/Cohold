@@ -595,6 +595,26 @@ export class AdminService {
     };
   }
 
+  async listDisputes(params: { page: number; limit: number }) {
+    const { page, limit } = params;
+    const skip = (page - 1) * limit;
+    const where: Prisma.SupportConversationWhereInput = { isDispute: true };
+    const [items, total] = await Promise.all([
+      this.prisma.supportConversation.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { lastMessageAt: 'desc' },
+        include: {
+          user: { select: { id: true, email: true, firstName: true, lastName: true } },
+          assignedAdmin: { select: { id: true, email: true, fullName: true } },
+        },
+      }),
+      this.prisma.supportConversation.count({ where }),
+    ]);
+    return { items, meta: { page, limit, total } };
+  }
+
   async listProperties(params: {
     page: number;
     limit: number;

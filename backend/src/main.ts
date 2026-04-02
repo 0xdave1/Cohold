@@ -76,6 +76,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000',
+      'http://localhost:3001',
       'https://cohold.vercel.app',
       'https://cohold.onrender.com/', 
     ],
@@ -97,7 +98,7 @@ async function bootstrap() {
 
   const port = configService.get<number>('config.app.port') ?? 3000;
   await app.listen(port);
-  console.log(`🚀 Server running on: https://unpropitiative-cristie-unfouled.ngrok-free.dev/${apiPrefix}`);
+  console.log(`🚀 Server running on: https://cohold.onrender.com/${apiPrefix}`);
 }
 
 bootstrap().catch((err) => {

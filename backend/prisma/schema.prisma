@@ -10,8 +10,8 @@ datasource db {
 /// End-user accounts hold liquid balances via Wallet[] (per currency).
 /// Synthetic users (platform@internal, escrow-*) hold ESCROW / PLATFORM funds — never mix with real users in application logic.
 model User {
-  id                    String             @id @default(uuid())
-  email                 String             @unique
+  id                    String                @id @default(uuid())
+  email                 String                @unique
   emailVerifiedAt       DateTime?
   firstName             String?
   lastName              String?
@@ -22,61 +22,136 @@ model User {
   streetName            String?
   city                  String?
   state                 String?
-  bvn                   String?            @unique
-  paystackCustomerCode  String?            @unique
-  username              String?            @unique
+  bvn                   String?               @unique
+  paystackCustomerCode  String?               @unique
+  username              String?               @unique
   passwordHash          String
-  kycStatus             KycStatus          @default(PENDING)
-  kycVerification       KycVerification?
+  kycStatus             KycStatus             @default(PENDING)
   onboardingCompletedAt DateTime?
-  wallets               Wallet[]
+  isFrozen              Boolean               @default(false)
+  lastLoginAt           DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
   investments           Investment[]
   investmentReturns     InvestmentReturn[]
-  transactions          Transaction[]      @relation("UserTransactions")
+  kycVerification       KycVerification?
+  transactions          Transaction[]         @relation("UserTransactions")
   virtualAccounts       VirtualAccount[]
-  isFrozen              Boolean            @default(false)
-  lastLoginAt           DateTime?
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
+  wallets               Wallet[]
+  supportConversations  SupportConversation[]
+  supportMessages       SupportMessage[]
 
   @@index([email])
   @@index([username])
 }
 
 model Admin {
-  id            String             @id @default(uuid())
-  email         String             @unique
-  passwordHash  String
-  role          AdminRole          @default(DATA_UPLOADER)
-  fullName      String?
-  phoneNumber   String?
-  accountStatus AdminAccountStatus @default(ACTIVE)
-  lastLoginAt   DateTime?
-  activities    AdminActivityLog[]
-  distributions Distribution[]
-  kycReviews    KycVerification[]
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  id                   String                @id @default(uuid())
+  email                String                @unique
+  passwordHash         String
+  role                 AdminRole             @default(DATA_UPLOADER)
+  fullName             String?
+  phoneNumber          String?
+  canSupport           Boolean               @default(false)
+  accountStatus        AdminAccountStatus    @default(ACTIVE)
+  lastLoginAt          DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  activities           AdminActivityLog[]
+  distributions        Distribution[]
+  kycReviews           KycVerification[]
+  supportConversations SupportConversation[]
+  supportMessages      SupportMessage[]
+  supportPresence      SupportPresence?
 
   @@index([accountStatus])
   @@index([email])
+  @@index([canSupport])
 }
 
-enum AdminAccountStatus {
-  ACTIVE
-  SUSPENDED
-  INACTIVE
+model SupportConversation {
+  id              String          @id @default(uuid())
+  referenceCode   String          @unique
+  userId          String
+  assignedAdminId String?
+  category        SupportCategory
+  status          SupportStatus   @default(OPEN)
+  priority        SupportPriority @default(NORMAL)
+  isDispute       Boolean         @default(false)
+  subject         String?
+  metadata        Json?
+  lastMessageAt   DateTime        @default(now())
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  user          User             @relation(fields: [userId], references: [id])
+  assignedAdmin Admin?           @relation(fields: [assignedAdminId], references: [id])
+  messages      SupportMessage[]
+
+  @@index([userId, updatedAt])
+  @@index([assignedAdminId, status])
+  @@index([status, isDispute])
+  @@index([category])
+  @@index([lastMessageAt])
+}
+
+model SupportMessage {
+  id             String             @id @default(uuid())
+  conversationId String
+  senderType     SupportSenderType
+  senderUserId   String?
+  senderAdminId  String?
+  content        String
+  messageType    SupportMessageType @default(TEXT)
+  metadata       Json?
+  readAt         DateTime?
+  createdAt      DateTime           @default(now())
+
+  conversation SupportConversation @relation(fields: [conversationId], references: [id])
+  senderUser   User?               @relation(fields: [senderUserId], references: [id])
+  senderAdmin  Admin?              @relation(fields: [senderAdminId], references: [id])
+  attachments  SupportAttachment[]
+
+  @@index([conversationId, createdAt])
+  @@index([readAt])
+  @@index([senderType])
+}
+
+model SupportAttachment {
+  id         String   @id @default(uuid())
+  messageId  String
+  storageKey String
+  mimeType   String
+  sizeBytes  Int
+  fileName   String?
+  createdAt  DateTime @default(now())
+
+  message SupportMessage @relation(fields: [messageId], references: [id])
+
+  @@index([messageId])
+  @@index([createdAt])
+}
+
+model SupportPresence {
+  adminId    String   @unique
+  isOnline   Boolean  @default(false)
+  lastSeenAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  admin Admin @relation(fields: [adminId], references: [id])
+
+  @@index([isOnline, updatedAt])
 }
 
 model Wallet {
   id            String        @id @default(uuid())
   userId        String
-  user          User          @relation(fields: [userId], references: [id])
   currency      Currency
   balance       Decimal       @default(0) @db.Decimal(19, 4)
-  ledgerEntries Transaction[] @relation("WalletTransactions")
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+  ledgerEntries Transaction[] @relation("WalletTransactions")
+  user          User          @relation(fields: [userId], references: [id])
 
   @@unique([userId, currency])
   @@index([userId, currency])
@@ -85,9 +160,7 @@ model Wallet {
 model Transaction {
   id                String               @id @default(uuid())
   walletId          String?
-  wallet            Wallet?              @relation("WalletTransactions", fields: [walletId], references: [id])
   userId            String?
-  user              User?                @relation("UserTransactions", fields: [userId], references: [id])
   reference         String               @unique
   externalReference String?
   type              TransactionType
@@ -101,13 +174,15 @@ model Transaction {
   direction         TransactionDirection
   metadata          Json?
   propertyId        String?
-  property          Property?            @relation("PropertyTransactions", fields: [propertyId], references: [id])
   investmentId      String?
-  investment        Investment?          @relation("InvestmentLedgerTx", fields: [investmentId], references: [id])
   /// Groups all legs of one business operation (BUY/SELL/ROI/swap) for audit — equals primary tx reference where possible.
   groupId           String?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
+  investment        Investment?          @relation("InvestmentLedgerTx", fields: [investmentId], references: [id])
+  property          Property?            @relation("PropertyTransactions", fields: [propertyId], references: [id])
+  user              User?                @relation("UserTransactions", fields: [userId], references: [id])
+  wallet            Wallet?              @relation("WalletTransactions", fields: [walletId], references: [id])
 
   @@index([userId])
   @@index([walletId])
@@ -136,14 +211,14 @@ model Property {
   /// Annual yield as a unitless rate, e.g. 0.125 = 12.5% per year (used for scheduled ROI math).
   annualYield       Decimal?           @db.Decimal(12, 8)
   deletedAt         DateTime?
-  documents         PropertyDocument[]
-  images            PropertyImage[]
-  investments       Investment[]
-  investmentReturns InvestmentReturn[]
-  distributions     Distribution[]
-  transactions      Transaction[]      @relation("PropertyTransactions")
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
+  distributions     Distribution[]
+  investments       Investment[]
+  investmentReturns InvestmentReturn[]
+  documents         PropertyDocument[]
+  images            PropertyImage[]
+  transactions      Transaction[]      @relation("PropertyTransactions")
 
   @@index([status, createdAt])
   @@index([deletedAt])
@@ -152,19 +227,19 @@ model Property {
 model PropertyDocument {
   id         String   @id @default(uuid())
   propertyId String
-  property   Property @relation(fields: [propertyId], references: [id])
   type       String
   s3Key      String
   createdAt  DateTime @default(now())
+  property   Property @relation(fields: [propertyId], references: [id])
 }
 
 model PropertyImage {
   id         String   @id @default(uuid())
   propertyId String
-  property   Property @relation(fields: [propertyId], references: [id])
   url        String
   position   Int
   createdAt  DateTime @default(now())
+  property   Property @relation(fields: [propertyId], references: [id])
 
   @@index([propertyId])
 }
@@ -173,8 +248,6 @@ model Investment {
   id                 String               @id @default(uuid())
   userId             String
   propertyId         String
-  user               User                 @relation(fields: [userId], references: [id])
-  property           Property             @relation(fields: [propertyId], references: [id])
   /// Principal invested in this position (cost basis pool for sells).
   amount             Decimal              @db.Decimal(19, 4)
   currency           Currency
@@ -185,11 +258,13 @@ model Investment {
   totalReturns       Decimal              @default(0) @db.Decimal(19, 4)
   status             InvestmentStatus     @default(ACTIVE)
   clientReference    String?              @unique
-  payouts            DistributionPayout[]
-  ledgerTransactions Transaction[]        @relation("InvestmentLedgerTx")
-  investmentReturns  InvestmentReturn[]
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
+  payouts            DistributionPayout[]
+  property           Property             @relation(fields: [propertyId], references: [id])
+  user               User                 @relation(fields: [userId], references: [id])
+  investmentReturns  InvestmentReturn[]
+  ledgerTransactions Transaction[]        @relation("InvestmentLedgerTx")
 
   @@index([userId])
   @@index([propertyId])
@@ -200,17 +275,17 @@ model Investment {
 model InvestmentReturn {
   id           String     @id @default(cuid())
   userId       String
-  user         User       @relation(fields: [userId], references: [id])
   propertyId   String
-  property     Property   @relation(fields: [propertyId], references: [id])
   investmentId String
-  investment   Investment @relation(fields: [investmentId], references: [id])
   amount       Decimal    @db.Decimal(19, 4)
   fee          Decimal    @db.Decimal(19, 4)
   netAmount    Decimal    @db.Decimal(19, 4)
   period       String
   status       String
   createdAt    DateTime   @default(now())
+  investment   Investment @relation(fields: [investmentId], references: [id])
+  property     Property   @relation(fields: [propertyId], references: [id])
+  user         User       @relation(fields: [userId], references: [id])
 
   @@unique([investmentId, period])
   @@index([userId])
@@ -220,7 +295,6 @@ model InvestmentReturn {
 model KycVerification {
   id                 String    @id @default(uuid())
   userId             String    @unique
-  user               User      @relation(fields: [userId], references: [id])
   status             KycStatus @default(PENDING)
   governmentIdType   String?
   governmentIdNumber String?
@@ -228,9 +302,10 @@ model KycVerification {
   failureReason      String?
   requiresReview     Boolean   @default(false)
   reviewedById       String?
-  reviewedBy         Admin?    @relation(fields: [reviewedById], references: [id])
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+  reviewedBy         Admin?    @relation(fields: [reviewedById], references: [id])
+  user               User      @relation(fields: [userId], references: [id])
 
   @@index([status, createdAt])
 }
@@ -238,7 +313,6 @@ model KycVerification {
 model VirtualAccount {
   id            String   @id @default(uuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id])
   provider      String
   accountNumber String   @unique
   accountName   String
@@ -246,6 +320,7 @@ model VirtualAccount {
   currency      Currency
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id])
 
   @@index([userId, currency])
 }
@@ -253,16 +328,16 @@ model VirtualAccount {
 model Distribution {
   id           String               @id @default(uuid())
   propertyId   String
-  property     Property             @relation(fields: [propertyId], references: [id])
   totalAmount  Decimal              @db.Decimal(19, 4)
   platformFee  Decimal              @default(0) @db.Decimal(19, 4)
   currency     Currency
   status       DistributionStatus   @default(PENDING)
   executedById String
-  executedBy   Admin                @relation(fields: [executedById], references: [id])
-  payouts      DistributionPayout[]
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
+  executedBy   Admin                @relation(fields: [executedById], references: [id])
+  property     Property             @relation(fields: [propertyId], references: [id])
+  payouts      DistributionPayout[]
 
   @@index([propertyId, status])
 }
@@ -273,9 +348,9 @@ model DistributionPayout {
   investmentId   String
   amount         Decimal      @db.Decimal(19, 4)
   currency       Currency
+  createdAt      DateTime     @default(now())
   distribution   Distribution @relation(fields: [distributionId], references: [id])
   investment     Investment   @relation(fields: [investmentId], references: [id])
-  createdAt      DateTime     @default(now())
 
   @@index([distributionId])
   @@index([investmentId])
@@ -284,12 +359,12 @@ model DistributionPayout {
 model AdminActivityLog {
   id         String   @id @default(uuid())
   adminId    String
-  admin      Admin    @relation(fields: [adminId], references: [id])
   action     String
   entityType String
   entityId   String?
   metadata   Json?
   createdAt  DateTime @default(now())
+  admin      Admin    @relation(fields: [adminId], references: [id])
 
   @@index([adminId, createdAt])
 }
@@ -306,6 +381,12 @@ model PaystackWebhookEvent {
 
   @@index([reference])
   @@index([event, createdAt])
+}
+
+enum AdminAccountStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
 }
 
 enum Currency {
@@ -327,6 +408,46 @@ enum AdminRole {
   APPROVER
   SUPER_ADMIN
   COMPLIANCE_ADMIN
+}
+
+enum SupportCategory {
+  GENERAL_SUPPORT
+  PAYMENT_ISSUE
+  WITHDRAWAL_ISSUE
+  INVESTMENT_ISSUE
+  WALLET_ISSUE
+  KYC_ISSUE
+  PROPERTY_ISSUE
+  DISPUTE
+}
+
+enum SupportStatus {
+  OPEN
+  WAITING_FOR_ADMIN
+  WAITING_FOR_USER
+  LIVE
+  RESOLVED
+  CLOSED
+}
+
+enum SupportPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum SupportSenderType {
+  USER
+  ADMIN
+  BOT
+  SYSTEM
+}
+
+enum SupportMessageType {
+  TEXT
+  INTERNAL_NOTE
+  SYSTEM_EVENT
 }
 
 enum TransactionType {

@@ -182,6 +182,18 @@ export class AdminController {
   }
 
   @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Get('disputes')
+  async disputes(
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+  ) {
+    return this.adminService.listDisputes({
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
+    });
+  }
+
+  @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
   @Get('properties')
   async listProperties(
     @Query('page') page = '1',

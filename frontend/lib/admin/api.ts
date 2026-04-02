@@ -6,8 +6,21 @@ async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json?.error ?? json?.message ?? 'Request failed');
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = json?.error;
+    const msg =
+      typeof err === 'string'
+        ? err
+        : typeof err?.message === 'string'
+          ? err.message
+          : typeof json?.message === 'string'
+            ? json.message
+            : typeof json?.data?.message === 'string'
+              ? json.data.message
+              : `Request failed (${res.status})`;
+    throw new Error(msg);
+  }
   return json?.data !== undefined ? json.data : json;
 }
 
@@ -50,4 +63,23 @@ export const adminApi = {
   fees: (params?: string) => adminFetch<any>(`admin/fees${params ? `?${params}` : ''}`),
   coholds: (params?: string) => adminFetch<any>(`admin/coholds${params ? `?${params}` : ''}`),
   activityLog: (params?: string) => adminFetch<any>(`admin/activity-log${params ? `?${params}` : ''}`),
+
+  // Support inbox
+  supportConversations: (params?: string) => adminFetch<any>(`admin/support/conversations${params ? `?${params}` : ''}`),
+  supportConversation: (id: string) => adminFetch<any>(`admin/support/conversations/${id}`),
+  supportMessages: (id: string, params?: string) =>
+    adminFetch<any>(`admin/support/conversations/${id}/messages${params ? `?${params}` : ''}`),
+  sendSupportMessage: (id: string, body: any) =>
+    adminFetch<any>(`admin/support/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify(body) }),
+  addSupportInternalNote: (id: string, body: any) =>
+    adminFetch<any>(`admin/support/conversations/${id}/internal-notes`, { method: 'POST', body: JSON.stringify(body) }),
+  assignSupportConversation: (id: string, body?: any) =>
+    adminFetch<any>(`admin/support/conversations/${id}/assign`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+  resolveSupportConversation: (id: string) =>
+    adminFetch<any>(`admin/support/conversations/${id}/resolve`, { method: 'POST' }),
+  setSupportPresence: (body: { isOnline: boolean }) =>
+    adminFetch<any>('admin/support/presence', { method: 'POST', body: JSON.stringify(body) }),
+  onlineSupportAgents: () => adminFetch<any>('admin/support/presence/online'),
+  presignSupportAttachment: (body: any) =>
+    adminFetch<any>('admin/support/attachments/presign', { method: 'POST', body: JSON.stringify(body) }),
 };

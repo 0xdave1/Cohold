@@ -24,6 +24,7 @@ import { GatewayModule } from './modules/gateway/gateway.module';
 import { EmailModule } from './modules/email/email.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { FxModule } from './modules/fx/fx.module';
+import { SupportModule } from './modules/support/support.module';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -53,6 +54,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
     // Domain modules
     AuthModule,
     AdminAuthModule,
+    SupportModule,
     UsersModule,
     WalletModule,
     PaymentModule,

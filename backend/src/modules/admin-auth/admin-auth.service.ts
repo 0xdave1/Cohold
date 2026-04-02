@@ -35,6 +35,17 @@ export class AdminAuthService {
     try {
       admin = await this.prisma.admin.findUnique({
         where: { email },
+        // Backward-compatible select: avoids runtime failures if optional new columns
+        // are not yet present in older DB environments.
+        select: {
+          id: true,
+          email: true,
+          passwordHash: true,
+          role: true,
+          lastLoginAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       });
       // #region agent log
       fetch('http://127.0.0.1:7553/ingest/67cf4f29-4082-4442-9c49-80dc8f1ed126', {

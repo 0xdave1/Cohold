@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 // import Image from "next/image";
 import { RedirectIfNotOnboarded } from '@/components/dashboard/RedirectIfNotOnboarded';
 import { DashboardBottomNav } from '@/components/dashboard/DashboardBottomNav';
+import { SupportWidget } from '@/components/support/SupportWidget';
 // import CoholdLogoFile from "@/logo.png";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
@@ -29,6 +30,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </main>
 
         <DashboardBottomNav />
+
+        <SupportWidget />
 
       </div>
     </RedirectIfNotOnboarded>

@@ -101,6 +101,37 @@ export class StorageService {
   }
 
   /**
+   * Generate a presigned PUT URL for direct uploads (user/admin clients upload to S3/R2).
+   * The returned URL is short-lived and should be used immediately.
+   */
+  async getPresignedPutUrl(
+    key: string,
+    contentType: string,
+    expiresInSeconds = 300,
+  ): Promise<string> {
+    if (!this.s3Client) {
+      throw new Error('S3 client not configured');
+    }
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ContentType: contentType,
+    });
+    return getSignedUrl(this.s3Client, command, { expiresIn: expiresInSeconds });
+  }
+
+  /**
+   * Generate S3 key for support attachments.
+   */
+  generateSupportAttachmentKey(conversationId: string, messageId: string, fileName?: string | null): string {
+    const timestamp = Date.now();
+    const safeName = (fileName ?? 'attachment')
+      .replace(/[^\w.\-]+/g, '_')
+      .slice(0, 120);
+    return `support/${conversationId}/${messageId}/${timestamp}-${safeName}`;
+  }
+
+  /**
    * Generate S3 key for KYC document.
    */
   generateKycDocumentKey(userId: string, documentType: 'id-front' | 'id-back' | 'selfie'): string {

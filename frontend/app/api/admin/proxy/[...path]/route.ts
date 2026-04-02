@@ -67,5 +67,23 @@ async function proxy(
   });
 
   const data = await backendRes.json().catch(() => ({}));
+  // Preserve backend payload but normalize message for frontend consumers.
+  if (!backendRes.ok) {
+    const errMessage =
+      typeof data?.error === 'string'
+        ? data.error
+        : typeof data?.error?.message === 'string'
+          ? data.error.message
+          : typeof data?.message === 'string'
+            ? data.message
+            : `Proxy request failed (${backendRes.status})`;
+    return NextResponse.json(
+      {
+        ...(typeof data === 'object' && data ? data : {}),
+        error: errMessage,
+      },
+      { status: backendRes.status },
+    );
+  }
   return NextResponse.json(data, { status: backendRes.status });
 }

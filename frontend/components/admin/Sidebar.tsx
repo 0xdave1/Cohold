@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { adminLogout } from '@/lib/admin/auth';
 import {
   LayoutDashboard, Users, ShieldCheck, Building2, Boxes,
-  Wallet, Receipt, AlertTriangle, UserCog, LogOut,
+  Wallet, Receipt, AlertTriangle, UserCog, LogOut, MessageSquare,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { label: 'Wallet transactions', href: '/admin/wallet-transactions', icon: Wallet },
   { label: 'Fee logs', href: '/admin/fees', icon: Receipt },
   { label: 'Disputes', href: '/admin/disputes', icon: AlertTriangle },
+  { label: 'Support', href: '/admin/support', icon: MessageSquare },
   { label: 'Admin management', href: '/admin/admin-management', icon: UserCog },
 ];
 
