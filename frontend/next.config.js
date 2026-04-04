@@ -63,12 +63,10 @@ module.exports = withPWA({
   cacheOnFrontEndNav: false,
   aggressiveFrontEndNavCaching: false,
   reloadOnOnline: true,
-  fallbacks: {
-    document: '/offline',
-  },
+  
   publicExcludes: ['!noprecache/**/*'],
   workboxOptions: {
-    navigateFallback: '/offline',
+   
     navigateFallbackDenylist: [/^\/api\/.*/, /^\/_next\/image/],
     disableDevLogs: true,
     runtimeCaching: [
