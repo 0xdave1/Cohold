@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 // import Image from "next/image";
 import { RedirectIfNotOnboarded } from '@/components/dashboard/RedirectIfNotOnboarded';
 import { DashboardBottomNav } from '@/components/dashboard/DashboardBottomNav';
-import { SupportWidget } from '@/components/support/SupportWidget';
+import { DashboardMain } from '@/components/dashboard/DashboardMain';
 // import CoholdLogoFile from "@/logo.png";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
@@ -25,13 +25,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
         </header> */}
 
-        <main className="flex-1 pb-20 md:pb-6">
-          <div className="p-4 md:p-6 max-w-2xl mx-auto">{children}</div>
-        </main>
+        <DashboardMain>{children}</DashboardMain>
 
         <DashboardBottomNav />
-
-        <SupportWidget />
 
       </div>
     </RedirectIfNotOnboarded>
