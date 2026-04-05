@@ -10,7 +10,7 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: 'Cohold',
     description:
       'Cohold — fractional real estate investing and proptech fintech. Invest in property-backed assets, manage your wallet, and grow your portfolio.',
-    start_url: '/',
+    start_url: '/login',
     scope: '/',
     display: 'standalone',
     orientation: 'portrait',
