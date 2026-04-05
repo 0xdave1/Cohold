@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 export type AuthRole = 'user' | 'admin';
 
@@ -11,7 +11,6 @@ export interface AuthUser {
   onboardingCompletedAt?: string | null;
   firstName?: string | null;
   lastName?: string | null;
-  /** ISO timestamp when email was verified (signup OTP or equivalent). */
   emailVerifiedAt?: string | null;
 }
 
@@ -20,18 +19,19 @@ interface AuthState {
   refreshToken: string | null;
   role: AuthRole | null;
   user: AuthUser | null;
+  hasHydrated: boolean;
+  setHasHydrated: (value: boolean) => void;
   setSession: (payload: {
     accessToken: string;
     refreshToken?: string | null;
     role: AuthRole;
-    user: AuthUser;
+    user: AuthUser | null;
   }) => void;
   clearSession: () => void;
 }
 
-/** HttpOnly-less cookie for Next.js middleware + post–external-redirect (e.g. Paystack) */
 export const AUTH_COOKIE_NAME = 'cohold_user_access_token';
-const AUTH_COOKIE_MAX_AGE = 60 * 15; // 15 minutes (match access token TTL)
+const AUTH_COOKIE_MAX_AGE = 60 * 15;
 
 function cookieSuffixSecure(): string {
   if (typeof window === 'undefined') return '';
@@ -40,8 +40,6 @@ function cookieSuffixSecure(): string {
 
 function setAuthCookie(token: string) {
   if (typeof document === 'undefined') return;
-  // SameSite=Lax: cookie is sent on top-level navigation back from Paystack.
-  // SameSite=Strict would NOT send the cookie on that first request → middleware → /login.
   document.cookie = `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; path=/; max-age=${AUTH_COOKIE_MAX_AGE}; samesite=lax${cookieSuffixSecure()}`;
 }
 
@@ -50,44 +48,43 @@ function clearAuthCookie() {
   document.cookie = `${AUTH_COOKIE_NAME}=; path=/; max-age=0; samesite=lax${cookieSuffixSecure()}`;
 }
 
-/** Read a non-httpOnly cookie (client-side). */
 export function getCookieValue(name: string): string | null {
   if (typeof document === 'undefined') return null;
+
   const prefix = `${name}=`;
   const parts = document.cookie.split(';');
+
   for (const part of parts) {
     const p = part.trim();
     if (p.startsWith(prefix)) {
       return decodeURIComponent(p.slice(prefix.length));
     }
   }
+
   return null;
 }
 
 /**
- * After Zustand rehydrates, if localStorage had no token but the cookie still exists
- * (e.g. return from Paystack before persist replays), sync cookie → store.
+ * Optional client bootstrap:
+ * if cookie exists but persisted store has not restored a token yet,
+ * sync cookie -> store without inventing a fake user object.
  */
 export function bootstrapAuthFromCookie(): void {
+  if (typeof window === 'undefined') return;
+
   const state = useAuthStore.getState();
   const fromCookie = getCookieValue(AUTH_COOKIE_NAME);
+
   if (!fromCookie || state.accessToken) return;
+
   state.setSession({
     accessToken: fromCookie,
     refreshToken: state.refreshToken,
     role: state.role ?? 'user',
-    user: state.user ?? { id: '', email: '' },
+    user: state.user ?? null,
   });
 }
 
-/**
- * Auth state with Zustand + persist.
- *
- * - accessToken, role, user (and optionally refreshToken) stored and persisted to localStorage
- * - Cookie cohold_user_access_token set for middleware / protected routes
- * - setSession: call after login or complete-signup; cookie + state updated
- * - clearSession: call on logout or when refresh fails
- */
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
@@ -95,6 +92,12 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       role: null,
       user: null,
+      hasHydrated: false,
+
+      setHasHydrated: (value) => {
+        set({ hasHydrated: value });
+      },
+
       setSession: ({ accessToken, refreshToken = null, role, user }) => {
         setAuthCookie(accessToken);
         set({
@@ -104,6 +107,7 @@ export const useAuthStore = create<AuthState>()(
           user,
         });
       },
+
       clearSession: () => {
         clearAuthCookie();
         set({
@@ -116,12 +120,19 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'cohold-auth',
+      storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
         role: state.role,
         user: state.user,
       }),
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error('Failed to rehydrate auth store', error);
+        }
+        state?.setHasHydrated(true);
+      },
     },
   ),
 );

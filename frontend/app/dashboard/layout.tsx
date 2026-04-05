@@ -1,34 +1,23 @@
+'use client';
+
 import type { ReactNode } from 'react';
-// import Image from "next/image";
+import { useAuthStore } from '@/stores/auth.store';
 import { RedirectIfNotOnboarded } from '@/components/dashboard/RedirectIfNotOnboarded';
 import { DashboardBottomNav } from '@/components/dashboard/DashboardBottomNav';
 import { DashboardMain } from '@/components/dashboard/DashboardMain';
-// import CoholdLogoFile from "@/logo.png";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
+  const hasHydrated = useAuthStore((s) => s.hasHydrated);
+
+  if (!hasHydrated) {
+    return null; // prevent hydration mismatch
+  }
+
   return (
     <RedirectIfNotOnboarded>
       <div className="min-h-screen flex flex-col bg-dashboard-bg text-dashboard-heading">
-        
-       {/* <header className="sticky top-0 z-30 flex items-center justify-between border-b border-dashboard-border bg-dashboard-card/95 backdrop-blur px-4 py-3 md:px-6">
-          
-          <h1 className="text-sm font-semibold text-dashboard-heading flex items-center gap-2">
-            <Image 
-              src={CoholdLogoFile} 
-              alt="Cohold Logo" 
-              width={28} 
-              height={28} 
-            />
-          </h1>
-
-          <div className="text-xs text-dashboard-body"></div>
-
-        </header> */}
-
         <DashboardMain>{children}</DashboardMain>
-
         <DashboardBottomNav />
-
       </div>
     </RedirectIfNotOnboarded>
   );

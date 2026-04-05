@@ -29,6 +29,35 @@ function mapMeToAuthUser(profile: MeResponse) {
   };
 }
 
+async function finalizeUserSession(params: {
+  accessToken: string;
+  refreshToken: string | null;
+  setSession: ReturnType<typeof useAuthStore.getState>['setSession'];
+  clearSession: ReturnType<typeof useAuthStore.getState>['clearSession'];
+}) {
+  const { accessToken, refreshToken, setSession, clearSession } = params;
+
+  try {
+    const profileRes = await apiClient.get<MeResponse>('/users/me');
+
+    if (!profileRes.success || !profileRes.data) {
+      throw new Error(profileRes.error ?? 'Failed to load profile');
+    }
+
+    setSession({
+      accessToken,
+      refreshToken,
+      role: 'user',
+      user: mapMeToAuthUser(profileRes.data),
+    });
+
+    return profileRes.data;
+  } catch (error) {
+    clearSession();
+    throw error;
+  }
+}
+
 /**
  * Auth mutations and helpers.
  *
@@ -72,41 +101,24 @@ export function useAuth() {
         refreshToken?: string;
       }>('/auth/complete-signup', data);
 
-      if (!res.success || !res.data.accessToken) {
-        return res;
+      if (!res.success || !res.data?.accessToken) {
+        throw new Error(res.error ?? 'Signup completion failed');
       }
 
       const accessToken = res.data.accessToken;
       const refreshToken = res.data.refreshToken ?? null;
 
-      try {
-        setSession({
-          accessToken,
-          refreshToken,
-          role: 'user',
-          user: { id: '', email: data.email },
-        });
+      await finalizeUserSession({
+        accessToken,
+        refreshToken,
+        setSession,
+        clearSession,
+      });
 
-        const profileRes = await apiClient.get<MeResponse>('/users/me');
-        if (!profileRes.success || !profileRes.data) {
-          throw new Error(profileRes.error ?? 'Failed to load profile');
-        }
-
-        setSession({
-          accessToken,
-          refreshToken,
-          role: 'user',
-          user: mapMeToAuthUser(profileRes.data),
-        });
-
-        return res;
-      } catch (e) {
-        clearSession();
-        throw e;
-      }
+      return res;
     },
-    onSuccess: (res) => {
-      if (res?.success) router.push('/onboarding/personal-details');
+    onSuccess: () => {
+      router.push('/onboarding/personal-details');
     },
   });
 
@@ -117,57 +129,50 @@ export function useAuth() {
         refreshToken?: string;
       }>('/auth/login', data);
 
-      if (!res.success || !res.data.accessToken) {
-        return res;
+      if (!res.success || !res.data?.accessToken) {
+        throw new Error(res.error ?? 'Login failed');
       }
 
       const accessToken = res.data.accessToken;
       const refreshToken = res.data.refreshToken ?? null;
 
-      try {
-        setSession({
-          accessToken,
-          refreshToken,
-          role: 'user',
-          user: { id: '', email: data.email },
-        });
+      await finalizeUserSession({
+        accessToken,
+        refreshToken,
+        setSession,
+        clearSession,
+      });
 
-        const profileRes = await apiClient.get<MeResponse>('/users/me');
-        if (!profileRes.success || !profileRes.data) {
-          throw new Error(profileRes.error ?? 'Failed to load profile');
-        }
-
-        setSession({
-          accessToken,
-          refreshToken,
-          role: 'user',
-          user: mapMeToAuthUser(profileRes.data),
-        });
-
-        return res;
-      } catch (e) {
-        clearSession();
-        throw e;
-      }
+      return res;
     },
-    onSuccess: (res) => {
-      if (res?.success) router.push('/dashboard');
+    onSuccess: () => {
+      router.push('/dashboard');
     },
   });
 
   const refreshMutation = useMutation({
     mutationFn: async () => {
-      const refreshToken = useAuthStore.getState().refreshToken;
-      if (!refreshToken) throw new Error('No refresh token');
-      const res = await apiClient.post<{ accessToken: string; refreshToken?: string }>('/auth/refresh', { refreshToken });
-      if (!res.success || !res.data.accessToken) throw new Error('Refresh failed');
-      const user = useAuthStore.getState().user;
+      const { refreshToken, user } = useAuthStore.getState();
+
+      if (!refreshToken) {
+        throw new Error('No refresh token');
+      }
+
+      const res = await apiClient.post<{ accessToken: string; refreshToken?: string }>('/auth/refresh', {
+        refreshToken,
+      });
+
+      if (!res.success || !res.data?.accessToken) {
+        throw new Error(res.error ?? 'Refresh failed');
+      }
+
       setSession({
         accessToken: res.data.accessToken,
         refreshToken: res.data.refreshToken ?? refreshToken,
         role: 'user',
-        user: user ?? { id: '', email: '' },
+        user: user ?? null,
       });
+
       return res.data;
     },
   });
@@ -183,7 +188,10 @@ export function useAuth() {
 
   const resetPasswordMutation = useMutation({
     mutationFn: async (data: { email: string; otp: string; newPassword: string; confirmPassword: string }) => {
-      if (data.newPassword !== data.confirmPassword) throw new Error('Passwords do not match');
+      if (data.newPassword !== data.confirmPassword) {
+        throw new Error('Passwords do not match');
+      }
+
       return apiClient.post<unknown>('/auth/reset-password', {
         email: data.email,
         otp: data.otp,

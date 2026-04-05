@@ -8,26 +8,44 @@ import { useMe } from '@/lib/hooks/use-onboarding';
 import { useOtpNotVerifiedRecovery } from '@/lib/hooks/use-otp-not-verified-session';
 import { getApiErrorCode } from '@/lib/api/errors';
 
-/**
- * If user is logged in but has not completed onboarding, redirect to onboarding.
- * Use in dashboard layout so incomplete users are sent to the onboarding flow.
- */
 export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const accessToken = useAuthStore((s) => s.accessToken);
-  const meQuery = useMe({ enabled: !!accessToken });
+
+  const { accessToken, hasHydrated } = useAuthStore((s) => ({
+    accessToken: s.accessToken,
+    hasHydrated: s.hasHydrated,
+  }));
+
+  const meQuery = useMe({
+    enabled: hasHydrated && !!accessToken,
+  });
+
   const { data: profile, isLoading, isError, error } = meQuery;
 
-  useOtpNotVerifiedRecovery(isError, error, !!accessToken && isError);
+  useOtpNotVerifiedRecovery(isError, error, hasHydrated && !!accessToken && isError);
 
+  // ✅ Redirects ONLY after hydration
   useEffect(() => {
-    if (!accessToken) return;
+    if (!hasHydrated) return;
+
+    if (!accessToken) {
+      router.replace('/login');
+      return;
+    }
+
     if (isLoading || isError) return;
+
     if (profile && profile.onboardingCompletedAt == null) {
       router.replace('/onboarding/personal-details');
     }
-  }, [accessToken, profile, isLoading, isError, router]);
+  }, [hasHydrated, accessToken, profile, isLoading, isError, router]);
 
+  // ✅ Block render until hydration completes
+  if (!hasHydrated) {
+    return null;
+  }
+
+  // ✅ Stable loading state
   if (accessToken && isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950">
@@ -36,8 +54,10 @@ export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
     );
   }
 
+  // ✅ Error handling AFTER hydration only
   if (accessToken && isError) {
     const code = axios.isAxiosError(error) ? getApiErrorCode(error) : undefined;
+
     if (code === 'OTP_NOT_VERIFIED') {
       return (
         <div className="flex min-h-screen items-center justify-center bg-slate-950">
@@ -45,9 +65,12 @@ export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
         </div>
       );
     }
+
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-950 px-4 text-center">
-        <p className="text-slate-400">We couldn&apos;t load your account. Please sign in again.</p>
+        <p className="text-slate-400">
+          We couldn&apos;t load your account. Please sign in again.
+        </p>
         <button
           type="button"
           className="rounded-xl bg-cohold-blue px-4 py-2 text-sm font-semibold text-white"
@@ -59,10 +82,16 @@ export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
     );
   }
 
-  if (accessToken && !isLoading && profile && profile.onboardingCompletedAt == null) {
+  // ✅ Prevent flicker during redirect
+  if (
+    accessToken &&
+    !isLoading &&
+    profile &&
+    profile.onboardingCompletedAt == null
+  ) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950">
-        <p className="text-slate-400">Redirecting to onboarding...</p>
+        <p className="text-slate-400">Redirecting...</p>
       </div>
     );
   }
