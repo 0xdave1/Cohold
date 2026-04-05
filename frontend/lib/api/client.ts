@@ -44,15 +44,6 @@ function isAuthMutation401Allowed(config: InternalAxiosRequestConfig | undefined
   );
 }
 
-/**
- * Centralized API client for Cohold backend.
- *
- * - Base URL: NEXT_PUBLIC_API_URL (fallback: http://localhost:3000/api/v1)
- * - Attaches JWT from useAuthStore on each request
- * - On 401 **with** Authorization: tries POST /auth/refresh once, then retries the request
- * - Session is cleared only when refresh fails or there is no refresh token
- * - 401 without Authorization header: pass through (no session clear)
- */
 class ApiClient {
   private instance: AxiosInstance;
   private refreshPromise: Promise<void> | null = null;
@@ -67,10 +58,12 @@ class ApiClient {
 
     this.instance.interceptors.request.use((config) => {
       const token = useAuthStore.getState().accessToken;
+
       if (token) {
         config.headers = config.headers ?? {};
         config.headers.Authorization = `Bearer ${token}`;
       }
+
       return config;
     });
 
@@ -86,11 +79,13 @@ class ApiClient {
         this.refreshPromise = null;
       });
     }
+
     return this.refreshPromise;
   }
 
   private async refreshAccessToken(): Promise<void> {
-    const refreshToken = useAuthStore.getState().refreshToken;
+    const { refreshToken, setTokens } = useAuthStore.getState();
+
     if (!refreshToken) {
       throw new Error('No refresh token');
     }
@@ -98,20 +93,21 @@ class ApiClient {
     const res = await axios.post<ApiResponse<{ accessToken: string; refreshToken?: string }>>(
       `${getBaseURL()}/auth/refresh`,
       { refreshToken },
-      { headers: { 'Content-Type': 'application/json' }, withCredentials: true },
+      {
+        headers: { 'Content-Type': 'application/json' },
+        withCredentials: true,
+      },
     );
 
     const body = res.data;
+
     if (!body.success || !body.data?.accessToken) {
       throw new Error(body.error ?? 'Refresh failed');
     }
 
-    const state = useAuthStore.getState();
-    state.setSession({
+    setTokens({
       accessToken: body.data.accessToken,
       refreshToken: body.data.refreshToken ?? refreshToken,
-      role: state.role ?? 'user',
-      user: state.user ?? { id: '', email: '' },
     });
   }
 
@@ -149,11 +145,14 @@ class ApiClient {
 
     try {
       await this.ensureRefreshed();
+
       const token = useAuthStore.getState().accessToken;
       originalRequest.headers = originalRequest.headers ?? {};
+
       if (token) {
         originalRequest.headers.Authorization = `Bearer ${token}`;
       }
+
       return this.instance(originalRequest);
     } catch {
       useAuthStore.getState().clearSession();

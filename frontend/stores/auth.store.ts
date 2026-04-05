@@ -20,12 +20,16 @@ interface AuthState {
   role: AuthRole | null;
   user: AuthUser | null;
   hasHydrated: boolean;
-  _setHasHydrated: (value: boolean) => void;
+  setHasHydrated: (value: boolean) => void;
   setSession: (payload: {
     accessToken: string;
     refreshToken?: string | null;
     role: AuthRole;
     user: AuthUser | null;
+  }) => void;
+  setTokens: (payload: {
+    accessToken: string;
+    refreshToken?: string | null;
   }) => void;
   clearSession: () => void;
 }
@@ -57,9 +61,7 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       hasHydrated: false,
 
-      _setHasHydrated: (value: boolean) => {
-        set({ hasHydrated: value });
-      },
+      setHasHydrated: (value) => set({ hasHydrated: value }),
 
       setSession: ({ accessToken, refreshToken = null, role, user }) => {
         setAuthCookie(accessToken);
@@ -69,6 +71,14 @@ export const useAuthStore = create<AuthState>()(
           role,
           user,
         });
+      },
+
+      setTokens: ({ accessToken, refreshToken = null }) => {
+        setAuthCookie(accessToken);
+        set((state) => ({
+          accessToken,
+          refreshToken: refreshToken ?? state.refreshToken,
+        }));
       },
 
       clearSession: () => {
@@ -90,12 +100,8 @@ export const useAuthStore = create<AuthState>()(
         role: state.role,
         user: state.user,
       }),
-      onRehydrateStorage: () => (state, error) => {
-        if (error) {
-          console.error('Failed to rehydrate auth store', error);
-        }
-        // Use the state's own setter - no circular reference
-        state?._setHasHydrated(true);
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
       },
     },
   ),
