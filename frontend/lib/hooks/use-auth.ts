@@ -38,7 +38,10 @@ async function finalizeUserSession(params: {
   const { accessToken, refreshToken, setSession, clearSession } = params;
 
   try {
-    const profileRes = await apiClient.get<MeResponse>('/users/me');
+    // Pass token directly in headers since it's not in the store yet
+    const profileRes = await apiClient.get<MeResponse>('/users/me', undefined, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
 
     if (!profileRes.success || !profileRes.data) {
       throw new Error(profileRes.error ?? 'Failed to load profile');

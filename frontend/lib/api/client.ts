@@ -160,8 +160,12 @@ class ApiClient {
     }
   }
 
-  async get<T>(url: string, params?: Record<string, unknown>): Promise<ApiResponse<T>> {
-    const res = await this.instance.get<ApiResponse<T>>(url, { params });
+  async get<T>(
+    url: string,
+    params?: Record<string, unknown>,
+    config?: { headers?: Record<string, string> },
+  ): Promise<ApiResponse<T>> {
+    const res = await this.instance.get<ApiResponse<T>>(url, { params, ...config });
     return res.data;
   }
 
