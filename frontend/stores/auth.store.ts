@@ -20,7 +20,6 @@ interface AuthState {
   role: AuthRole | null;
   user: AuthUser | null;
   hasHydrated: boolean;
-  setHasHydrated: (value: boolean) => void;
   setSession: (payload: {
     accessToken: string;
     refreshToken?: string | null;
@@ -64,27 +63,6 @@ export function getCookieValue(name: string): string | null {
   return null;
 }
 
-/**
- * Optional client bootstrap:
- * if cookie exists but persisted store has not restored a token yet,
- * sync cookie -> store without inventing a fake user object.
- */
-export function bootstrapAuthFromCookie(): void {
-  if (typeof window === 'undefined') return;
-
-  const state = useAuthStore.getState();
-  const fromCookie = getCookieValue(AUTH_COOKIE_NAME);
-
-  if (!fromCookie || state.accessToken) return;
-
-  state.setSession({
-    accessToken: fromCookie,
-    refreshToken: state.refreshToken,
-    role: state.role ?? 'user',
-    user: state.user ?? null,
-  });
-}
-
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
@@ -93,10 +71,6 @@ export const useAuthStore = create<AuthState>()(
       role: null,
       user: null,
       hasHydrated: false,
-
-      setHasHydrated: (value) => {
-        set({ hasHydrated: value });
-      },
 
       setSession: ({ accessToken, refreshToken = null, role, user }) => {
         setAuthCookie(accessToken);
@@ -131,7 +105,10 @@ export const useAuthStore = create<AuthState>()(
         if (error) {
           console.error('Failed to rehydrate auth store', error);
         }
-        state?.setHasHydrated(true);
+        // Set hasHydrated ONLY via direct set to avoid side effects
+        if (state) {
+          useAuthStore.setState({ hasHydrated: true });
+        }
       },
     },
   ),
