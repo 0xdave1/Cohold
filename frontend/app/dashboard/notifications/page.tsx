@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bell, Check, CheckCheck, Loader2 } from 'lucide-react';
+import { Bell, CheckCheck, Loader2 } from 'lucide-react';
 import { EmptyState } from '@/components/dashboard/EmptyState';
 import {
   useNotifications,
@@ -66,21 +66,33 @@ function getNotificationIcon(type: NotificationType): string {
 
 interface NotificationCardProps {
   notification: Notification;
-  onMarkRead: (id: string) => void;
+  onMarkRead: (id: string) => Promise<void>;
   isMarking: boolean;
 }
 
-function NotificationCard({ notification, onMarkRead, isMarking }: NotificationCardProps) {
+function NotificationCard({
+  notification,
+  onMarkRead,
+  isMarking,
+}: NotificationCardProps) {
   const router = useRouter();
   const icon = getNotificationIcon(notification.type);
   const timeAgo = formatRelativeTime(notification.createdAt);
 
-  const handleClick = useCallback(() => {
-    if (!notification.isRead) {
-      onMarkRead(notification.id);
-    }
-    if (notification.link) {
-      router.push(notification.link);
+  const handleClick = useCallback(async () => {
+    try {
+      if (!notification.isRead) {
+        await onMarkRead(notification.id);
+      }
+
+      if (notification.link) {
+        router.push(notification.link);
+      }
+    } catch (error) {
+      console.error('Failed to mark notification as read:', error);
+      if (notification.link) {
+        router.push(notification.link);
+      }
     }
   }, [notification, onMarkRead, router]);
 
@@ -88,11 +100,11 @@ function NotificationCard({ notification, onMarkRead, isMarking }: NotificationC
     <button
       type="button"
       onClick={handleClick}
-      disabled={isMarking}
-      className={`w-full text-left p-4 rounded-xl border transition-colors ${
+      aria-busy={isMarking}
+      className={`w-full rounded-xl border p-4 text-left transition-colors ${
         notification.isRead
-          ? 'bg-dashboard-card border-dashboard-border'
-          : 'bg-blue-50/50 border-blue-100 dark:bg-blue-950/20 dark:border-blue-900/30'
+          ? 'border-dashboard-border bg-dashboard-card'
+          : 'border-blue-100 bg-blue-50/50 dark:border-blue-900/30 dark:bg-blue-950/20'
       } ${notification.link ? 'cursor-pointer hover:bg-dashboard-border/30' : ''} ${
         isMarking ? 'opacity-60' : ''
       }`}
@@ -101,21 +113,32 @@ function NotificationCard({ notification, onMarkRead, isMarking }: NotificationC
         <div className="shrink-0 text-xl" aria-hidden>
           {icon}
         </div>
-        <div className="flex-1 min-w-0">
+
+        <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <h3
-              className={`font-medium text-sm ${
-                notification.isRead ? 'text-dashboard-body' : 'text-dashboard-heading'
+              className={`text-sm font-medium ${
+                notification.isRead
+                  ? 'text-dashboard-body'
+                  : 'text-dashboard-heading'
               }`}
             >
               {notification.title}
             </h3>
+
             {!notification.isRead && (
-              <span className="shrink-0 h-2 w-2 rounded-full bg-blue-500 mt-1.5" aria-label="Unread" />
+              <span
+                className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                aria-label="Unread"
+              />
             )}
           </div>
-          <p className="text-sm text-dashboard-body mt-0.5 line-clamp-2">{notification.message}</p>
-          <p className="text-xs text-dashboard-body/60 mt-1.5">{timeAgo}</p>
+
+          <p className="mt-0.5 line-clamp-2 text-sm text-dashboard-body">
+            {notification.message}
+          </p>
+
+          <p className="mt-1.5 text-xs text-dashboard-body/60">{timeAgo}</p>
         </div>
       </div>
     </button>
@@ -123,19 +146,28 @@ function NotificationCard({ notification, onMarkRead, isMarking }: NotificationC
 }
 
 export default function NotificationsPage() {
-  const { data, isLoading, isError, error } = useNotifications({ limit: 50 });
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useNotifications({ limit: 50 });
+
   const markReadMutation = useMarkNotificationRead();
   const markAllReadMutation = useMarkAllNotificationsRead();
 
   const notifications = data?.data ?? [];
-  const hasUnread = useMemo(
-    () => notifications.some((n) => !n.isRead),
-    [notifications],
-  );
+  const hasUnread = notifications.some((n) => !n.isRead);
 
   const handleMarkRead = useCallback(
-    (id: string) => {
-      markReadMutation.mutate(id);
+    async (id: string) => {
+      await new Promise<void>((resolve, reject) => {
+        markReadMutation.mutate(id, {
+          onSuccess: () => resolve(),
+          onError: (err) => reject(err),
+        });
+      });
     },
     [markReadMutation],
   );
@@ -147,19 +179,31 @@ export default function NotificationsPage() {
   return (
     <div className="min-h-screen bg-dashboard-bg pb-20">
       <div className="space-y-4 px-4 pt-4">
-        {/* Header */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Link
               href="/dashboard/home"
-              className="p-2 rounded-lg hover:bg-dashboard-border/50 text-dashboard-heading"
+              className="rounded-lg p-2 text-dashboard-heading hover:bg-dashboard-border/50"
               aria-label="Back"
             >
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
               </svg>
             </Link>
-            <h1 className="text-xl font-semibold text-dashboard-heading">Notifications</h1>
+
+            <h1 className="text-xl font-semibold text-dashboard-heading">
+              Notifications
+            </h1>
           </div>
 
           {hasUnread && (
@@ -167,7 +211,7 @@ export default function NotificationsPage() {
               type="button"
               onClick={handleMarkAllRead}
               disabled={markAllReadMutation.isPending}
-              className="flex items-center gap-1.5 text-sm text-cohold-blue hover:text-cohold-blue/80 disabled:opacity-50 font-medium"
+              className="flex items-center gap-1.5 font-medium text-cohold-blue hover:text-cohold-blue/80 disabled:opacity-50 text-sm"
             >
               {markAllReadMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -179,16 +223,24 @@ export default function NotificationsPage() {
           )}
         </div>
 
-        {/* Content */}
         {isLoading ? (
-          <div className="flex items-center justify-center py-16">
+          <div className="flex justify-center py-16">
             <Loader2 className="h-8 w-8 animate-spin text-dashboard-body" />
           </div>
         ) : isError ? (
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center">
             <p className="text-sm text-red-700">
-              {error instanceof Error ? error.message : 'Failed to load notifications'}
+              {error instanceof Error
+                ? error.message
+                : 'Failed to load notifications'}
             </p>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="mt-2 text-sm font-medium text-red-600 underline"
+            >
+              Retry
+            </button>
           </div>
         ) : notifications.length === 0 ? (
           <EmptyState
@@ -212,7 +264,7 @@ export default function NotificationsPage() {
             ))}
 
             {data?.meta.hasMore && (
-              <p className="text-center text-sm text-dashboard-body py-2">
+              <p className="py-2 text-center text-sm text-dashboard-body">
                 Showing {notifications.length} of {data.meta.total} notifications
               </p>
             )}
@@ -222,4 +274,3 @@ export default function NotificationsPage() {
     </div>
   );
 }
-
