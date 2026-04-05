@@ -20,6 +20,7 @@ interface AuthState {
   role: AuthRole | null;
   user: AuthUser | null;
   hasHydrated: boolean;
+  _setHasHydrated: (value: boolean) => void;
   setSession: (payload: {
     accessToken: string;
     refreshToken?: string | null;
@@ -47,22 +48,6 @@ function clearAuthCookie() {
   document.cookie = `${AUTH_COOKIE_NAME}=; path=/; max-age=0; samesite=lax${cookieSuffixSecure()}`;
 }
 
-export function getCookieValue(name: string): string | null {
-  if (typeof document === 'undefined') return null;
-
-  const prefix = `${name}=`;
-  const parts = document.cookie.split(';');
-
-  for (const part of parts) {
-    const p = part.trim();
-    if (p.startsWith(prefix)) {
-      return decodeURIComponent(p.slice(prefix.length));
-    }
-  }
-
-  return null;
-}
-
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
@@ -71,6 +56,10 @@ export const useAuthStore = create<AuthState>()(
       role: null,
       user: null,
       hasHydrated: false,
+
+      _setHasHydrated: (value: boolean) => {
+        set({ hasHydrated: value });
+      },
 
       setSession: ({ accessToken, refreshToken = null, role, user }) => {
         setAuthCookie(accessToken);
@@ -105,10 +94,8 @@ export const useAuthStore = create<AuthState>()(
         if (error) {
           console.error('Failed to rehydrate auth store', error);
         }
-        // Set hasHydrated ONLY via direct set to avoid side effects
-        if (state) {
-          useAuthStore.setState({ hasHydrated: true });
-        }
+        // Use the state's own setter - no circular reference
+        state?._setHasHydrated(true);
       },
     },
   ),
