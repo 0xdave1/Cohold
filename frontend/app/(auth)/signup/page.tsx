@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { getApiErrorMessage } from "@/lib/api/errors";
+import { getApiErrorCode, getApiErrorMessage } from "@/lib/api/errors";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CoholdLogo } from "@/components/auth/CoholdLogo";
@@ -40,7 +40,18 @@ export default function SignupPage() {
       }
       router.push(`/auth/verify-otp?email=${encodeURIComponent(values.email)}&purpose=signup`);
     } catch (e: unknown) {
-      setError(getApiErrorMessage(e, "Unable to create account. Check the backend is running and the email is not already registered."));
+      if (getApiErrorCode(e) === "SIGNUP_PENDING_VERIFICATION") {
+        router.push(
+          `/auth/verify-otp?email=${encodeURIComponent(values.email)}&purpose=signup`,
+        );
+        return;
+      }
+      setError(
+        getApiErrorMessage(
+          e,
+          "Unable to create account. Check the backend is running and the email is not already registered.",
+        ),
+      );
     }
   };
 

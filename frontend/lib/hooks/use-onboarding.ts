@@ -19,6 +19,7 @@ export interface UserProfile {
   state?: string | null;
   kycStatus?: string | null;
   onboardingCompletedAt?: string | null;
+  emailVerifiedAt?: string | null;
   createdAt?: string;
 }
 
@@ -67,7 +68,8 @@ export function useMe(options?: { enabled?: boolean }) {
       authUser?.firstName !== profile.firstName ||
       authUser?.lastName !== profile.lastName ||
       authUser?.kycStatus !== profile.kycStatus ||
-      authUser?.onboardingCompletedAt !== profile.onboardingCompletedAt;
+      authUser?.onboardingCompletedAt !== profile.onboardingCompletedAt ||
+      authUser?.emailVerifiedAt !== profile.emailVerifiedAt;
 
     if (!hasChanged) return;
 
@@ -83,6 +85,7 @@ export function useMe(options?: { enabled?: boolean }) {
         lastName: profile.lastName,
         kycStatus: profile.kycStatus,
         onboardingCompletedAt: profile.onboardingCompletedAt,
+        emailVerifiedAt: profile.emailVerifiedAt ?? null,
       },
     });
   }, [accessToken, authUser, meQuery.data, refreshToken, role, setSession]);

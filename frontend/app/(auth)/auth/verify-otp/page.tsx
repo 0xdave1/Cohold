@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState, useCallback, useRef } from 'react';
+import { Suspense, useState, useCallback, useRef, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/hooks/use-auth';
@@ -21,6 +21,12 @@ function VerifyOtpContent() {
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   const { completeSignup, verifyOtp } = useAuth();
+
+  useEffect(() => {
+    if (purpose === 'login' && email) {
+      router.replace(`/reset-password?email=${encodeURIComponent(email)}`);
+    }
+  }, [purpose, email, router]);
 
   const otpString = otp.join('');
   const isPending = completeSignup.isPending || verifyOtp.isPending;
@@ -110,13 +116,21 @@ function VerifyOtpContent() {
 
         setError(res.error ?? 'Verification failed');
       } else {
-        await verifyOtp.mutateAsync({ email, otp: otpString });
+        await verifyOtp.mutateAsync({ email, otp: otpString, purpose });
         router.push('/dashboard');
       }
     } catch (e: unknown) {
       setError(getApiErrorMessage(e, 'Invalid or expired code. Please try again.'));
     }
   };
+
+  if (purpose === 'login' && email) {
+    return (
+      <main className={auth.card}>
+        <p className={auth.body}>Redirecting to password reset…</p>
+      </main>
+    );
+  }
 
   return (
     <main className={auth.card}>

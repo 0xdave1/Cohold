@@ -38,8 +38,12 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Prevent logged-in users from seeing auth pages
+  // Prevent logged-in users from seeing auth pages (except OTP verification:
+  // correct password + OTP_NOT_VERIFIED may still leave a stale cookie until the client clears it.)
   if (isAuthRoute && userToken) {
+    if (pathname.startsWith('/auth/verify-otp')) {
+      return NextResponse.next();
+    }
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 

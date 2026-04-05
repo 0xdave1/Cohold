@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/hooks/use-auth';
+import { getApiErrorMessage } from '@/lib/api/errors';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,8 +40,9 @@ type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>;
 function ResetPasswordContent() {
   const searchParams = useSearchParams();
   const email = searchParams.get('email') ?? '';
-  const otp = searchParams.get('otp') ?? '';
+  const otpFromUrl = searchParams.get('otp') ?? '';
 
+  const [otp, setOtp] = useState(otpFromUrl);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -55,8 +57,12 @@ function ResetPasswordContent() {
   });
 
   const onSubmit = async (values: ResetPasswordFormValues) => {
-    if (!email || !otp) {
-      setError('Missing email or verification code. Please start over.');
+    if (!email) {
+      setError('Missing email. Please start from forgot password.');
+      return;
+    }
+    if (otp.length !== 6) {
+      setError('Enter the 6-digit code from your email.');
       return;
     }
 
@@ -74,8 +80,8 @@ function ResetPasswordContent() {
         setError(res.error ?? 'Unable to reset password. Please try again.');
         return;
       }
-    } catch (e: any) {
-      setError(e.response?.data?.error ?? 'Unable to reset password. Please try again.');
+    } catch (e: unknown) {
+      setError(getApiErrorMessage(e, 'Unable to reset password. Please try again.'));
     }
   };
 
@@ -95,6 +101,19 @@ function ResetPasswordContent() {
       </div>
 
       <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 space-y-4" noValidate>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-auth-heading">6-digit code</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            placeholder="000000"
+            className="w-full rounded-[10px] border border-[hsl(var(--auth-input-border))] bg-white px-3 py-2.5 text-[15px] text-auth-heading placeholder:text-auth-body outline-none focus:border-cohold-blue focus:ring-1 focus:ring-cohold-blue"
+            value={otp}
+            onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+          />
+        </div>
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-auth-heading">New password</label>
           <div className="relative">

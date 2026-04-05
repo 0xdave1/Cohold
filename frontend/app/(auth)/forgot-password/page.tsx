@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { auth } from '@/components/auth/auth-styles';
+import { getApiErrorCode, getApiErrorMessage } from '@/lib/api/errors';
 
 const forgotPasswordSchema = z.object({
   email: z.string().email('Enter a valid email'),
@@ -33,10 +34,15 @@ export default function ForgotPasswordPage() {
         setError(res.error ?? 'Unable to send reset code. Please try again.');
         return;
       }
-      router.push(`/auth/verify-otp?email=${encodeURIComponent(values.email)}&purpose=login`);
+      router.push(`/reset-password?email=${encodeURIComponent(values.email)}`);
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { error?: string }; message?: string } };
-      setError(err.response?.data?.error ?? 'Unable to send reset code. Please try again.');
+      if (getApiErrorCode(e) === 'OTP_NOT_VERIFIED') {
+        router.push(
+          `/auth/verify-otp?email=${encodeURIComponent(values.email)}&purpose=signup`,
+        );
+        return;
+      }
+      setError(getApiErrorMessage(e, 'Unable to send reset code. Please try again.'));
     }
   };
 

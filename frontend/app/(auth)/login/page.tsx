@@ -5,8 +5,9 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { getApiErrorMessage } from "@/lib/api/errors";
+import { getApiErrorCode, getApiErrorMessage } from "@/lib/api/errors";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CoholdLogo } from "@/components/auth/CoholdLogo";
 import { auth } from "@/components/auth/auth-styles";
 
@@ -34,6 +35,7 @@ function EyeOff({ className }: { className?: string }) {
 }
 
 export default function LoginPage() {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
@@ -49,7 +51,18 @@ export default function LoginPage() {
       const res = await login.mutateAsync(values);
       if (!res.success) setError(res.error ?? "Unable to login. Please try again.");
     } catch (e: unknown) {
-      setError(getApiErrorMessage(e, "Unable to login. Check your email and password, and ensure the backend is running."));
+      if (getApiErrorCode(e) === "OTP_NOT_VERIFIED") {
+        router.push(
+          `/auth/verify-otp?email=${encodeURIComponent(values.email)}&purpose=signup`,
+        );
+        return;
+      }
+      setError(
+        getApiErrorMessage(
+          e,
+          "Unable to login. Check your email and password, and ensure the backend is running.",
+        ),
+      );
     }
   };
 

@@ -1,4 +1,4 @@
-import { IsEmail, IsString, Length } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, Length } from 'class-validator';
 
 export class VerifyOtpDto {
   @IsEmail()
@@ -7,5 +7,9 @@ export class VerifyOtpDto {
   @IsString()
   @Length(6, 6)
   otp!: string;
+
+  @IsOptional()
+  @IsIn(['signup', 'login', 'transaction', 'delete_account'])
+  purpose?: 'signup' | 'login' | 'transaction' | 'delete_account';
 }
 

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../../prisma/prisma.service';
 import { Server, Socket } from 'socket.io';
 
 @WebSocketGateway({
@@ -21,6 +22,7 @@ export class UserGateway implements OnGatewayConnection {
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -36,8 +38,22 @@ export class UserGateway implements OnGatewayConnection {
         client.disconnect(true);
         return;
       }
-      const payload = await this.jwtService.verifyAsync(token, { secret });
+      const payload = await this.jwtService.verifyAsync<{ sub: string; role?: string }>(token, {
+        secret,
+      });
+      if (payload.role !== 'user') {
+        client.disconnect(true);
+        return;
+      }
       const userId = payload.sub as string;
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { emailVerifiedAt: true, isFrozen: true },
+      });
+      if (!user || user.isFrozen || !user.emailVerifiedAt) {
+        client.disconnect(true);
+        return;
+      }
       client.join(`user:${userId}`);
     } catch {
       client.disconnect(true);

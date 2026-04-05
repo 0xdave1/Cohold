@@ -36,7 +36,14 @@ export class AuthService {
   async login(dto: LoginDto) {
     const user = await this.validateUser(dto.email, dto.password);
 
-    const payload = { sub: user.id, role: 'user' as const };
+    if (!user.emailVerifiedAt) {
+      throw new UnauthorizedException({
+        code: 'OTP_NOT_VERIFIED',
+        message: 'Please verify your email with the OTP before logging in.',
+      });
+    }
+
+    const payload = { sub: user.id, role: 'user' as const, ev: true as const };
     const accessSecret = this.configService.get<string>('config.jwt.accessSecret');
     const refreshSecret = this.configService.get<string>('config.jwt.refreshSecret');
     const accessExpiresIn = this.configService.get<string>('config.jwt.accessExpiresIn') ?? '15m';
@@ -56,6 +63,37 @@ export class AuthService {
 
   /** Request a 6-digit OTP and send via email */
   async requestOtp(email: string, purpose: 'signup' | 'login' | 'transaction' | 'delete_account' = 'signup') {
+    if (purpose === 'signup') {
+      const row = await this.prisma.user.findUnique({
+        where: { email },
+        select: { id: true, emailVerifiedAt: true },
+      });
+      if (!row) {
+        throw new BadRequestException(
+          'No pending registration found for this email. Please sign up first.',
+        );
+      }
+      if (row.emailVerifiedAt) {
+        throw new BadRequestException('This email is already verified. Please log in instead.');
+      }
+    } else {
+      // Login / transaction / delete_account OTPs must never substitute for signup email verification.
+      const row = await this.prisma.user.findUnique({
+        where: { email },
+        select: { id: true, emailVerifiedAt: true },
+      });
+      if (!row) {
+        throw new BadRequestException('No account found for this email.');
+      }
+      if (!row.emailVerifiedAt) {
+        throw new BadRequestException({
+          code: 'OTP_NOT_VERIFIED',
+          message:
+            'Please verify your email with the OTP sent during signup before using this flow.',
+        });
+      }
+    }
+
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const cacheKey = `otp:${email}:${purpose}`;
     await this.cacheService.set(cacheKey, otp, 600); // 10 minutes
@@ -81,7 +119,16 @@ export class AuthService {
   /** Signup user (creates account, wallets, and sends OTP) */
   async signup(dto: SignupDto): Promise<{ message: string; email: string }> {
     const existingUser = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (existingUser) throw new BadRequestException('User with this email already exists');
+    if (existingUser) {
+      if (existingUser.emailVerifiedAt) {
+        throw new BadRequestException('User with this email already exists');
+      }
+      throw new BadRequestException({
+        code: 'SIGNUP_PENDING_VERIFICATION',
+        message:
+          'An account with this email is pending verification. Use the code we sent or request a new one.',
+      });
+    }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
@@ -120,7 +167,7 @@ export class AuthService {
 
     await this.emailService.sendWelcomeEmail(user.email);
 
-    const payload = { sub: user.id, role: 'user' as const };
+    const payload = { sub: user.id, role: 'user' as const, ev: true as const };
     const accessSecret = this.configService.get<string>('config.jwt.accessSecret');
     const refreshSecret = this.configService.get<string>('config.jwt.refreshSecret');
     const accessExpiresIn = this.configService.get<string>('config.jwt.accessExpiresIn') ?? '15m';
@@ -152,13 +199,35 @@ export class AuthService {
         { secret: refreshSecret },
       );
 
-      const newAccessToken = await this.jwtService.signAsync(
-        { sub: payload.sub, role: payload.role },
-        { secret: accessSecret, expiresIn: accessExpiresIn },
-      );
+      if (payload.role === 'user') {
+        const user = await this.prisma.user.findUnique({
+          where: { id: payload.sub },
+          select: { id: true, emailVerifiedAt: true, isFrozen: true },
+        });
+        if (!user || user.isFrozen) {
+          throw new UnauthorizedException('Invalid refresh token');
+        }
+        if (!user.emailVerifiedAt) {
+          throw new UnauthorizedException({
+            code: 'OTP_NOT_VERIFIED',
+            message: 'Please verify your email with the OTP before logging in.',
+          });
+        }
+      }
+
+      const tokenBody =
+        payload.role === 'user'
+          ? { sub: payload.sub, role: payload.role, ev: true as const }
+          : { sub: payload.sub, role: payload.role };
+
+      const newAccessToken = await this.jwtService.signAsync(tokenBody, {
+        secret: accessSecret,
+        expiresIn: accessExpiresIn,
+      });
 
       return { accessToken: newAccessToken, refreshToken };
-    } catch {
+    } catch (e) {
+      if (e instanceof UnauthorizedException) throw e;
       throw new UnauthorizedException('Invalid refresh token');
     }
   }

@@ -11,6 +11,8 @@ export interface AuthUser {
   onboardingCompletedAt?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+  /** ISO timestamp when email was verified (signup OTP or equivalent). */
+  emailVerifiedAt?: string | null;
 }
 
 interface AuthState {

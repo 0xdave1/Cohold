@@ -13,6 +13,20 @@ export interface MeResponse {
   onboardingCompletedAt?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+  emailVerifiedAt?: string | null;
+}
+
+function mapMeToAuthUser(profile: MeResponse) {
+  return {
+    id: profile.id,
+    email: profile.email,
+    username: profile.username,
+    kycStatus: profile.kycStatus,
+    onboardingCompletedAt: profile.onboardingCompletedAt,
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    emailVerifiedAt: profile.emailVerifiedAt ?? null,
+  };
 }
 
 /**
@@ -42,7 +56,11 @@ export function useAuth() {
   });
 
   const verifyOtpMutation = useMutation({
-    mutationFn: async (data: { email: string; otp: string }) => {
+    mutationFn: async (data: {
+      email: string;
+      otp: string;
+      purpose?: 'signup' | 'login' | 'transaction' | 'delete_account';
+    }) => {
       return apiClient.post<unknown>('/auth/verify-otp', data);
     },
   });
@@ -58,32 +76,34 @@ export function useAuth() {
         return res;
       }
 
-      setSession({
-        accessToken: res.data.accessToken,
-        refreshToken: res.data.refreshToken ?? null,
-        role: 'user',
-        user: { id: '', email: data.email },
-      });
+      const accessToken = res.data.accessToken;
+      const refreshToken = res.data.refreshToken ?? null;
 
-      const profileRes = await apiClient.get<MeResponse>('/users/me');
-      if (profileRes.success && profileRes.data) {
+      try {
         setSession({
-          accessToken: res.data.accessToken,
-          refreshToken: res.data.refreshToken ?? null,
+          accessToken,
+          refreshToken,
           role: 'user',
-          user: {
-            id: profileRes.data.id,
-            email: profileRes.data.email,
-            username: profileRes.data.username,
-            kycStatus: profileRes.data.kycStatus,
-            onboardingCompletedAt: profileRes.data.onboardingCompletedAt,
-            firstName: profileRes.data.firstName,
-            lastName: profileRes.data.lastName,
-          },
+          user: { id: '', email: data.email },
         });
-      }
 
-      return res;
+        const profileRes = await apiClient.get<MeResponse>('/users/me');
+        if (!profileRes.success || !profileRes.data) {
+          throw new Error(profileRes.error ?? 'Failed to load profile');
+        }
+
+        setSession({
+          accessToken,
+          refreshToken,
+          role: 'user',
+          user: mapMeToAuthUser(profileRes.data),
+        });
+
+        return res;
+      } catch (e) {
+        clearSession();
+        throw e;
+      }
     },
     onSuccess: (res) => {
       if (res?.success) router.push('/onboarding/personal-details');
@@ -101,32 +121,34 @@ export function useAuth() {
         return res;
       }
 
-      setSession({
-        accessToken: res.data.accessToken,
-        refreshToken: res.data.refreshToken ?? null,
-        role: 'user',
-        user: { id: '', email: data.email },
-      });
+      const accessToken = res.data.accessToken;
+      const refreshToken = res.data.refreshToken ?? null;
 
-      const profileRes = await apiClient.get<MeResponse>('/users/me');
-      if (profileRes.success && profileRes.data) {
+      try {
         setSession({
-          accessToken: res.data.accessToken,
-          refreshToken: res.data.refreshToken ?? null,
+          accessToken,
+          refreshToken,
           role: 'user',
-          user: {
-            id: profileRes.data.id,
-            email: profileRes.data.email,
-            username: profileRes.data.username,
-            kycStatus: profileRes.data.kycStatus,
-            onboardingCompletedAt: profileRes.data.onboardingCompletedAt,
-            firstName: profileRes.data.firstName,
-            lastName: profileRes.data.lastName,
-          },
+          user: { id: '', email: data.email },
         });
-      }
 
-      return res;
+        const profileRes = await apiClient.get<MeResponse>('/users/me');
+        if (!profileRes.success || !profileRes.data) {
+          throw new Error(profileRes.error ?? 'Failed to load profile');
+        }
+
+        setSession({
+          accessToken,
+          refreshToken,
+          role: 'user',
+          user: mapMeToAuthUser(profileRes.data),
+        });
+
+        return res;
+      } catch (e) {
+        clearSession();
+        throw e;
+      }
     },
     onSuccess: (res) => {
       if (res?.success) router.push('/dashboard');

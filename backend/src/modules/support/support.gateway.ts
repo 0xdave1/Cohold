@@ -47,15 +47,25 @@ export class SupportGateway implements OnGatewayConnection {
         client.disconnect(true);
         return;
       }
-      const payload = await this.jwtService.verifyAsync(token, { secret });
+      const payload = await this.jwtService.verifyAsync<{ sub: string; role?: string }>(token, {
+        secret,
+      });
       const actorId = payload.sub as string;
-      const role = String(payload.role ?? '');
-      const actorType: 'user' | 'admin' = role ? 'admin' : 'user';
+      const role = String(payload.role ?? 'user');
+      const actorType: 'user' | 'admin' = role === 'user' ? 'user' : 'admin';
 
       client.data.actorId = actorId;
       client.data.actorType = actorType;
 
       if (actorType === 'user') {
+        const user = await this.prisma.user.findUnique({
+          where: { id: actorId },
+          select: { emailVerifiedAt: true, isFrozen: true },
+        });
+        if (!user || user.isFrozen || !user.emailVerifiedAt) {
+          client.disconnect(true);
+          return;
+        }
         client.join(`user:${actorId}`);
         return;
       }
