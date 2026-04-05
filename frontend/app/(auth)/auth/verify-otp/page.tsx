@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState, useCallback } from 'react';
+import { Suspense, useState, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/hooks/use-auth';
@@ -16,37 +16,98 @@ function VerifyOtpContent() {
   const email = searchParams.get('email') ?? '';
   const purpose = (searchParams.get('purpose') as 'signup' | 'login' | 'transaction') ?? 'signup';
 
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [otp, setOtp] = useState<string[]>(['', '', '', '', '', '']);
   const [error, setError] = useState<string | null>(null);
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+
   const { completeSignup, verifyOtp } = useAuth();
 
   const otpString = otp.join('');
+  const isPending = completeSignup.isPending || verifyOtp.isPending;
 
   const handleChange = useCallback(
     (index: number, value: string) => {
       if (!/^\d*$/.test(value)) return;
+
+      const digit = value.slice(-1);
       const next = [...otp];
-      next[index] = value.slice(-1);
+      next[index] = digit;
       setOtp(next);
       setError(null);
+
+      if (digit && index < otp.length - 1) {
+        inputRefs.current[index + 1]?.focus();
+      }
     },
     [otp],
   );
+
+  const handleKeyDown = useCallback(
+    (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Backspace') {
+        if (otp[index]) {
+          const next = [...otp];
+          next[index] = '';
+          setOtp(next);
+          return;
+        }
+
+        if (index > 0) {
+          const next = [...otp];
+          next[index - 1] = '';
+          setOtp(next);
+          inputRefs.current[index - 1]?.focus();
+        }
+      }
+
+      if (e.key === 'ArrowLeft' && index > 0) {
+        inputRefs.current[index - 1]?.focus();
+      }
+
+      if (e.key === 'ArrowRight' && index < otp.length - 1) {
+        inputRefs.current[index + 1]?.focus();
+      }
+    },
+    [otp],
+  );
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!pasted) return;
+
+    const next = ['', '', '', '', '', ''];
+    pasted.split('').forEach((char, i) => {
+      next[i] = char;
+    });
+
+    setOtp(next);
+    setError(null);
+
+    const nextFocusIndex = pasted.length >= 6 ? 5 : pasted.length;
+    inputRefs.current[nextFocusIndex]?.focus();
+  }, []);
 
   const handleSubmit = async () => {
     if (otpString.length !== 6) {
       setError('Enter all 6 digits');
       return;
     }
+
     if (!email) {
       setError('Missing email. Please start signup again.');
       return;
     }
+
     setError(null);
+
     try {
       if (purpose === 'signup') {
         const res = await completeSignup.mutateAsync({ email, otp: otpString });
+
         if (res.success) return;
+
         setError(res.error ?? 'Verification failed');
       } else {
         await verifyOtp.mutateAsync({ email, otp: otpString });
@@ -60,6 +121,7 @@ function VerifyOtpContent() {
   return (
     <main className={auth.card}>
       <p className={auth.pageTitle}>verify account</p>
+
       <div className="mt-6">
         <EnvelopeIcon className="mb-4" />
         <h1 className={auth.heading}>Verify your account</h1>
@@ -73,18 +135,17 @@ function VerifyOtpContent() {
           {otp.map((digit, index) => (
             <input
               key={index}
+              ref={(el) => {
+                inputRefs.current[index] = el;
+              }}
               type="text"
               inputMode="numeric"
+              autoComplete={index === 0 ? 'one-time-code' : 'off'}
               maxLength={1}
               value={digit}
               onChange={(e) => handleChange(index, e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Backspace' && !digit && index > 0) {
-                  const next = [...otp];
-                  next[index - 1] = '';
-                  setOtp(next);
-                }
-              }}
+              onKeyDown={(e) => handleKeyDown(index, e)}
+              onPaste={handlePaste}
               className="h-12 w-11 rounded-[10px] border border-[hsl(var(--auth-input-border))] bg-white text-center text-lg font-semibold text-auth-heading focus:border-cohold-blue focus:outline-none focus:ring-1 focus:ring-cohold-blue"
             />
           ))}
@@ -95,10 +156,10 @@ function VerifyOtpContent() {
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={otpString.length !== 6 || completeSignup.isPending}
+          disabled={otpString.length !== 6 || isPending}
           className={auth.btnPrimary}
         >
-          {completeSignup.isPending ? 'Verifying...' : 'Verify & continue'}
+          {isPending ? 'Verifying...' : 'Verify & continue'}
         </button>
       </div>
 
