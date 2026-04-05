@@ -3,11 +3,12 @@ import { AuthModule } from '../auth/auth.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { PaymentModule } from '../payment/payment.module';
 import { PaystackModule } from '../paystack/paystack.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { InvestmentService } from './investment.service';
 import { InvestmentController } from './investment.controller';
 
 @Module({
-  imports: [AuthModule, WalletModule, PaystackModule, forwardRef(() => PaymentModule)],
+  imports: [AuthModule, WalletModule, PaystackModule, forwardRef(() => PaymentModule), NotificationsModule],
   controllers: [InvestmentController],
   providers: [InvestmentService],
   exports: [InvestmentService],

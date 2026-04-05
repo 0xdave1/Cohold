@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -8,17 +8,21 @@ import { SignupDto } from './dto/signup.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { EmailService } from '../email/email.service';
 import { CacheService } from '../cache/cache.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { Currency } from '@prisma/client';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
     private readonly cacheService: CacheService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async validateUser(email: string, password: string) {
@@ -166,6 +170,13 @@ export class AuthService {
     });
 
     await this.emailService.sendWelcomeEmail(user.email);
+
+    // Send welcome notification
+    try {
+      await this.notificationsService.notifyWelcome(user.id, user.firstName ?? undefined);
+    } catch (err) {
+      this.logger.warn(`Failed to send welcome notification: ${err}`);
+    }
 
     const payload = { sub: user.id, role: 'user' as const, ev: true as const };
     const accessSecret = this.configService.get<string>('config.jwt.accessSecret');

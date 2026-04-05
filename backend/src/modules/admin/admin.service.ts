@@ -3,6 +3,7 @@ import { AdminAccountStatus, AdminRole, KycStatus, Prisma } from '@prisma/client
 import { PrismaService } from '../../prisma/prisma.service';
 import { toDecimal, formatMoney } from '../../common/money/decimal.util';
 import { WalletService } from '../wallet/wallet.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import * as bcrypt from 'bcrypt';
 
 type AdminUiRole = 'SUPER_ADMIN' | 'FINANCE_ADMIN' | 'OPERATION_ADMIN' | 'COMPLIANCE_ADMIN';
@@ -15,6 +16,7 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async getDashboardOverview() {
@@ -265,6 +267,13 @@ export class AdminService {
       this.logger.warn(`Failed to create virtual account for user ${v.userId}:`, err);
     }
 
+    // Send KYC approved notification
+    try {
+      await this.notificationsService.notifyKycApproved(v.userId);
+    } catch (err) {
+      this.logger.warn(`Failed to send KYC approved notification: ${err}`);
+    }
+
     return { message: 'Verification approved' };
   }
 
@@ -277,6 +286,14 @@ export class AdminService {
       where: { id: v.userId },
       data: { kycStatus: KycStatus.FAILED },
     });
+
+    // Send KYC rejected notification
+    try {
+      await this.notificationsService.notifyKycRejected(v.userId);
+    } catch (err) {
+      this.logger.warn(`Failed to send KYC rejected notification: ${err}`);
+    }
+
     return { message: 'Verification rejected' };
   }
 

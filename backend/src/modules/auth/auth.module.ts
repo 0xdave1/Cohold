@@ -7,6 +7,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminRoleGuard } from '../../common/guards/admin-role.guard';
 import { EmailModule } from '../email/email.module';
 import { CacheModule } from '../cache/cache.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { CacheModule } from '../cache/cache.module';
     }),
     EmailModule,
     CacheModule,
+    NotificationsModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtAuthGuard, AdminRoleGuard],

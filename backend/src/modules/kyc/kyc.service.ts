@@ -12,6 +12,7 @@ import { StorageService } from '../storage/storage.service';
 import { EmailService } from '../email/email.service';
 import { SubmitNinDto } from './dto/submit-nin.dto';
 import { WalletService } from '../wallet/wallet.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class KycService {
@@ -22,6 +23,7 @@ export class KycService {
     private readonly storageService: StorageService,
     private readonly emailService: EmailService,
     private readonly walletService: WalletService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async submitBvn(userId: string, dto: SubmitBvnDto) {
@@ -197,6 +199,13 @@ export class KycService {
     // Send approval email
     await this.emailService.sendKycStatusEmail(user.email, 'approved');
 
+    // Send KYC approved notification
+    try {
+      await this.notificationsService.notifyKycApproved(userId);
+    } catch (err) {
+      this.logger.warn(`Failed to send KYC approved notification: ${err}`);
+    }
+
     return updated;
   }
 
@@ -242,6 +251,13 @@ export class KycService {
 
       return kycVerification;
     });
+
+    // Send KYC rejected notification
+    try {
+      await this.notificationsService.notifyKycRejected(userId, dto.failureReason);
+    } catch (err) {
+      this.logger.warn(`Failed to send KYC rejected notification: ${err}`);
+    }
 
     return updated;
   }

@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { PLATFORM_USER_ID, WalletService } from '../wallet/wallet.service';
 import { PaystackService } from '../paystack/paystack.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateFractionalInvestmentDto } from './dto/create-fractional-investment.dto';
 import { toDecimal, formatMoney, formatHighPrecision } from '../../common/money/decimal.util';
 import {
@@ -41,6 +42,7 @@ export class InvestmentService {
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly paystackService: PaystackService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -290,6 +292,19 @@ export class InvestmentService {
       });
       return { investment, updatedUserWallet };
     });
+
+    // Send notification after successful investment (outside transaction)
+    try {
+      await this.notificationsService.notifyInvestmentSuccess(
+        userId,
+        property.title,
+        formatMoney(toDecimal(result.investment.amount.toString())),
+        result.investment.currency,
+        result.investment.id,
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to send investment success notification: ${err}`);
+    }
 
     return {
       investmentId: result.investment.id,
@@ -576,6 +591,25 @@ export class InvestmentService {
       `SELL_SETTLED user=${userId} property=${dto.propertyId} sharesToSell=${dto.sharesToSell} gross=${result.sellAmount} platformFee=${result.fee} netToUser=${result.netToUser} costBasis=${result.costBasis}`,
     );
 
+    // Send notification after successful sell (outside transaction)
+    try {
+      const property = await this.prisma.property.findUnique({
+        where: { id: dto.propertyId },
+        select: { title: true, currency: true },
+      });
+      if (property) {
+        await this.notificationsService.notifyInvestmentSold(
+          userId,
+          property.title,
+          result.netToUser,
+          property.currency,
+          dto.propertyId,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to send investment sold notification: ${err}`);
+    }
+
     return result;
   }
 
@@ -605,7 +639,7 @@ export class InvestmentService {
       options?.period ??
       `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
 
-    return this.prisma.$transaction(async (tx) => {
+    const txResult = await this.prisma.$transaction(async (tx) => {
       const [locked] = await tx.$queryRawUnsafe<Array<{ id: string }>>(
         `SELECT id FROM "Property" WHERE id = $1 FOR UPDATE`,
         propertyId,
@@ -847,8 +881,46 @@ export class InvestmentService {
         currency: property.currency,
         batchReference: groupId,
         period,
+        // Pass eligible payouts for notification (userId, netRoi, currency)
+        _eligiblePayouts: eligible.map((p) => ({
+          userId: p.userId,
+          netRoi: moneyStr(p.netRoi),
+          currency: p.currency,
+        })),
+        _propertyTitle: property.title,
       };
     });
+
+    // Send ROI notifications after transaction completes (fire-and-forget pattern)
+    if ((txResult as any)._eligiblePayouts?.length > 0) {
+      const payouts = (txResult as any)._eligiblePayouts as Array<{
+        userId: string;
+        netRoi: string;
+        currency: string;
+      }>;
+      const propertyTitle = (txResult as any)._propertyTitle as string;
+
+      // Send notifications asynchronously to not block the response
+      setImmediate(async () => {
+        for (const payout of payouts) {
+          try {
+            await this.notificationsService.notifyRoiCredited(
+              payout.userId,
+              propertyTitle,
+              payout.netRoi,
+              payout.currency,
+              txResult.period,
+            );
+          } catch (err) {
+            this.logger.warn(`Failed to send ROI notification for user ${payout.userId}: ${err}`);
+          }
+        }
+      });
+    }
+
+    // Remove internal fields from response
+    const { _eligiblePayouts, _propertyTitle, ...cleanResult } = txResult as any;
+    return cleanResult;
   }
 
   /**

@@ -6,9 +6,10 @@ import { StorageModule } from '../storage/storage.module';
 import { VirtualAccountModule } from '../virtual-account/virtual-account.module';
 import { EmailModule } from '../email/email.module';
 import { WalletModule } from '../wallet/wallet.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [AuthModule, StorageModule, VirtualAccountModule, EmailModule, WalletModule],
+  imports: [AuthModule, StorageModule, VirtualAccountModule, EmailModule, WalletModule, NotificationsModule],
   controllers: [KycController],
   providers: [KycService],
   exports: [KycService],
