@@ -12,7 +12,7 @@ export interface CreateNotificationPayload {
   title: string;
   message: string;
   link?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: Prisma.InputJsonValue; // ✅ CORRECT
 }
 
 export interface ListNotificationsQuery {
@@ -445,7 +445,7 @@ export class NotificationsService {
     title: string,
     message: string,
     link?: string,
-    metadata?: Record<string, unknown>,
+    metadata?: Prisma.InputJsonValue,
   ): Promise<NotificationResponse> {
     return this.createNotification({
       userId,
@@ -479,7 +479,7 @@ export class NotificationsService {
     title: string,
     message: string,
     link?: string,
-    metadata?: Record<string, unknown>,
+    metadata?: Prisma.InputJsonValue,
   ): Promise<{ createdCount: number }> {
     const payloads: CreateNotificationPayload[] = userIds.map((userId) => ({
       userId,
