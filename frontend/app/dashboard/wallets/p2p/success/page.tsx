@@ -1,9 +1,27 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useMemo } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useP2PStore } from '@/stores/p2p.store';
 
 export default function P2PSuccessPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const id = searchParams.get('id');
+  const lastReceipt = useP2PStore((s) => s.lastReceipt);
+
+  const receipt = useMemo(() => {
+    if (id && lastReceipt?.id === id) return lastReceipt;
+    return lastReceipt ?? null;
+  }, [id, lastReceipt]);
+
+  const subtitle = receipt?.recipient
+    ? `You have successfully sent ${receipt.currency} ${receipt.amount} to ${
+        receipt.recipient.displayName ?? `@${receipt.recipient.username}`
+      } through Cohold P2P`
+    : receipt
+      ? `You have successfully sent ${receipt.currency} ${receipt.amount}.`
+      : 'Transfer complete.';
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 space-y-6">
@@ -16,8 +34,11 @@ export default function P2PSuccessPage() {
       <div className="text-center space-y-2">
         <h1 className="text-xl font-semibold">P2P Transfer Successful</h1>
         <p className="text-sm text-slate-400">
-          You have successfully sent NGN 100,000.00 to Adetomi through P2PProvider
+          {subtitle}
         </p>
+        {receipt?.groupId ? (
+          <p className="text-xs text-slate-500">Reference: {receipt.groupId}</p>
+        ) : null}
       </div>
 
       <button

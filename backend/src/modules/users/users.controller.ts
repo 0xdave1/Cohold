@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { AuthService } from '../auth/auth.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -7,6 +7,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
 import { VerifyOtpDto } from '../auth/dto/verify-otp.dto';
+import { SetUsernameDto } from './dto/set-username.dto';
 
 @ApiTags('users')
 @ApiBearerAuth('user-jwt')
@@ -21,6 +22,19 @@ export class UsersController {
   @Get('me')
   async getMe(@CurrentUser() user: { id: string }) {
     return this.usersService.getMe(user.id);
+  }
+
+  @Get('username-availability')
+  @ApiOperation({ summary: 'Check if a username is available' })
+  @ApiQuery({ name: 'username', required: true, type: String })
+  async usernameAvailability(@Query('username') username: string) {
+    return this.usersService.checkUsernameAvailability(username);
+  }
+
+  @Patch('me/username')
+  @ApiOperation({ summary: 'Set username for current user' })
+  async setUsername(@CurrentUser() user: { id: string }, @Body() dto: SetUsernameDto) {
+    return this.usersService.setUsername(user.id, dto.username);
   }
 
   @Patch('me')

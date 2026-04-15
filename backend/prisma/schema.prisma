@@ -41,6 +41,8 @@ model User {
   wallets               Wallet[]
   supportConversations  SupportConversation[]
   supportMessages       SupportMessage[]
+  sentP2PTransfers      P2PTransfer[]         @relation("P2PSender")
+  receivedP2PTransfers  P2PTransfer[]         @relation("P2PRecipient")
 
   @@index([email])
   @@index([username])
@@ -194,6 +196,29 @@ model Transaction {
   @@index([type])
   @@index([propertyId])
   @@index([investmentId])
+}
+
+/// Explicit P2P transfer record (idempotency, receipts, history).
+/// Ledger source of truth remains Transaction legs (DEBIT/CREDIT) grouped by `groupId`.
+model P2PTransfer {
+  id             String    @id @default(uuid())
+  senderId       String
+  recipientId    String
+  currency       Currency
+  amount         Decimal   @db.Decimal(19, 4)
+  fee            Decimal   @default(0) @db.Decimal(19, 4)
+  recipientAmount Decimal  @db.Decimal(19, 4)
+  note           String?
+  idempotencyKey String
+  groupId        String    @unique
+  createdAt      DateTime  @default(now())
+
+  sender         User      @relation("P2PSender", fields: [senderId], references: [id])
+  recipient      User      @relation("P2PRecipient", fields: [recipientId], references: [id])
+
+  @@unique([senderId, idempotencyKey])
+  @@index([senderId, createdAt])
+  @@index([recipientId, createdAt])
 }
 
 model Property {

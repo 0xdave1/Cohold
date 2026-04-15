@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { PersonalDetailsDto } from './dto/personal-details.dto';
 import { ResidentialDetailsDto } from './dto/residential-details.dto';
+import { assertValidUsername, normalizeUsername, validateUsername } from '../../common/username/username.util';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
@@ -35,7 +37,71 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    return user;
+    return {
+      ...user,
+      requiresUsernameSetup: user.username == null,
+    };
+  }
+
+  async checkUsernameAvailability(usernameInput: string) {
+    const v = validateUsername(usernameInput);
+    if (!v.ok) {
+      return {
+        available: false,
+        normalizedUsername: normalizeUsername(usernameInput),
+        reason: v.code,
+      };
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { username: v.normalized },
+      select: { id: true },
+    });
+
+    return {
+      available: !existing,
+      normalizedUsername: v.normalized,
+      reason: existing ? 'USERNAME_TAKEN' : null,
+    };
+  }
+
+  /**
+   * Strict, production-safe policy:
+   * - legacy users with null username may set it once
+   * - once set, username cannot be changed (until a dedicated, audited rename flow exists)
+   */
+  async setUsername(userId: string, usernameInput: string) {
+    const normalized = assertValidUsername(usernameInput);
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.username) {
+      throw new BadRequestException({
+        code: 'USERNAME_INVALID',
+        message: 'Username is already set and cannot be changed at this time',
+      });
+    }
+
+    try {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { username: normalized },
+      });
+    } catch (err) {
+      // Unique constraint race
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException({ code: 'USERNAME_TAKEN', message: 'Username is taken' });
+      }
+      throw err;
+    }
+
+    return this.getMe(userId);
   }
 
   async updateMe(userId: string, dto: UpdateProfileDto) {

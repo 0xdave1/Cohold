@@ -9,6 +9,7 @@ export interface MeResponse {
   id: string;
   email: string;
   username?: string | null;
+  requiresUsernameSetup?: boolean;
   kycStatus?: string | null;
   onboardingCompletedAt?: string | null;
   firstName?: string | null;
@@ -21,6 +22,7 @@ function mapMeToAuthUser(profile: MeResponse) {
     id: profile.id,
     email: profile.email,
     username: profile.username,
+    requiresUsernameSetup: profile.requiresUsernameSetup ?? (profile.username == null),
     kycStatus: profile.kycStatus,
     onboardingCompletedAt: profile.onboardingCompletedAt,
     firstName: profile.firstName,

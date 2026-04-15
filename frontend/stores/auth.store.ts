@@ -7,6 +7,7 @@ export interface AuthUser {
   id: string;
   email: string;
   username?: string | null;
+  requiresUsernameSetup?: boolean;
   kycStatus?: string | null;
   onboardingCompletedAt?: string | null;
   firstName?: string | null;

@@ -62,7 +62,7 @@ export class AuthService {
       expiresIn: refreshExpiresIn,
     });
 
-    return { accessToken, refreshToken };
+    return { accessToken, refreshToken, requiresUsernameSetup: user.username == null };
   }
 
   /** Request a 6-digit OTP and send via email */
@@ -193,7 +193,7 @@ export class AuthService {
       expiresIn: refreshExpiresIn,
     });
 
-    return { accessToken, refreshToken };
+    return { accessToken, refreshToken, requiresUsernameSetup: true };
   }
 
   /** Refresh access token using refresh token */
@@ -210,10 +210,11 @@ export class AuthService {
         { secret: refreshSecret },
       );
 
+      let requiresUsernameSetup = false;
       if (payload.role === 'user') {
         const user = await this.prisma.user.findUnique({
           where: { id: payload.sub },
-          select: { id: true, emailVerifiedAt: true, isFrozen: true },
+          select: { id: true, emailVerifiedAt: true, isFrozen: true, username: true },
         });
         if (!user || user.isFrozen) {
           throw new UnauthorizedException('Invalid refresh token');
@@ -224,6 +225,7 @@ export class AuthService {
             message: 'Please verify your email with the OTP before logging in.',
           });
         }
+        requiresUsernameSetup = user.username == null;
       }
 
       const tokenBody =
@@ -236,7 +238,7 @@ export class AuthService {
         expiresIn: accessExpiresIn,
       });
 
-      return { accessToken: newAccessToken, refreshToken };
+      return { accessToken: newAccessToken, refreshToken, requiresUsernameSetup };
     } catch (e) {
       if (e instanceof UnauthorizedException) throw e;
       throw new UnauthorizedException('Invalid refresh token');

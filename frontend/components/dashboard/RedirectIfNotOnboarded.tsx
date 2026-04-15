@@ -2,7 +2,7 @@
 
 import { useEffect, type ReactNode } from 'react';
 import axios from 'axios';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth.store';
 import { useMe } from '@/lib/hooks/use-onboarding';
 import { useOtpNotVerifiedRecovery } from '@/lib/hooks/use-otp-not-verified-session';
@@ -10,6 +10,7 @@ import { getApiErrorCode } from '@/lib/api/errors';
 
 export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
 
   const { accessToken, hasHydrated } = useAuthStore((s) => ({
     accessToken: s.accessToken,
@@ -37,8 +38,17 @@ export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
 
     if (profile && profile.onboardingCompletedAt == null) {
       router.replace('/onboarding/personal-details');
+      return;
     }
-  }, [hasHydrated, accessToken, profile, isLoading, isError, router]);
+
+    // Username is now required for the product identity layer.
+    // Legacy users with `username=null` must complete setup before using dashboard features.
+    const usernameMissing = profile && !profile.username;
+    const onUsernameSetup = pathname?.startsWith('/dashboard/username');
+    if (profile && profile.onboardingCompletedAt != null && usernameMissing && !onUsernameSetup) {
+      router.replace('/dashboard/username');
+    }
+  }, [hasHydrated, accessToken, profile, isLoading, isError, router, pathname]);
 
   // ✅ Block render until hydration completes
   if (!hasHydrated) {
@@ -87,7 +97,10 @@ export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
     accessToken &&
     !isLoading &&
     profile &&
-    profile.onboardingCompletedAt == null
+    (profile.onboardingCompletedAt == null ||
+      (profile.onboardingCompletedAt != null &&
+        !profile.username &&
+        !pathname?.startsWith('/dashboard/username')))
   ) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950">
