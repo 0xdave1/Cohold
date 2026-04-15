@@ -577,12 +577,14 @@ export class InvestmentService {
       }
 
       const uw = await tx.wallet.findUniqueOrThrow({ where: { id: userWallet.id } });
+      const primaryInvestmentId = slices[0]?.investmentId;
       return {
         sellAmount: formatMoney(sellAmount),
         fee: formatMoney(platformFee),
         netToUser: formatMoney(netToUser),
         costBasis: formatMoney(costBasis),
         walletBalanceAfter: formatMoney(toDecimal(uw.balance.toString())),
+        primaryInvestmentId,
       };
     });
 
@@ -597,13 +599,13 @@ export class InvestmentService {
         where: { id: dto.propertyId },
         select: { title: true, currency: true },
       });
-      if (property) {
+      if (property && result.primaryInvestmentId) {
         await this.notificationsService.notifyInvestmentSold(
           userId,
           property.title,
           result.netToUser,
           property.currency,
-          dto.propertyId,
+          result.primaryInvestmentId,
         );
       }
     } catch (err) {

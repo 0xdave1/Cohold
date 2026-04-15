@@ -88,8 +88,7 @@ function NotificationCard({
       if (notification.link) {
         router.push(notification.link);
       }
-    } catch (error) {
-      console.error('Failed to mark notification as read:', error);
+    } catch {
       if (notification.link) {
         router.push(notification.link);
       }
@@ -162,12 +161,7 @@ export default function NotificationsPage() {
 
   const handleMarkRead = useCallback(
     async (id: string) => {
-      await new Promise<void>((resolve, reject) => {
-        markReadMutation.mutate(id, {
-          onSuccess: () => resolve(),
-          onError: (err) => reject(err),
-        });
-      });
+      await markReadMutation.mutateAsync(id);
     },
     [markReadMutation],
   );
@@ -228,8 +222,8 @@ export default function NotificationsPage() {
             <Loader2 className="h-8 w-8 animate-spin text-dashboard-body" />
           </div>
         ) : isError ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center">
-            <p className="text-sm text-red-700">
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center dark:border-red-900/40 dark:bg-red-950/30">
+            <p className="text-sm text-red-700 dark:text-red-300">
               {error instanceof Error
                 ? error.message
                 : 'Failed to load notifications'}
@@ -237,36 +231,61 @@ export default function NotificationsPage() {
             <button
               type="button"
               onClick={() => refetch()}
-              className="mt-2 text-sm font-medium text-red-600 underline"
+              className="mt-2 text-sm font-medium text-red-600 underline dark:text-red-400"
             >
               Retry
             </button>
           </div>
-        ) : notifications.length === 0 ? (
-          <EmptyState
-            title="No notifications yet"
-            message="You don't have any notifications yet. All your updates will appear here."
-            icon={<Bell className="h-7 w-7" />}
-            className="p-8"
-          />
         ) : (
-          <div className="space-y-3">
-            {notifications.map((notification) => (
-              <NotificationCard
-                key={notification.id}
-                notification={notification}
-                onMarkRead={handleMarkRead}
-                isMarking={
-                  markReadMutation.isPending &&
-                  markReadMutation.variables === notification.id
-                }
-              />
-            ))}
+          <div className="space-y-4">
+            {markAllReadMutation.isError ? (
+              <div
+                role="alert"
+                className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200"
+              >
+                <p>
+                  {markAllReadMutation.error instanceof Error
+                    ? markAllReadMutation.error.message
+                    : 'Could not mark all as read. Please try again.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => markAllReadMutation.reset()}
+                  className="mt-2 text-sm font-medium underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
 
-            {data?.meta.hasMore && (
-              <p className="py-2 text-center text-sm text-dashboard-body">
-                Showing {notifications.length} of {data.meta.total} notifications
-              </p>
+            {notifications.length === 0 ? (
+              <EmptyState
+                title="No notifications yet"
+                message="You don't have any notifications yet. All your updates will appear here."
+                icon={<Bell className="h-7 w-7" />}
+                className="p-8"
+              />
+            ) : (
+              <div className="space-y-3">
+                {notifications.map((notification) => (
+                  <NotificationCard
+                    key={notification.id}
+                    notification={notification}
+                    onMarkRead={handleMarkRead}
+                    isMarking={
+                      markReadMutation.isPending &&
+                      markReadMutation.variables === notification.id
+                    }
+                  />
+                ))}
+
+                {data?.meta.hasMore ? (
+                  <p className="py-2 text-center text-sm text-dashboard-body">
+                    Showing {notifications.length} of {data.meta.total}{' '}
+                    notifications
+                  </p>
+                ) : null}
+              </div>
             )}
           </div>
         )}

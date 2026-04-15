@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
@@ -20,6 +21,7 @@ import { toDecimal, formatMoney } from '../../common/money/decimal.util';
 import { fixMoney, moneyStr } from '../../common/money/precision.constants';
 import { FxService } from '../fx/fx.service';
 import { VirtualAccountService } from '../virtual-account/virtual-account.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /**
  * Money separation (production rules):
@@ -37,10 +39,13 @@ type TxClient = Pick<PrismaService, 'user' | 'wallet' | 'transaction'>;
 
 @Injectable()
 export class WalletService {
+  private readonly logger = new Logger(WalletService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly fxService: FxService,
     private readonly virtualAccountService: VirtualAccountService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async getBalances(userId: string) {
@@ -212,7 +217,7 @@ export class WalletService {
         if (existingTx) {
           const currentWallet = await tx.wallet.findUnique({ where: { id: wallet.id } });
           if (!currentWallet) throw new NotFoundException('Wallet not found');
-          return { updatedWallet: currentWallet, transaction: existingTx };
+          return { updatedWallet: currentWallet, transaction: existingTx, didCredit: false };
         }
       }
 
@@ -241,7 +246,7 @@ export class WalletService {
           if (!existingTx) throw err;
           const currentWallet = await tx.wallet.findUnique({ where: { id: wallet.id } });
           if (!currentWallet) throw new NotFoundException('Wallet not found');
-          return { updatedWallet: currentWallet, transaction: existingTx };
+          return { updatedWallet: currentWallet, transaction: existingTx, didCredit: false };
         }
         throw err;
       }
@@ -256,8 +261,28 @@ export class WalletService {
         },
       });
 
-      return { updatedWallet, transaction: createdTx };
+      return { updatedWallet, transaction: createdTx, didCredit: true };
     });
+
+    if (result.didCredit) {
+      const meta = (result.transaction.metadata ?? {}) as { reason?: string };
+      // Investment card flow pre-credits the wallet before createFractional; avoid duplicate WALLET_FUNDED.
+      if (meta.reason !== 'paystack_investment_charge_success') {
+        try {
+          await this.notificationsService.notifyWalletFunded(
+            userId,
+            formatMoney(toDecimal(result.transaction.amount.toString())),
+            result.updatedWallet.currency,
+            result.transaction.reference,
+          );
+        } catch (err) {
+          this.logger.warn(
+            `Failed to create wallet funded notification userId=${userId} ref=${result.transaction.reference}`,
+            err instanceof Error ? err.stack : err,
+          );
+        }
+      }
+    }
 
     return {
       walletId: result.updatedWallet.id,

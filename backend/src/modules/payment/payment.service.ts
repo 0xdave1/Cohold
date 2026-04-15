@@ -12,7 +12,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { InvestmentService } from '../investment/investment.service';
 import { PaystackService } from '../paystack/paystack.service';
-import { NotificationsService } from '../notifications/notifications.service';
 import { Currency, Transaction } from '@prisma/client';
 import { toDecimal } from '../../common/money/decimal.util';
 import Decimal from 'decimal.js';
@@ -30,7 +29,6 @@ export class PaymentService {
     private readonly investmentService: InvestmentService,
     private readonly paystackService: PaystackService,
     private readonly configService: ConfigService,
-    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -294,18 +292,7 @@ export class PaymentService {
       reference,
       reason: 'paystack_charge_success',
     });
-
-    // Send wallet funded notification
-    try {
-      await this.notificationsService.notifyWalletFunded(
-        user.id,
-        amountInNaira.toFixed(2),
-        'NGN',
-        reference,
-      );
-    } catch (err) {
-      this.logger.warn(`Failed to send wallet funded notification: ${err}`);
-    }
+    // Wallet funded notification is created in WalletService.topUp after a successful credit.
   }
 
   private async processWalletFundingFromWebhook(params: {
@@ -341,17 +328,6 @@ export class PaymentService {
       reference,
       reason: 'paystack_card_wallet_funding',
     });
-
-    // Send wallet funded notification
-    try {
-      await this.notificationsService.notifyWalletFunded(
-        userId,
-        amountInNaira.toFixed(2),
-        currency,
-        reference,
-      );
-    } catch (err) {
-      this.logger.warn(`Failed to send wallet funded notification: ${err}`);
-    }
+    // Wallet funded notification is created in WalletService.topUp after a successful credit.
   }
 }

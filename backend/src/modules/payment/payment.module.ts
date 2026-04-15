@@ -6,10 +6,9 @@ import { WalletModule } from '../wallet/wallet.module';
 import { InvestmentModule } from '../investment/investment.module';
 import { PaystackModule } from '../paystack/paystack.module';
 import { AuthModule } from '../auth/auth.module';
-import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [WalletModule, PaystackModule, forwardRef(() => InvestmentModule), AuthModule, NotificationsModule],
+  imports: [WalletModule, PaystackModule, forwardRef(() => InvestmentModule), AuthModule],
   controllers: [PaystackController, PaymentsController],
   providers: [PaymentService],
   exports: [PaymentService],

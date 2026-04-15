@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
@@ -46,6 +47,8 @@ export interface PaginatedNotificationsResponse {
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -182,29 +185,37 @@ export class NotificationsService {
    * Called from other services (investment, wallet, KYC, admin) when business events occur.
    */
   async createNotification(payload: CreateNotificationPayload): Promise<NotificationResponse> {
-    const notification = await this.prisma.notification.create({
-      data: {
-        userId: payload.userId,
-        type: payload.type,
-        title: payload.title,
-        message: payload.message,
-        link: payload.link,
-        metadata: payload.metadata ?? Prisma.JsonNull,
-      },
-      select: {
-        id: true,
-        type: true,
-        title: true,
-        message: true,
-        isRead: true,
-        readAt: true,
-        link: true,
-        metadata: true,
-        createdAt: true,
-      },
-    });
+    try {
+      const notification = await this.prisma.notification.create({
+        data: {
+          userId: payload.userId,
+          type: payload.type,
+          title: payload.title,
+          message: payload.message,
+          link: payload.link,
+          metadata: payload.metadata ?? Prisma.JsonNull,
+        },
+        select: {
+          id: true,
+          type: true,
+          title: true,
+          message: true,
+          isRead: true,
+          readAt: true,
+          link: true,
+          metadata: true,
+          createdAt: true,
+        },
+      });
 
-    return notification;
+      return notification;
+    } catch (err) {
+      this.logger.error(
+        `Failed to persist notification type=${payload.type} userId=${payload.userId}`,
+        err instanceof Error ? err.stack : err,
+      );
+      throw err;
+    }
   }
 
   /**

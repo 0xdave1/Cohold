@@ -6,9 +6,10 @@ import { FxModule } from '../fx/fx.module';
 import { VirtualAccountModule } from '../virtual-account/virtual-account.module';
 import { WalletAccountController } from './wallet-account.controller';
 import { TransactionReceiptController } from './transaction-receipt.controller';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [AuthModule, FxModule, VirtualAccountModule],
+  imports: [AuthModule, FxModule, VirtualAccountModule, NotificationsModule],
   controllers: [WalletController, WalletAccountController, TransactionReceiptController],
   providers: [WalletService],
   exports: [WalletService],

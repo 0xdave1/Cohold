@@ -1,4 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { useAuthReady } from '@/lib/hooks/use-auth-ready';
 
@@ -29,7 +34,8 @@ export interface Notification {
   isRead: boolean;
   readAt: string | null;
   link: string | null;
-  metadata: Record<string, unknown> | null;
+  /** Backend JSON metadata — shape varies by notification type */
+  metadata: unknown;
   createdAt: string;
 }
 
@@ -58,8 +64,17 @@ export interface ListNotificationsParams {
 // QUERY KEYS
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const NOTIFICATIONS_QUERY_KEY = ['notifications'];
-export const NOTIFICATIONS_UNREAD_COUNT_KEY = ['notifications', 'unread-count'];
+/** Prefix for all notification queries (list + unread count). */
+export const NOTIFICATIONS_QUERY_KEY = ['notifications'] as const;
+export const NOTIFICATIONS_UNREAD_COUNT_KEY = [
+  ...NOTIFICATIONS_QUERY_KEY,
+  'unread-count',
+] as const;
+
+async function invalidateAllNotificationQueries(queryClient: QueryClient) {
+  // Partial key match: invalidates list (`['notifications', { page, ... }]`) and unread count.
+  await queryClient.invalidateQueries({ queryKey: [...NOTIFICATIONS_QUERY_KEY] });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HOOKS
@@ -73,7 +88,7 @@ export function useNotifications(params: ListNotificationsParams = {}) {
   const { page = 1, limit = 20, unreadOnly = false } = params;
 
   return useQuery({
-    queryKey: [...NOTIFICATIONS_QUERY_KEY, { page, limit, unreadOnly }],
+    queryKey: [...NOTIFICATIONS_QUERY_KEY, { page, limit, unreadOnly }] as const,
     queryFn: async () => {
       const queryParams = new URLSearchParams();
       queryParams.set('page', String(page));
@@ -103,7 +118,7 @@ export function useUnreadNotificationCount() {
   const authReady = useAuthReady();
 
   return useQuery({
-    queryKey: NOTIFICATIONS_UNREAD_COUNT_KEY,
+    queryKey: [...NOTIFICATIONS_UNREAD_COUNT_KEY],
     queryFn: async () => {
       const res = await apiClient.get<UnreadCountResponse>('/notifications/unread-count');
       if (!res.success) {
@@ -134,10 +149,8 @@ export function useMarkNotificationRead() {
       }
       return res.data;
     },
-    onSuccess: () => {
-      // Invalidate both list and count
-      queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
-      queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_UNREAD_COUNT_KEY });
+    onSettled: async () => {
+      await invalidateAllNotificationQueries(queryClient);
     },
   });
 }
@@ -158,9 +171,8 @@ export function useMarkAllNotificationsRead() {
       }
       return res.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
-      queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_UNREAD_COUNT_KEY });
+    onSettled: async () => {
+      await invalidateAllNotificationQueries(queryClient);
     },
   });
 }
