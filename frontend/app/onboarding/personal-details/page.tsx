@@ -128,20 +128,23 @@ export default function PersonalDetailsPage() {
         {/* Phone Number - FIX APPLIED HERE */}
         <div className="space-y-1.5">
           <label className={auth.label}>Phone number</label>
-          <div className="flex gap-2">
-            <select 
-              className={auth.input + " w-[100px] shrink-0 px-2 appearance-none"} 
+           <div className="flex gap-2">
+            <select
+              className={auth.input + " !w-24 flex-none px-2 appearance-none"}
               {...form.register('phoneCountryCode')}
             >
               {COUNTRIES.map((c) => (
-                <option key={c.code} value={c.dialCode}>{c.dialCode}</option>
+                <option key={c.code} value={c.dialCode}>
+                  {c.dialCode}
+                </option>
               ))}
             </select>
-            <input 
-              type="tel" 
-              placeholder="812 345 6789" 
-              className={auth.input + " flex-1 min-w-0"} 
-              {...form.register('phoneNumber')} 
+
+            <input
+              type="tel"
+              placeholder="812 345 6789"
+              className={auth.input + " !w-auto flex-1 min-w-0"}
+              {...form.register('phoneNumber')}
             />
           </div>
           {form.formState.errors.phoneNumber && <p className={auth.error}>{form.formState.errors.phoneNumber.message}</p>}
