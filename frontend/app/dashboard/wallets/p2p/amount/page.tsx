@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Decimal from 'decimal.js';
 import { useP2PStore } from '@/stores/p2p.store';
+import { useWalletBalances } from '@/lib/hooks/use-wallet';
 
 export default function P2PAmountPage() {
   const router = useRouter();
@@ -12,6 +13,13 @@ export default function P2PAmountPage() {
   const amount = useP2PStore((s) => s.amount);
   const setAmount = useP2PStore((s) => s.setAmount);
   const setCurrency = useP2PStore((s) => s.setCurrency);
+
+  const { data: wallets } = useWalletBalances();
+
+  const walletBalanceForCurrency = useMemo(() => {
+    if (!wallets) return null;
+    return wallets.find((w) => w.currency === currency)?.balance ?? null;
+  }, [wallets, currency]);
 
   const invalid = useMemo(() => {
     if (!amount) return true;
@@ -30,34 +38,41 @@ export default function P2PAmountPage() {
   const avatar = (recipient.displayName?.[0] ?? recipient.username[0] ?? 'U').toUpperCase();
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-28 max-w-sm mx-auto">
       <div className="flex items-center gap-3">
         <button onClick={() => router.push('/dashboard/wallets/p2p')} aria-label="Back">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 className="text-lg font-semibold">P2P</h1>
+        <h1 className="text-lg font-semibold text-dashboard-heading">P2P</h1>
       </div>
 
-      <div className="flex items-center justify-between p-4 rounded-xl border border-slate-800 bg-slate-900/40">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-full bg-orange-500 flex items-center justify-center text-white font-medium">
+      <div className="flex items-center justify-between p-4 rounded-2xl border border-dashboard-border bg-dashboard-card">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="h-10 w-10 rounded-full bg-[#F5D99A] flex items-center justify-center text-cohold-blue font-semibold">
             {avatar}
           </div>
-          <div>
-            <div className="font-medium">{recipient.displayName ?? `@${recipient.username}`}</div>
-            <div className="text-xs text-slate-400">@{recipient.username}</div>
+          <div className="min-w-0">
+            <div className="font-semibold text-dashboard-heading truncate">
+              {recipient.displayName ?? `@${recipient.username}`}
+            </div>
+            <div className="text-xs text-dashboard-body truncate">@{recipient.username}</div>
           </div>
         </div>
-        <button onClick={() => router.push('/dashboard/wallets/p2p')} className="text-sm text-blue-400">
+        <button
+          type="button"
+          onClick={() => router.push('/dashboard/wallets/p2p')}
+          className="text-sm font-semibold text-cohold-link"
+        >
           Change
         </button>
       </div>
 
       <div>
-        <label className="text-sm text-slate-400 mb-2 block">Amount to send</label>
-        <div className="flex items-center gap-2">
+        <label className="text-xs font-medium text-dashboard-body mb-2 block">Amount to send</label>
+
+        <div className="flex items-center rounded-xl border border-dashboard-border bg-white px-3 py-2.5">
           <input
             type="text"
             inputMode="decimal"
@@ -68,13 +83,14 @@ export default function P2PAmountPage() {
                 setAmount(val);
               }
             }}
-            className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm"
+            className="flex-1 bg-transparent outline-none text-sm text-dashboard-heading placeholder:text-dashboard-muted"
             placeholder="0.00"
           />
+
           <select
             value={currency}
             onChange={(e) => setCurrency(e.target.value as any)}
-            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm"
+            className="ml-3 pl-3 border-l border-dashboard-border bg-transparent outline-none text-sm font-semibold text-dashboard-heading"
           >
             <option value="NGN">NGN</option>
             <option value="USD">USD</option>
@@ -82,22 +98,27 @@ export default function P2PAmountPage() {
             <option value="EUR">EUR</option>
           </select>
         </div>
+
+        {walletBalanceForCurrency != null ? (
+          <p className="mt-2 text-[11px] text-dashboard-muted">
+            Wallet balance: {walletBalanceForCurrency} {currency}
+          </p>
+        ) : (
+          <p className="mt-2 text-[11px] text-dashboard-muted">Wallet balance</p>
+        )}
       </div>
 
-      <div className="flex gap-3">
-        <button
-          onClick={() => router.push('/dashboard/wallets/p2p')}
-          className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 font-medium"
-        >
-          Go back
-        </button>
-        <button
-          onClick={() => router.push('/dashboard/wallets/p2p/summary')}
-          disabled={invalid}
-          className="flex-1 rounded-lg bg-blue-500 text-white px-4 py-3 font-medium disabled:opacity-50"
-        >
-          Send
-        </button>
+      <div className="fixed bottom-16 left-0 right-0 z-40 pointer-events-none">
+        <div className="mx-auto max-w-2xl px-4 pointer-events-auto">
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard/wallets/p2p/summary')}
+            disabled={invalid}
+            className="w-full rounded-xl bg-cohold-blue py-3 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Send
+          </button>
+        </div>
       </div>
     </div>
   );

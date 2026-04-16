@@ -26,8 +26,7 @@ export default function P2PSummaryPage() {
 
   const amount = useP2PStore((s) => s.amount);
   const currency = useP2PStore((s) => s.currency);
-  const note = useP2PStore((s) => s.note);
-  const setNote = useP2PStore((s) => s.setNote);
+  // Note is optional in the backend; UI intentionally omits it to match the Figma flow.
 
   const previewMutation = useP2PPreview();
   const executeMutation = useP2PExecute();
@@ -50,72 +49,68 @@ export default function P2PSummaryPage() {
   const avatar = (recipient.displayName?.[0] ?? recipient.username[0] ?? 'U').toUpperCase();
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-28 max-w-sm mx-auto">
       <div className="flex items-center gap-3">
         <button onClick={() => router.push('/dashboard/wallets/p2p/amount')} aria-label="Back">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 className="text-lg font-semibold">P2P summary</h1>
+        <h1 className="text-lg font-semibold text-dashboard-heading">P2P summary</h1>
       </div>
 
+      <p className="text-xs text-dashboard-body">
+        Review the details below before sending.
+      </p>
+
       <div className="flex items-center justify-center gap-3 p-4">
-        <div className="h-12 w-12 rounded-full bg-orange-500 flex items-center justify-center text-white font-medium text-lg">
+        <div className="h-12 w-12 rounded-full bg-[#F5D99A] flex items-center justify-center text-cohold-blue font-semibold text-lg">
           {avatar}
         </div>
         <div className="text-center">
-          <div className="font-medium text-lg">{recipient.displayName ?? `@${recipient.username}`}</div>
-          <div className="text-xs text-slate-400">@{recipient.username}</div>
+          <div className="font-semibold text-lg text-dashboard-heading">
+            {recipient.displayName ?? `@${recipient.username}`}
+          </div>
+          <div className="text-xs text-dashboard-body">@{recipient.username}</div>
         </div>
       </div>
 
       {previewMutation.isPending ? (
-        <div className="flex items-center justify-center rounded-xl border border-slate-800 bg-slate-900/40 p-6">
-          <Loader2 className="h-5 w-5 animate-spin text-slate-300" />
+        <div className="flex items-center justify-center rounded-2xl border border-dashboard-border bg-dashboard-card p-6">
+          <Loader2 className="h-5 w-5 animate-spin text-dashboard-body" />
         </div>
       ) : previewMutation.isError ? (
-        <div className="rounded-xl border border-red-900/40 bg-red-950/30 p-4 text-sm text-red-200">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {previewMutation.error instanceof Error ? previewMutation.error.message : 'Failed to load preview'}
           <button
             type="button"
-            className="mt-2 text-sm underline"
+            className="mt-2 text-sm font-semibold text-cohold-link underline"
             onClick={() => previewMutation.mutate()}
           >
             Retry
           </button>
         </div>
       ) : p ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 space-y-4">
+        <div className="rounded-2xl border border-dashboard-border bg-white p-4 space-y-3">
           <div className="flex justify-between">
-            <span className="text-slate-400">Amount sent</span>
-            <span className="font-medium">{formatMoney(p.currency, p.amount)}</span>
+            <span className="text-xs text-dashboard-body">Amount sent</span>
+            <span className="font-semibold text-dashboard-heading">{formatMoney(p.currency, p.amount)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-400">Amount received</span>
-            <span className="font-medium">{formatMoney(p.currency, p.recipientAmount)}</span>
+            <span className="text-xs text-dashboard-body">Amount received</span>
+            <span className="font-semibold text-dashboard-heading">{formatMoney(p.currency, p.recipientAmount)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-400">Processing fee</span>
-            <span className="font-medium">{formatMoney(p.currency, p.fee)}</span>
+            <span className="text-xs text-dashboard-body">Processing fee</span>
+            <span className="font-semibold text-dashboard-heading">{formatMoney(p.currency, p.fee)}</span>
           </div>
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-        <label className="text-xs text-slate-400">Note (optional)</label>
-        <input
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="Add a note"
-          className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm outline-none"
-        />
-      </div>
-
-      <div className="flex gap-3">
+      <div className="flex gap-3 pt-1">
         <button
           onClick={() => router.push('/dashboard/wallets/p2p/amount')}
-          className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 font-medium"
+          className="flex-1 rounded-xl border border-dashboard-border bg-white px-4 py-3 text-sm font-semibold text-dashboard-heading"
         >
           Go back
         </button>
@@ -127,7 +122,7 @@ export default function P2PSummaryPage() {
             router.push(`/dashboard/wallets/p2p/success?id=${encodeURIComponent(receipt.id)}`);
           }}
           disabled={executeMutation.isPending || previewMutation.isPending || !p}
-          className="flex-1 rounded-lg bg-blue-500 text-white px-4 py-3 font-medium disabled:opacity-50"
+          className="flex-1 rounded-xl bg-cohold-blue px-4 py-3 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {executeMutation.isPending ? 'Sending...' : 'Send'}
         </button>

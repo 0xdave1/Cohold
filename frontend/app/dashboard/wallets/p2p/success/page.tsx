@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useP2PStore } from '@/stores/p2p.store';
+import { Check } from 'lucide-react';
 
 export default function P2PSuccessPage() {
   const router = useRouter();
@@ -24,29 +25,29 @@ export default function P2PSuccessPage() {
       : 'Transfer complete.';
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-6 space-y-6">
-      <div className="h-24 w-24 rounded-2xl bg-blue-500 flex items-center justify-center">
-        <svg className="h-12 w-12 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 pt-10 pb-28 max-w-sm mx-auto">
+      <div className="h-24 w-24 rounded-2xl border border-dashboard-border bg-dashboard-card flex items-center justify-center">
+        <div className="h-14 w-14 rounded-2xl bg-cohold-blue flex items-center justify-center">
+          <Check className="h-7 w-7 text-white" strokeWidth={3} />
+        </div>
       </div>
 
-      <div className="text-center space-y-2">
-        <h1 className="text-xl font-semibold">P2P Transfer Successful</h1>
-        <p className="text-sm text-slate-400">
-          {subtitle}
-        </p>
-        {receipt?.groupId ? (
-          <p className="text-xs text-slate-500">Reference: {receipt.groupId}</p>
-        ) : null}
+      <div className="text-center mt-6 space-y-2">
+        <h1 className="text-xl font-semibold text-dashboard-heading">P2P Transfer Successful</h1>
+        <p className="text-sm text-dashboard-body">{subtitle}</p>
+        {receipt?.groupId ? <p className="text-xs text-dashboard-muted">Reference: {receipt.groupId}</p> : null}
       </div>
 
-      <button
-        onClick={() => router.push('/dashboard/home')}
-        className="w-full max-w-md rounded-lg bg-blue-500 text-white py-3 font-medium"
-      >
-        Back to Home
-      </button>
+      <div className="fixed bottom-16 left-0 right-0 z-40">
+        <div className="mx-auto max-w-2xl px-4">
+          <button
+            onClick={() => router.push('/dashboard/home')}
+            className="w-full rounded-xl bg-cohold-blue py-3 text-sm font-semibold text-white"
+          >
+            Back to Home
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
