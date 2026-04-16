@@ -177,7 +177,7 @@ export class EmailService {
   private buildWelcomeHtml(firstName?: string): string {
     const raw = this.getConfig<string>('app.corsOrigin');
     const appUrl =
-      raw && raw !== '*' ? raw.split(',')[0].trim() : 'https://cohold.com';
+      raw && raw !== '*' ? raw.split(',')[0].trim() : 'https://cohold.co';
     const dashboardUrl = appUrl.replace(/\/$/, '') + '/dashboard';
     return `
       <!DOCTYPE html>
