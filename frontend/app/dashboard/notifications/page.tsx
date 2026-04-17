@@ -200,7 +200,7 @@ export default function NotificationsPage() {
 
   return (
     <div className="min-h-screen bg-dashboard-bg pb-20">
-      <div className="space-y-4 px-4 pt-4">
+      <div className="space-y-4 pt-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Link

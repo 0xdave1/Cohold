@@ -70,7 +70,7 @@ export default function InvestmentsPage() {
       </div>
 
       {/* Investment balance card (Figma) — balance = sum of active investments in selected currency */}
-      <div className="mx-auto w-full max-w-md rounded-2xl bg-dashboard-card border border-dashboard-border p-4 shadow-[0_2px_8px_rgba(0,0,0,0.06)]">
+      <div className="w-full rounded-2xl bg-dashboard-card border border-dashboard-border p-4 shadow-[0_2px_8px_rgba(0,0,0,0.06)]">
         <p className="text-xs text-dashboard-body mb-1 text-center">
           Investment portfolio ({balanceCurrency})
         </p>
@@ -152,7 +152,7 @@ export default function InvestmentsPage() {
       {isLoading ? (
         <div className="rounded-2xl border border-dashboard-border bg-dashboard-card p-8 animate-pulse h-64" />
       ) : items.length === 0 ? (
-        <div className="mx-auto w-full max-w-md pt-6">
+        <div className="w-full pt-6">
           <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl border border-[#E7C97E] bg-[#F5D99A]">
             <svg className="h-10 w-10 text-dashboard-heading" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 21h18" />

@@ -37,7 +37,7 @@ export default function P2PAmountPage() {
   const avatar = (recipient.displayName?.[0] ?? recipient.username[0] ?? 'U').toUpperCase();
 
   return (
-    <div className="space-y-6 px-4 pb-28">
+    <div className="space-y-6 pb-28">
       <div className="flex items-center gap-3">
         <button onClick={() => router.push('/dashboard/wallets/p2p')} aria-label="Back">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

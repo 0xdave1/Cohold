@@ -12,8 +12,8 @@ export function DashboardMain({ children }: { children: ReactNode }) {
       <div
         className={
           wideContent
-            ? 'w-full px-0 py-4 md:px-6 md:py-6 md:max-w-3xl md:mx-auto'
-            : 'w-full px-0 py-4 md:px-6 md:py-6 md:max-w-2xl md:mx-auto'
+            ? 'w-full px-4 py-4 md:px-6 md:py-6 md:max-w-3xl md:mx-auto'
+            : 'w-full px-4 py-4 md:px-6 md:py-6 md:max-w-2xl md:mx-auto'
         }
       >
         {children}
