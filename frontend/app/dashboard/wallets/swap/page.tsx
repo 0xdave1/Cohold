@@ -32,7 +32,7 @@ export default function SwapPage() {
       </div>
 
       <button
-        onClick={() => router.push('/dashboard/wallets')}
+        onClick={() => router.push('/dashboard/')}
         className="w-full rounded-xl bg-cohold-blue py-3 text-sm font-semibold text-white"
       >
         Back to wallet actions
