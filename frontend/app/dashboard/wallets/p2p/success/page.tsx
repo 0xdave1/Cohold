@@ -25,7 +25,7 @@ export default function P2PSuccessPage() {
       : 'Transfer complete.';
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 pt-10 pb-28 max-w-sm mx-auto">
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 pt-10 pb-28">
       <div className="h-24 w-24 rounded-2xl border border-dashboard-border bg-dashboard-card flex items-center justify-center">
         <div className="h-14 w-14 rounded-2xl bg-cohold-blue flex items-center justify-center">
           <Check className="h-7 w-7 text-white" strokeWidth={3} />

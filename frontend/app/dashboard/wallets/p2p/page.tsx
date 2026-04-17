@@ -31,7 +31,7 @@ export default function P2PPage() {
   const canContinue = useMemo(() => !!selected, [selected]);
 
   return (
-    <div className="space-y-6 pb-28 max-w-sm mx-auto">
+    <div className="space-y-6 px-4 pb-28">
       <div className="flex items-center gap-3">
         <button onClick={() => router.back()} aria-label="Back">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

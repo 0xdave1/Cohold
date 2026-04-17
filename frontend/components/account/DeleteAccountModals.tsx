@@ -52,8 +52,8 @@ export function DeleteAccountModals({ onClose, userEmail }: DeleteAccountModalsP
 
   if (step === 'confirm') {
     return (
-      <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
-        <div className="w-full max-w-md rounded-2xl bg-dashboard-card p-6 shadow-xl">
+      <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-4">
+        <div className="w-full max-w-md rounded-2xl bg-dashboard-card p-5 sm:p-6 shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-dashboard-heading">Delete account</h2>
             <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-dashboard-border/50" aria-label="Close">
@@ -86,8 +86,8 @@ export function DeleteAccountModals({ onClose, userEmail }: DeleteAccountModalsP
 
   if (step === 'email') {
     return (
-      <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
-        <div className="w-full max-w-md rounded-2xl bg-dashboard-card p-6 shadow-xl">
+      <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-4">
+        <div className="w-full max-w-md rounded-2xl bg-dashboard-card p-5 sm:p-6 shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-dashboard-heading">Confirm account deletion</h2>
             <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-dashboard-border/50" aria-label="Close">
@@ -131,8 +131,8 @@ export function DeleteAccountModals({ onClose, userEmail }: DeleteAccountModalsP
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
-      <div className="w-full max-w-md rounded-2xl bg-dashboard-card p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-4">
+      <div className="w-full max-w-md rounded-2xl bg-dashboard-card p-5 sm:p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-dashboard-heading">OTP Code</h2>
           <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-dashboard-border/50" aria-label="Close">

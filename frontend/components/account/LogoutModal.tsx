@@ -8,12 +8,12 @@ interface LogoutModalProps {
 export function LogoutModal({ onClose, onConfirm }: LogoutModalProps) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="logout-title"
     >
-      <div className="w-full max-w-md rounded-2xl bg-dashboard-card p-6 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl bg-dashboard-card p-5 sm:p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <h2 id="logout-title" className="text-lg font-semibold text-dashboard-heading">
             Logout

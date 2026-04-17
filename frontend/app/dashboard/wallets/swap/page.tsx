@@ -6,7 +6,7 @@ export default function SwapPage() {
   const router = useRouter();
 
   return (
-    <div className="space-y-6 pb-20 max-w-md mx-auto">
+    <div className="space-y-6 px-4 pb-20">
       <div className="flex items-center gap-3">
         <button onClick={() => router.back()}>
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

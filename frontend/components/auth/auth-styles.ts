@@ -3,7 +3,7 @@
  */
 export const auth = {
   pageTitle: 'text-sm font-medium uppercase tracking-wide text-auth-body',
-  card: 'rounded-auth-radius-lg bg-auth-card p-8 shadow-[var(--auth-shadow-card)]',
+  card: 'rounded-auth-radius-lg bg-auth-card p-6 sm:p-8 shadow-[var(--auth-shadow-card)]',
   heading: 'text-[22px] font-bold leading-tight text-auth-heading',
   body: 'text-[15px] leading-relaxed text-auth-body',
   label: 'text-sm font-medium text-auth-heading',

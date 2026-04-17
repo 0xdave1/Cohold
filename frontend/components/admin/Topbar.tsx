@@ -4,8 +4,8 @@ import { Search, Settings } from 'lucide-react';
 
 export function AdminTopbar() {
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
-      <div className="relative w-80">
+    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-200 bg-white px-3 py-3 sm:px-4 lg:px-6">
+      <div className="relative w-full max-w-[220px] sm:max-w-xs md:max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
         <input
           type="text"

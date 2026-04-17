@@ -34,7 +34,7 @@ export function AdminSidebar() {
 
   return (
     <>
-      <aside className="fixed left-0 top-0 z-40 flex h-full w-60 flex-col border-r border-gray-200 bg-white">
+      <aside className="fixed left-0 top-0 z-40 hidden h-full w-60 flex-col border-r border-gray-200 bg-white lg:flex">
         <div className="flex items-center gap-2 px-5 py-5">
           <span className="text-lg font-bold text-gray-900">Cohold</span>
         </div>
