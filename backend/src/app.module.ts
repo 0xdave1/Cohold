@@ -26,6 +26,7 @@ import { StorageModule } from './modules/storage/storage.module';
 import { FxModule } from './modules/fx/fx.module';
 import { SupportModule } from './modules/support/support.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -57,6 +58,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
     AdminAuthModule,
     SupportModule,
     NotificationsModule,
+    WithdrawalModule,
     UsersModule,
     WalletModule,
     PaymentModule,

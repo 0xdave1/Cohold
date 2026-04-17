@@ -7,7 +7,7 @@ import { Currency } from '@prisma/client';
 export const SUPPORTED_CURRENCIES = [Currency.NGN] as const;
 
 export function isSupportedCurrency(currency: Currency): boolean {
-  return SUPPORTED_CURRENCIES.includes(currency);
+  return (SUPPORTED_CURRENCIES as readonly Currency[]).includes(currency);
 }
 
 export function assertSupportedCurrency(currency: Currency) {

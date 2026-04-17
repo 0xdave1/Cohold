@@ -1,15 +1,17 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { DashboardHeaderActions } from '@/components/dashboard/DashboardHeaderActions';
+import { AccountsModal } from '@/components/wallet/AccountsModal';
+import { AccountDetailsModal } from '@/components/wallet/AccountDetailsModal';
+import { TopUpModal } from '@/components/wallet/TopUpModal';
+import { WithdrawWalletModal } from '@/components/wallet/WithdrawWalletModal';
 import {
   useWalletBalances,
   useVirtualAccounts,
   formatMoney,
-  type WalletBalance,
-  type VirtualAccount,
 } from '@/lib/hooks/use-wallet';
 import { useMyInvestments } from '@/lib/hooks/use-investments';
 import { investmentPositionValue, isActiveInvestmentStatus } from '@/lib/money/portfolio';
@@ -22,18 +24,6 @@ const CURRENCIES: Array<{ code: 'NGN'; flag: string; label: string }> = [
   { code: 'NGN', flag: '🇳🇬', label: 'NGN Account' },
 ];
 
-function useCopyToClipboard() {
-  const copy = useCallback(async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
-  return copy;
-}
-
 export default function HomeDashboardPage() {
   const router = useRouter();
   const userFromStore = useAuthStore((s) => s.user);
@@ -44,6 +34,7 @@ export default function HomeDashboardPage() {
   const { data: propertiesData } = useProperties(1, 10);
 
   const displayName = me?.firstName || userFromStore?.firstName || 'User';
+  const userEmail = me?.email ?? userFromStore?.email ?? '';
   const initials = [me?.firstName?.[0], me?.lastName?.[0]].filter(Boolean).join('').toUpperCase() || (userFromStore?.email?.[0] ?? 'U').toUpperCase();
   const meIsVerified = me?.kycStatus === 'VERIFIED' && !!me?.onboardingCompletedAt;
   const storeIsVerified =
@@ -81,7 +72,7 @@ export default function HomeDashboardPage() {
       );
       return;
     }
-    if (action === 'top-up') router.push('/dashboard/wallet');
+    if (action === 'top-up') setShowTopUpModal(true);
     else if (action === 'swap') router.push('/dashboard/wallets/swap');
     else if (action === 'withdraw') setShowWithdrawModal(true);
     else if (action === 'p2p') router.push('/dashboard/wallets/p2p');
@@ -372,24 +363,42 @@ export default function HomeDashboardPage() {
 
       {/* Modals */}
       {showAccountsModal && (
-        <AccountSelectionModal
+        <AccountsModal
           balances={balances}
           selectedCurrency={selectedCurrency}
-          onSelect={(c) => { setSelectedCurrency(c); setShowAccountsModal(false); }}
+          onSelect={(c) => {
+            setSelectedCurrency(c);
+            setShowAccountsModal(false);
+          }}
           onClose={() => setShowAccountsModal(false)}
         />
       )}
-      {showTopUpModal && <TopUpModal virtualAccount={ngnVirtualAccount} accountName={displayName} onClose={() => setShowTopUpModal(false)} />}
+      {showTopUpModal && (
+        <TopUpModal
+          virtualAccount={ngnVirtualAccount}
+          fallbackAccountName={displayName}
+          onClose={() => setShowTopUpModal(false)}
+        />
+      )}
       {showWithdrawModal && (
-        <WithdrawModal
+        <WithdrawWalletModal
+          open={showWithdrawModal}
           balance={selectedWallet?.balance ?? '0'}
-          currency={selectedCurrency}
+          userEmail={userEmail}
           onClose={() => setShowWithdrawModal(false)}
+          onWithdrawCreated={(id) => {
+            setShowWithdrawModal(false);
+            router.push(`/dashboard/wallets/withdraw/${id}`);
+          }}
         />
       )}
       {showAccountDetails && (
         isVerified ? (
-          <AccountDetailsModal virtualAccount={ngnVirtualAccount} accountName={displayName} onClose={() => setShowAccountDetails(false)} />
+          <AccountDetailsModal
+            virtualAccount={ngnVirtualAccount}
+            fallbackAccountName={displayName}
+            onClose={() => setShowAccountDetails(false)}
+          />
         ) : (
           <UnverifiedAccountModal onClose={() => setShowAccountDetails(false)} />
         )
@@ -412,195 +421,6 @@ function WithdrawIcon({ className }: { className?: string }) {
 }
 function P2PIcon({ className }: { className?: string }) {
   return <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>;
-}
-
-function AccountSelectionModal({
-  balances,
-  selectedCurrency,
-  onSelect,
-  onClose,
-}: {
-  balances: WalletBalance[];
-  selectedCurrency: string;
-  onSelect: (c: 'NGN') => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-end z-50 sm:items-center sm:p-4">
-      <div className="bg-dashboard-card rounded-t-2xl sm:rounded-2xl w-full max-w-md mx-auto p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-dashboard-heading">My accounts</h2>
-          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-dashboard-border/50">
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-        <div className="space-y-3">
-          {CURRENCIES.map((curr) => {
-            const w = balances.find((b) => b.currency === curr.code);
-            const balance = w ? formatMoney(w.balance, curr.code) : '0.00';
-            const isSelected = selectedCurrency === curr.code;
-            return (
-              <button
-                key={curr.code}
-                type="button"
-                onClick={() => onSelect(curr.code)}
-                className="w-full flex items-center justify-between p-4 rounded-xl border border-dashboard-border hover:bg-dashboard-border/30 transition-colors text-left"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">{curr.flag}</span>
-                  <div>
-                    <p className="font-medium text-dashboard-heading">{curr.label}</p>
-                    <p className="text-sm text-dashboard-body">{balance}</p>
-                  </div>
-                </div>
-                {isSelected && (
-                  <div className="h-5 w-5 rounded-full border-2 border-cohold-blue flex items-center justify-center">
-                    <div className="h-3 w-3 rounded-full bg-cohold-blue" />
-                  </div>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CopyRow({ label, value, onCopy }: { label: string; value: string; onCopy: () => void }) {
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-dashboard-border last:border-0">
-      <span className="text-sm text-dashboard-body">{label}</span>
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-sm text-dashboard-heading">{value}</span>
-        <button type="button" onClick={onCopy} className="p-1.5 rounded hover:bg-dashboard-border/50" aria-label="Copy">
-          <svg className="h-4 w-4 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-          </svg>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function TopUpModal({ virtualAccount, accountName, onClose }: { virtualAccount: VirtualAccount | undefined; accountName: string; onClose: () => void }) {
-  const copy = useCopyToClipboard();
-  const accountNumber = virtualAccount?.accountNumber ?? '—';
-  const bankName = virtualAccount?.bankName ?? '—';
-  const name = virtualAccount?.accountName ?? accountName;
-
-  const copyAll = () => {
-    copy(`${accountNumber}\n${bankName}\n${name}`);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-end z-50 sm:items-center sm:p-4">
-      <div className="bg-dashboard-card rounded-t-2xl sm:rounded-2xl w-full max-w-md mx-auto p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-dashboard-heading">Top up</h2>
-          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-dashboard-border/50">
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-        <div className="rounded-xl border border-dashboard-border bg-cohold-icon-bg/50 p-4 space-y-0">
-          <CopyRow label="Account number" value={accountNumber} onCopy={() => copy(accountNumber)} />
-          <CopyRow label="Bank name" value={bankName} onCopy={() => copy(bankName)} />
-          <CopyRow label="Account name" value={name} onCopy={() => copy(name)} />
-        </div>
-        <button type="button" onClick={copyAll} className="mt-4 w-full rounded-xl bg-cohold-blue text-white py-3 font-medium hover:opacity-90">
-          Copy all
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function WithdrawModal({ balance, currency, onClose }: { balance: string; currency: string; onClose: () => void }) {
-  const router = useRouter();
-  const [amount, setAmount] = useState('100000');
-  const [showOtp, setShowOtp] = useState(false);
-
-  if (showOtp) {
-    return (
-      <OtpModal
-        purpose="withdrawal"
-        onComplete={() => {
-          setShowOtp(false);
-          onClose();
-          router.push(`/dashboard/wallets/withdraw/success?amount=${encodeURIComponent(amount)}`);
-        }}
-        onClose={() => setShowOtp(false)}
-      />
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-end z-50 sm:items-center sm:p-4">
-      <div className="bg-dashboard-card rounded-t-2xl sm:rounded-2xl w-full max-w-md mx-auto p-6 shadow-xl max-h-[85vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-dashboard-heading">Withdraw</h2>
-          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-dashboard-border/50">
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm text-dashboard-body mb-2 block">Withdrawal amount</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value.replace(/\D/g, ''))}
-                className="flex-1 rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-2.5 text-dashboard-heading"
-              />
-              <span className="rounded-lg border border-dashboard-border px-3 py-2.5 text-sm font-medium text-dashboard-heading">{currency}</span>
-            </div>
-            <p className="text-xs text-dashboard-body mt-1">Balance {formatMoney(balance, currency)}</p>
-          </div>
-          <div>
-            <label className="text-sm text-dashboard-body mb-2 block">Recipient account</label>
-            <p className="text-sm text-dashboard-muted">Add an account to withdraw to your bank.</p>
-            <Link href="/dashboard/account/recipients" className="text-sm font-medium text-cohold-blue mt-2 inline-block">Add an account →</Link>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowOtp(true)}
-            className="w-full rounded-xl bg-cohold-blue text-white py-3 font-medium hover:opacity-90"
-          >
-            Withdraw
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AccountDetailsModal({ virtualAccount, accountName, onClose }: { virtualAccount: VirtualAccount | undefined; accountName: string; onClose: () => void }) {
-  const copy = useCopyToClipboard();
-  const accountNumber = virtualAccount?.accountNumber ?? '—';
-  const bankName = virtualAccount?.bankName ?? '—';
-  const name = virtualAccount?.accountName ?? accountName;
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-end z-50 sm:items-center sm:p-4">
-      <div className="bg-dashboard-card rounded-t-2xl sm:rounded-2xl w-full max-w-md mx-auto p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-dashboard-heading">Account details</h2>
-          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-dashboard-border/50">
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-        <div className="rounded-xl border border-dashboard-border bg-cohold-icon-bg/50 p-4 space-y-0">
-          <CopyRow label="Account number" value={accountNumber} onCopy={() => copy(accountNumber)} />
-          <CopyRow label="Bank name" value={bankName} onCopy={() => copy(bankName)} />
-          <CopyRow label="Account name" value={name} onCopy={() => copy(name)} />
-        </div>
-        <button type="button" onClick={onClose} className="mt-4 w-full rounded-xl bg-cohold-blue text-white py-3 font-medium hover:opacity-90">
-          Close
-        </button>
-      </div>
-    </div>
-  );
 }
 
 function UnverifiedAccountModal({ onClose }: { onClose: () => void }) {
@@ -690,51 +510,3 @@ function UnverifiedActionModal({ action, onClose }: { action: string; onClose: (
   );
 }
 
-function OtpModal({ onComplete, onClose }: { purpose: 'withdrawal'; onComplete: () => void; onClose: () => void }) {
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
-  const inputRefs = useState<(HTMLInputElement | null)[]>([])[0];
-
-  const handleOtpChange = (index: number, value: string) => {
-    if (!/^\d*$/.test(value)) return;
-    const newOtp = [...otp];
-    newOtp[index] = value.slice(-1);
-    setOtp(newOtp);
-    if (value && index < 5) inputRefs[index + 1]?.focus();
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-end z-50 sm:items-center sm:p-4">
-      <div className="bg-dashboard-card rounded-t-2xl sm:rounded-2xl w-full max-w-md mx-auto p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-dashboard-heading">OTP Code</h2>
-          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-dashboard-border/50">
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-        <p className="text-sm text-dashboard-body mb-4">A 6-digit OTP has been sent to your email. Enter the code to complete withdrawal.</p>
-        <div className="flex justify-center gap-2 mb-6">
-          {otp.map((digit, i) => (
-            <input
-              key={i}
-              ref={(el) => { (inputRefs as (HTMLInputElement | null)[])[i] = el; }}
-              type="text"
-              inputMode="numeric"
-              maxLength={1}
-              value={digit}
-              onChange={(e) => handleOtpChange(i, e.target.value)}
-              className="h-12 w-12 rounded-xl border-2 border-dashboard-border text-center text-lg font-semibold focus:border-cohold-blue focus:outline-none"
-            />
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={() => otp.join('').length === 6 && onComplete()}
-          disabled={otp.join('').length !== 6}
-          className="w-full rounded-xl bg-cohold-blue text-white py-3 font-medium disabled:opacity-50"
-        >
-          Complete withdrawal
-        </button>
-      </div>
-    </div>
-  );
-}

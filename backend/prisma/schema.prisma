@@ -43,6 +43,8 @@ model User {
   supportMessages       SupportMessage[]
   sentP2PTransfers      P2PTransfer[]         @relation("P2PSender")
   receivedP2PTransfers  P2PTransfer[]         @relation("P2PRecipient")
+  linkedBankAccounts    LinkedBankAccount[]
+  withdrawals           Withdrawal[]
 
   @@index([email])
   @@index([username])
@@ -155,6 +157,7 @@ model Wallet {
   updatedAt     DateTime      @updatedAt
   ledgerEntries Transaction[] @relation("WalletTransactions")
   user          User          @relation(fields: [userId], references: [id])
+  withdrawals   Withdrawal[]
 
   @@unique([userId, currency])
   @@index([userId, currency])
@@ -196,6 +199,58 @@ model Transaction {
   @@index([type])
   @@index([propertyId])
   @@index([investmentId])
+}
+
+/// User-linked payout destination (NGN-only at product level; currency field kept for future).
+model LinkedBankAccount {
+  id                      String   @id @default(uuid())
+  userId                  String
+  currency                Currency
+  accountNumber           String
+  bankName                String
+  accountName             String
+  bankCode                String?
+  isDefault               Boolean  @default(false)
+  isVerified              Boolean  @default(false)
+  providerRecipientCode   String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  withdrawals  Withdrawal[]
+
+  @@unique([userId, currency, accountNumber])
+  @@index([userId, createdAt])
+}
+
+/// Bank payout request: funds are debited from wallet when created; status tracks provider lifecycle.
+model Withdrawal {
+  id                    String            @id @default(uuid())
+  userId                String
+  walletId              String
+  linkedBankAccountId   String
+  reference             String            @unique
+  providerReference     String?
+  providerTransferCode  String?
+  amount                Decimal           @db.Decimal(19, 4)
+  fee                   Decimal           @default(0) @db.Decimal(19, 4)
+  netAmount             Decimal           @db.Decimal(19, 4)
+  currency              Currency
+  status                WithdrawalStatus  @default(PENDING)
+  failureReason         String?
+  initiatedAt           DateTime          @default(now())
+  processedAt           DateTime?
+  completedAt           DateTime?
+  metadata              Json?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet            Wallet            @relation(fields: [walletId], references: [id])
+  linkedBankAccount LinkedBankAccount @relation(fields: [linkedBankAccountId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
 }
 
 /// Explicit P2P transfer record (idempotency, receipts, history).
@@ -538,6 +593,14 @@ enum DistributionStatus {
   PENDING
   COMPLETED
   FAILED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
 }
 
 enum NotificationType {

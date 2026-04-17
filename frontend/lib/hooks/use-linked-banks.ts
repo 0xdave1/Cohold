@@ -8,6 +8,9 @@ export interface LinkedBank {
   bankName: string;
   accountName: string;
   currency: string;
+  isDefault: boolean;
+  isVerified?: boolean;
+  bankCode?: string | null;
 }
 
 const KEY = ['users', 'me', 'linked-banks'];

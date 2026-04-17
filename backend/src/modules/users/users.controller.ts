@@ -8,6 +8,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
 import { VerifyOtpDto } from '../auth/dto/verify-otp.dto';
 import { SetUsernameDto } from './dto/set-username.dto';
+import { AddLinkedBankDto } from './dto/add-linked-bank.dto';
 
 @ApiTags('users')
 @ApiBearerAuth('user-jwt')
@@ -67,7 +68,7 @@ export class UsersController {
   }
 
   @Post('me/linked-banks')
-  async addLinkedBank(@CurrentUser() user: { id: string }, @Body() body: { currency: string; accountNumber: string; bankName: string; accountName: string }) {
+  async addLinkedBank(@CurrentUser() user: { id: string }, @Body() body: AddLinkedBankDto) {
     return this.usersService.addLinkedBank(user.id, body);
   }
 

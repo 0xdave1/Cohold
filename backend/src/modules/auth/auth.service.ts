@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -118,6 +124,21 @@ export class AuthService {
 
     await this.cacheService.del(cacheKey);
     return true;
+  }
+
+  /**
+   * Verify a transaction-scoped OTP for the authenticated user (email from DB, never from client).
+   * Consumes the OTP on success.
+   */
+  async verifyTransactionOtpForUser(userId: string, otp: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    await this.verifyOtp({ email: user.email, otp } as VerifyOtpDto, 'transaction');
   }
 
   /** Signup user (creates account, wallets, and sends OTP) */
