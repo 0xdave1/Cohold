@@ -4,9 +4,10 @@ import { WalletModule } from '../wallet/wallet.module';
 import { InvestmentModule } from '../investment/investment.module';
 import { DistributionService } from './distribution.service';
 import { DistributionController } from './distribution.controller';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [AuthModule, WalletModule, InvestmentModule],
+  imports: [AuthModule, WalletModule, InvestmentModule, NotificationsModule],
   controllers: [DistributionController],
   providers: [DistributionService],
   exports: [DistributionService],

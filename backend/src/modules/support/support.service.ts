@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   Prisma,
   SupportCategory,
@@ -9,10 +9,16 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { generateSupportReferenceCode } from './helpers/reference-code';
 import { triageGreeting } from './helpers/triage';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class SupportService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(SupportService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   async isAnySupportAdminOnline(): Promise<boolean> {
     const count = await this.prisma.supportPresence.count({
@@ -126,6 +132,16 @@ export class SupportService {
     });
     if (!conv) throw new NotFoundException('Conversation not found');
 
+    // Opening a thread marks unread admin replies as read.
+    await this.prisma.supportMessage.updateMany({
+      where: {
+        conversationId,
+        senderType: SupportSenderType.ADMIN,
+        readAt: null,
+      },
+      data: { readAt: new Date() },
+    });
+
     const skip = (page - 1) * limit;
     const where: Prisma.SupportMessageWhereInput = {
       conversationId,
@@ -144,6 +160,47 @@ export class SupportService {
     ]);
 
     return { items, meta: { page, limit, total } };
+  }
+
+  async getUserUnreadCount(userId: string): Promise<{ unreadCount: number }> {
+    const unreadCount = await this.prisma.supportMessage.count({
+      where: {
+        senderType: SupportSenderType.ADMIN,
+        readAt: null,
+        conversation: { userId },
+      },
+    });
+    return { unreadCount };
+  }
+
+  async markConversationAsRead(userId: string, conversationId: string): Promise<{ markedCount: number }> {
+    const conv = await this.prisma.supportConversation.findFirst({
+      where: { id: conversationId, userId },
+      select: { id: true },
+    });
+    if (!conv) throw new NotFoundException('Conversation not found');
+
+    const result = await this.prisma.supportMessage.updateMany({
+      where: {
+        conversationId,
+        senderType: SupportSenderType.ADMIN,
+        readAt: null,
+      },
+      data: { readAt: new Date() },
+    });
+    return { markedCount: result.count };
+  }
+
+  async markAllAsRead(userId: string): Promise<{ markedCount: number }> {
+    const result = await this.prisma.supportMessage.updateMany({
+      where: {
+        senderType: SupportSenderType.ADMIN,
+        readAt: null,
+        conversation: { userId },
+      },
+      data: { readAt: new Date() },
+    });
+    return { markedCount: result.count };
   }
 
   async sendUserMessage(userId: string, conversationId: string, content: string, metadata?: Prisma.JsonValue) {
@@ -281,7 +338,10 @@ export class SupportService {
 
   async sendAdminMessage(adminId: string, conversationId: string, content: string, metadata?: Prisma.JsonValue) {
     if (!content.trim()) throw new BadRequestException('Message content is required');
-    await this.prisma.supportConversation.findUniqueOrThrow({ where: { id: conversationId } });
+    const conversation = await this.prisma.supportConversation.findUniqueOrThrow({
+      where: { id: conversationId },
+      select: { id: true, userId: true },
+    });
     const now = new Date();
     const metaObj = (metadata ?? undefined) as any;
     const msgId: string | undefined = typeof metaObj?.messageId === 'string' ? metaObj.messageId : undefined;
@@ -316,6 +376,22 @@ export class SupportService {
       where: { id: conversationId },
       data: { lastMessageAt: now, status: SupportStatus.WAITING_FOR_USER },
     });
+
+    // Optional notification entry for admin reply (non-blocking).
+    try {
+      await this.notificationsService.notifySystemMessage(
+        conversation.userId,
+        'New support reply',
+        content.length > 140 ? `${content.slice(0, 137)}...` : content,
+        '/dashboard/support',
+        { conversationId, supportMessageId: msg.id, event: 'SUPPORT_REPLY' },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed support reply notification conversation=${conversationId} user=${conversation.userId}: ${err}`,
+      );
+    }
+
     return msg;
   }
 

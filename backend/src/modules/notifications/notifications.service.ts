@@ -483,6 +483,72 @@ export class NotificationsService {
   }
 
   /**
+   * Notify recipient that they received a P2P transfer.
+   */
+  async notifyIncomingP2PReceived(
+    userId: string,
+    amount: string,
+    currency: string,
+    senderUsername: string,
+    transferId: string,
+  ): Promise<NotificationResponse> {
+    return this.createNotification({
+      userId,
+      type: NotificationType.SYSTEM_MESSAGE,
+      title: 'Money Received',
+      message: `You received ${currency} ${amount} from @${senderUsername}.`,
+      link: `/dashboard/wallets/p2p/success?id=${transferId}`,
+      metadata: {
+        transferId,
+        amount,
+        currency,
+        senderUsername,
+        event: 'P2P_INCOMING',
+      },
+    });
+  }
+
+  /**
+   * Generic wallet credit helper for non-card/non-P2P credit events.
+   */
+  async notifyWalletCredited(
+    userId: string,
+    amount: string,
+    currency: string,
+    reason: string,
+    referenceId?: string,
+    link = '/dashboard/wallet',
+  ): Promise<NotificationResponse> {
+    return this.createNotification({
+      userId,
+      type: NotificationType.SYSTEM_MESSAGE,
+      title: 'Wallet Credited',
+      message: `Your wallet was credited with ${currency} ${amount}${reason ? ` (${reason})` : ''}.`,
+      link,
+      metadata: {
+        amount,
+        currency,
+        reason,
+        referenceId: referenceId ?? null,
+        event: 'WALLET_CREDIT',
+      },
+    });
+  }
+
+  /**
+   * Alias for admin/system credits.
+   */
+  async notifySystemCredit(
+    userId: string,
+    amount: string,
+    currency: string,
+    reason: string,
+    referenceId?: string,
+  ): Promise<NotificationResponse> {
+    return this.notifyWalletCredited(userId, amount, currency, reason, referenceId);
+  }
+
+  /**
    * Broadcast a system message to multiple users.
    */
   async broadcastSystemMessage(

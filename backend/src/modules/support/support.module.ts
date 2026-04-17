@@ -7,9 +7,10 @@ import { SupportAdminController } from './support.admin.controller';
 import { SupportAdminGuard } from './guards/support-admin.guard';
 import { SupportGateway } from './support.gateway';
 import { StorageModule } from '../storage/storage.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [PrismaModule, StorageModule, JwtModule.register({})],
+  imports: [PrismaModule, StorageModule, NotificationsModule, JwtModule.register({})],
   controllers: [SupportController, SupportAdminController],
   providers: [SupportService, SupportAdminGuard, SupportGateway],
   exports: [SupportService],

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { P2PTransferDto } from './dto/p2p-transfer.dto';
 import { toDecimal, formatMoney } from '../../common/money/decimal.util';
@@ -7,10 +7,16 @@ import { Currency, Prisma, TransactionDirection, TransactionStatus, TransactionT
 import { normalizeUsername } from '../../common/username/username.util';
 import { P2PExecuteDto } from './dto/p2p-execute.dto';
 import { P2PPreviewDto } from './dto/p2p-preview.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class TransferService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(TransferService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   private async assertUserHasUsername(userId: string) {
     const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
@@ -249,6 +255,21 @@ export class TransferService {
 
         return transfer;
       });
+
+      // Non-blocking post-success notification for recipient.
+      try {
+        await this.notificationsService.notifyIncomingP2PReceived(
+          recipient.id,
+          formatMoney(amount),
+          dto.currency,
+          senderUsername,
+          created.id,
+        );
+      } catch (notifyErr) {
+        this.logger.warn(
+          `Failed incoming P2P notification transferId=${created.id} recipient=${recipient.id}: ${notifyErr}`,
+        );
+      }
 
       return this.formatTransferReceipt(created);
     } catch (err) {

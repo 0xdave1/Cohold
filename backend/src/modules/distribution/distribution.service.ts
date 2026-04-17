@@ -10,6 +10,7 @@ import { CreateDistributionDto } from './dto/create-distribution.dto';
 import { toDecimal, formatMoney } from '../../common/money/decimal.util';
 import { fixMoney, moneyStr } from '../../common/money/precision.constants';
 import { InvestmentService } from '../investment/investment.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   DistributionStatus,
   InvestmentStatus,
@@ -31,6 +32,7 @@ export class DistributionService {
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly investmentService: InvestmentService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async createDistribution(adminId: string, dto: CreateDistributionDto) {
@@ -72,6 +74,7 @@ export class DistributionService {
     let distributedTotal = new Decimal(0);
     let cursor: string | undefined;
     const distGroupId = `DIST-${distribution.id}`;
+    const payoutNotifications: Array<{ userId: string; amount: string; currency: string }> = [];
 
     do {
       const batch = await this.prisma.investment.findMany({
@@ -158,6 +161,12 @@ export class DistributionService {
             },
           });
 
+          payoutNotifications.push({
+            userId: investment.userId,
+            amount: moneyStr(payout),
+            currency: dto.currency,
+          });
+
           distributedTotal = distributedTotal.plus(payout);
           investorsPaid++;
         }
@@ -230,6 +239,24 @@ export class DistributionService {
         },
       });
     });
+
+    // Non-blocking user notifications for received distribution credits.
+    for (const p of payoutNotifications) {
+      try {
+        await this.notificationsService.notifyWalletCredited(
+          p.userId,
+          p.amount,
+          p.currency,
+          'Investment payout',
+          distribution.id,
+          '/dashboard/investments',
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Failed payout notification distribution=${distribution.id} user=${p.userId}: ${err}`,
+        );
+      }
+    }
 
     return {
       distributionId: distribution.id,

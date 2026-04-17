@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -37,6 +37,11 @@ export class SupportController {
     return this.supportService.listUserConversations(user.id);
   }
 
+  @Get('unread-count')
+  async unreadCount(@CurrentUser() user: { id: string }) {
+    return this.supportService.getUserUnreadCount(user.id);
+  }
+
   @Get('conversations/:id')
   async conversation(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.supportService.getUserConversation(user.id, id);
@@ -55,6 +60,16 @@ export class SupportController {
       parseInt(page, 10),
       parseInt(limit, 10),
     );
+  }
+
+  @Patch('conversations/:id/read')
+  async markConversationRead(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    return this.supportService.markConversationAsRead(user.id, id);
+  }
+
+  @Patch('read-all')
+  async markAllRead(@CurrentUser() user: { id: string }) {
+    return this.supportService.markAllAsRead(user.id);
   }
 
   @Post('conversations/:id/messages')
