@@ -5,6 +5,8 @@ import { apiClient } from '@/lib/api/client';
 import { useAuthReady } from '@/lib/hooks/use-auth-ready';
 import { useP2PStore, type P2PCurrency, type P2PPreview, type P2PReceipt } from '@/stores/p2p.store';
 
+const P2P_CURRENCY: P2PCurrency = 'NGN';
+
 export type P2PSearchItem = {
   id: string;
   username: string;
@@ -37,7 +39,6 @@ export function useP2PSearchRecipients(query: string) {
 export function useP2PPreview() {
   const setPreview = useP2PStore((s) => s.setPreview);
   const recipient = useP2PStore((s) => s.recipient);
-  const currency = useP2PStore((s) => s.currency);
   const amount = useP2PStore((s) => s.amount);
 
   return useMutation({
@@ -45,7 +46,7 @@ export function useP2PPreview() {
       if (!recipient) throw new Error('Select a recipient');
       const res = await apiClient.post<P2PPreview>('/transfers/p2p/preview', {
         recipientUserId: recipient.id,
-        currency,
+        currency: P2P_CURRENCY,
         amount,
       });
       if (!res.success) throw new Error(res.error ?? 'Failed to preview transfer');
@@ -60,7 +61,6 @@ export function useP2PPreview() {
 export function useP2PExecute() {
   const setLastReceipt = useP2PStore((s) => s.setLastReceipt);
   const recipient = useP2PStore((s) => s.recipient);
-  const currency = useP2PStore((s) => s.currency);
   const amount = useP2PStore((s) => s.amount);
   const note = useP2PStore((s) => s.note);
 
@@ -69,7 +69,7 @@ export function useP2PExecute() {
       if (!recipient) throw new Error('Select a recipient');
       const res = await apiClient.post<P2PReceipt>('/transfers/p2p/execute', {
         recipientUserId: recipient.id,
-        currency: currency as P2PCurrency,
+        currency: P2P_CURRENCY,
         amount,
         note: note.trim() ? note.trim() : undefined,
         idempotencyKey,

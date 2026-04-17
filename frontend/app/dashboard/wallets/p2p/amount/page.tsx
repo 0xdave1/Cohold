@@ -12,7 +12,6 @@ export default function P2PAmountPage() {
   const currency = useP2PStore((s) => s.currency);
   const amount = useP2PStore((s) => s.amount);
   const setAmount = useP2PStore((s) => s.setAmount);
-  const setCurrency = useP2PStore((s) => s.setCurrency);
 
   const { data: wallets } = useWalletBalances();
 
@@ -87,16 +86,9 @@ export default function P2PAmountPage() {
             placeholder="0.00"
           />
 
-          <select
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value as any)}
-            className="ml-3 pl-3 border-l border-dashboard-border bg-transparent outline-none text-sm font-semibold text-dashboard-heading"
-          >
-            <option value="NGN">NGN</option>
-            <option value="USD">USD</option>
-            <option value="GBP">GBP</option>
-            <option value="EUR">EUR</option>
-          </select>
+          <span className="ml-3 pl-3 border-l border-dashboard-border text-sm font-semibold text-dashboard-heading">
+            NGN
+          </span>
         </div>
 
         {walletBalanceForCurrency != null ? (

@@ -10,7 +10,6 @@ import {
   useMarkNotificationRead,
   useMarkAllNotificationsRead,
   type Notification,
-  type NotificationType,
 } from '@/lib/hooks/use-notifications';
 
 function formatRelativeTime(dateString: string): string {
@@ -34,8 +33,37 @@ function formatRelativeTime(dateString: string): string {
   });
 }
 
-function getNotificationIcon(type: NotificationType): string {
-  switch (type) {
+type NotificationMetadata = {
+  event?: string;
+  source?: string;
+};
+
+function getNotificationMetadata(metadata: unknown): NotificationMetadata {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return {};
+  }
+  const maybeEvent = (metadata as { event?: unknown }).event;
+  const maybeSource = (metadata as { source?: unknown }).source;
+  return {
+    event: typeof maybeEvent === 'string' ? maybeEvent : undefined,
+    source: typeof maybeSource === 'string' ? maybeSource : undefined,
+  };
+}
+
+function isSupportReplyNotification(notification: Notification): boolean {
+  const { event, source } = getNotificationMetadata(notification.metadata);
+  if (source === 'support') return true;
+  if (!event) return false;
+  return event === 'SUPPORT_REPLY' || event === 'SUPPORT_ADMIN_REPLY';
+}
+
+function getNotificationIcon(notification: Notification): string {
+  const { event } = getNotificationMetadata(notification.metadata);
+  if (event === 'P2P_INCOMING') return '💸';
+  if (event === 'WALLET_CREDIT') return '💰';
+  if (isSupportReplyNotification(notification)) return '💬';
+
+  switch (notification.type) {
     case 'INVESTMENT_SUCCESS':
     case 'INVESTMENT_SOLD':
       return '📈';
@@ -76,7 +104,7 @@ function NotificationCard({
   isMarking,
 }: NotificationCardProps) {
   const router = useRouter();
-  const icon = getNotificationIcon(notification.type);
+  const icon = getNotificationIcon(notification);
   const timeAgo = formatRelativeTime(notification.createdAt);
 
   const handleClick = useCallback(async () => {

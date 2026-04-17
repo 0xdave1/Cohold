@@ -1,9 +1,24 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import type { Paginated, SupportConversation, SupportMessage, SupportCategory } from '@/lib/support/types';
 import { useAuthReady } from '@/lib/hooks/use-auth-ready';
 
 export const SUPPORT_QUERY_KEY = ['support', 'conversations'] as const;
+export const SUPPORT_UNREAD_COUNT_QUERY_KEY = ['support', 'unread-count'] as const;
+
+type SupportUnreadCountResponse = { unreadCount: number };
+
+async function invalidateSupportQueries(queryClient: QueryClient) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['support'] }),
+    queryClient.invalidateQueries({ queryKey: SUPPORT_UNREAD_COUNT_QUERY_KEY }),
+  ]);
+}
 
 export function useSupportConversations() {
   const authReady = useAuthReady();
@@ -17,6 +32,22 @@ export function useSupportConversations() {
     enabled: authReady,
     staleTime: 0,
     refetchOnMount: true,
+  });
+}
+
+export function useSupportUnreadCount() {
+  const authReady = useAuthReady();
+  return useQuery({
+    queryKey: SUPPORT_UNREAD_COUNT_QUERY_KEY,
+    queryFn: async () => {
+      const res = await apiClient.get<SupportUnreadCountResponse>('/support/unread-count');
+      if (!res.success) throw new Error(res.error ?? 'Failed to load support unread count');
+      return res.data;
+    },
+    enabled: authReady,
+    staleTime: 30000,
+    refetchInterval: 60000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -69,7 +100,7 @@ export function useCreateSupportConversation() {
       return res.data;
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: SUPPORT_QUERY_KEY });
+      await invalidateSupportQueries(queryClient);
     },
   });
 }
@@ -95,8 +126,28 @@ export function useSendSupportMessage() {
     },
     onSuccess: async (_msg, vars) => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: SUPPORT_QUERY_KEY }),
+        invalidateSupportQueries(queryClient),
         queryClient.invalidateQueries({ queryKey: ['support', 'messages', vars.conversationId] }),
+      ]);
+    },
+  });
+}
+
+export function useMarkSupportConversationRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      const res = await apiClient.patch<{ markedCount: number }>(
+        `/support/conversations/${conversationId}/read`,
+      );
+      if (!res.success) throw new Error(res.error ?? 'Failed to mark support messages as read');
+      return res.data;
+    },
+    onSuccess: async (_data, conversationId) => {
+      await Promise.all([
+        invalidateSupportQueries(queryClient),
+        queryClient.invalidateQueries({ queryKey: ['support', 'conversation', conversationId] }),
+        queryClient.invalidateQueries({ queryKey: ['support', 'messages', conversationId] }),
       ]);
     },
   });

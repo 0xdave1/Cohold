@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import type { SupportCategory, SupportConversation } from '@/lib/support/types';
 import {
   useCreateSupportConversation,
+  useMarkSupportConversationRead,
   usePresignSupportAttachment,
   useSendSupportMessage,
   useSupportConversations,
@@ -41,6 +42,7 @@ export function SupportPagePanel() {
 
   const { data: conversations, isLoading, isError, error: loadErr } = useSupportConversations();
   const createConversation = useCreateSupportConversation();
+  const markSupportRead = useMarkSupportConversationRead();
   const sendMessage = useSendSupportMessage();
   const presign = usePresignSupportAttachment();
 
@@ -72,6 +74,7 @@ export function SupportPagePanel() {
     setActiveConversation(c);
     setMode('thread');
     setError(null);
+    markSupportRead.mutate(c.id);
   };
 
   const submitTriage = async () => {

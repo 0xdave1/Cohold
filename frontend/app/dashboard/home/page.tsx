@@ -18,11 +18,8 @@ import { useMe } from '@/lib/hooks/use-onboarding';
 import { useAuthStore } from '@/stores/auth.store';
 import { EmptyState } from '@/components/dashboard/EmptyState';
 
-const CURRENCIES: Array<{ code: 'NGN' | 'USD' | 'GBP' | 'EUR'; flag: string; label: string }> = [
+const CURRENCIES: Array<{ code: 'NGN'; flag: string; label: string }> = [
   { code: 'NGN', flag: '🇳🇬', label: 'NGN Account' },
-  { code: 'USD', flag: '🇺🇸', label: 'USD Account' },
-  { code: 'GBP', flag: '🇬🇧', label: 'GBP Account' },
-  { code: 'EUR', flag: '🇪🇺', label: 'EUR Account' },
 ];
 
 function useCopyToClipboard() {
@@ -53,7 +50,7 @@ export default function HomeDashboardPage() {
     userFromStore?.kycStatus === 'VERIFIED' && !!userFromStore?.onboardingCompletedAt;
   const isVerified = meIsVerified || storeIsVerified;
 
-  const [selectedCurrency, setSelectedCurrency] = useState<'NGN' | 'USD' | 'GBP' | 'EUR'>('NGN');
+  const [selectedCurrency, setSelectedCurrency] = useState<'NGN'>('NGN');
   const [balanceVisible, setBalanceVisible] = useState(true);
   const [showAccountsModal, setShowAccountsModal] = useState(false);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
@@ -425,7 +422,7 @@ function AccountSelectionModal({
 }: {
   balances: WalletBalance[];
   selectedCurrency: string;
-  onSelect: (c: 'NGN' | 'USD' | 'GBP' | 'EUR') => void;
+  onSelect: (c: 'NGN') => void;
   onClose: () => void;
 }) {
   return (

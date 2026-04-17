@@ -63,7 +63,7 @@ export function useWalletTopUp() {
   
   return useMutation({
     mutationFn: async (data: {
-      currency: 'NGN' | 'USD' | 'GBP' | 'EUR';
+      currency: 'NGN';
       amount: string;
       clientReference?: string;
     }) => {
@@ -109,19 +109,9 @@ export function useDevWalletCredit() {
 }
 
 export function useWalletSwap() {
-  const queryClient = useQueryClient();
-  
   return useMutation({
-    mutationFn: async (data: {
-      fromCurrency: 'NGN' | 'USD' | 'GBP' | 'EUR';
-      toCurrency: 'NGN' | 'USD' | 'GBP' | 'EUR';
-      amount: string;
-      clientReference?: string;
-    }) => {
-      return apiClient.post('/wallets/swap', data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['wallets'] });
+    mutationFn: async () => {
+      throw new Error('Swap feature coming soon');
     },
   });
 }

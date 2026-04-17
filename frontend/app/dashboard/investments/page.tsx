@@ -16,7 +16,7 @@ import Link from 'next/link';
 type ListingTab = 'all' | 'fractional' | 'land' | 'own-home';
 
 export default function InvestmentsPage() {
-  const [balanceCurrency, setBalanceCurrency] = useState<'NGN' | 'USD' | 'GBP' | 'EUR'>('NGN');
+  const [balanceCurrency] = useState<'NGN'>('NGN');
   const [balanceVisible, setBalanceVisible] = useState(true);
   const [tab, setTab] = useState<ListingTab>('all');
 
@@ -80,39 +80,15 @@ export default function InvestmentsPage() {
         </p>
 
         <div className="flex flex-col items-center">
-          <div className="relative">
-            <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 rounded-full bg-emerald-100 flex items-center justify-center">
-              {balanceCurrency === 'NGN' ? (
-                <svg className="h-3 w-3 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 10h8" />
-                  <path d="M8 14h8" />
-                  <path d="M12 6v12" />
-                </svg>
-              ) : (
-                <span className="h-2 w-2 rounded-full bg-emerald-600" />
-              )}
-            </div>
-
-            <select
-              value={balanceCurrency}
-              onChange={(e) => setBalanceCurrency(e.target.value as 'NGN' | 'USD' | 'GBP' | 'EUR')}
-              className="appearance-none rounded-full border border-dashboard-border bg-white px-10 py-1.5 text-sm font-medium text-dashboard-heading pr-9"
-              aria-label="Currency account"
-            >
-              <option value="NGN">NGN Account</option>
-              <option value="USD">USD Account</option>
-              <option value="GBP">GBP Account</option>
-              <option value="EUR">EUR Account</option>
-            </select>
-
-            <svg
-              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dashboard-body"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+          <div className="inline-flex items-center gap-2 rounded-full border border-dashboard-border bg-white px-4 py-1.5 text-sm font-medium text-dashboard-heading">
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100">
+              <svg className="h-3 w-3 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 10h8" />
+                <path d="M8 14h8" />
+                <path d="M12 6v12" />
+              </svg>
+            </span>
+            <span>NGN Account</span>
           </div>
 
           <div className="mt-4 flex items-center justify-center gap-3">

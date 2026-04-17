@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-export type P2PCurrency = 'NGN' | 'USD' | 'GBP' | 'EUR';
+export type P2PCurrency = 'NGN';
 
 export type P2PRecipient = {
   id: string;
@@ -61,7 +61,7 @@ export const useP2PStore = create<P2PState>()(
     (set) => ({
       ...INITIAL,
       setRecipient: (recipient) => set({ recipient, preview: null }),
-      setCurrency: (currency) => set({ currency, preview: null }),
+      setCurrency: () => set({ currency: 'NGN', preview: null }),
       setAmount: (amount) => set({ amount, preview: null }),
       setNote: (note) => set({ note }),
       setPreview: (preview) => set({ preview }),
