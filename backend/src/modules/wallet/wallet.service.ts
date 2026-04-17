@@ -19,9 +19,9 @@ import {
 } from '@prisma/client';
 import { toDecimal, formatMoney } from '../../common/money/decimal.util';
 import { fixMoney, moneyStr } from '../../common/money/precision.constants';
-import { FxService } from '../fx/fx.service';
 import { VirtualAccountService } from '../virtual-account/virtual-account.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SUPPORTED_CURRENCIES } from '../../common/constants/currency.constants';
 
 /**
  * Money separation (production rules):
@@ -34,23 +34,22 @@ import { NotificationsService } from '../notifications/notifications.service';
  */
 export const PLATFORM_USER_ID = 'PLATFORM_USER';
 const PROPERTY_ESCROW_PREFIX = 'ESCROW_PROPERTY_';
-const NGN_SWAP_FEE = '100';
 type TxClient = Pick<PrismaService, 'user' | 'wallet' | 'transaction'>;
 
 @Injectable()
 export class WalletService {
   private readonly logger = new Logger(WalletService.name);
+  private readonly walletCurrency = SUPPORTED_CURRENCIES[0];
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly fxService: FxService,
     private readonly virtualAccountService: VirtualAccountService,
     private readonly notificationsService: NotificationsService,
   ) {}
 
   async getBalances(userId: string) {
     const wallets = await this.prisma.wallet.findMany({
-      where: { userId },
+      where: { userId, currency: this.walletCurrency },
       select: { id: true, currency: true, balance: true },
     });
     return wallets.map((w) => ({
@@ -88,6 +87,9 @@ export class WalletService {
   }
 
   async getAccountDetails(userId: string, currency: Currency = Currency.NGN) {
+    if (currency !== this.walletCurrency) {
+      throw new BadRequestException('Only NGN wallet account details are supported for now');
+    }
     const account = await this.prisma.virtualAccount.findFirst({
       where: { userId, currency },
       select: { accountNumber: true, bankName: true, accountName: true, currency: true },
@@ -120,7 +122,12 @@ export class WalletService {
     if (opts.type) where.type = opts.type as TransactionType;
     if (opts.status) where.status = opts.status as TransactionStatus;
     if (opts.direction) where.direction = opts.direction as TransactionDirection;
-    if (opts.currency) where.currency = opts.currency as Currency;
+    if (opts.currency) {
+      if ((opts.currency as Currency) !== this.walletCurrency) {
+        throw new BadRequestException('Only NGN transactions are supported for now');
+      }
+      where.currency = this.walletCurrency;
+    }
     if (opts.q) where.reference = { contains: opts.q, mode: 'insensitive' };
 
     const [items, total] = await Promise.all([
@@ -198,11 +205,14 @@ export class WalletService {
 
   /** Top-up wallet safely */
   async topUp(userId: string, dto: WalletTopUpDto) {
+    if (dto.currency !== this.walletCurrency) {
+      throw new BadRequestException('Only NGN top-ups are supported for now');
+    }
     const amount = toDecimal(dto.amount);
     if (amount.lte(0)) throw new BadRequestException('Amount must be positive');
 
     const wallet = await this.prisma.wallet.findFirst({
-      where: { userId, currency: dto.currency },
+      where: { userId, currency: this.walletCurrency },
     });
     if (!wallet) throw new NotFoundException('Wallet not found for currency');
 
@@ -234,7 +244,7 @@ export class WalletService {
             type: TransactionType.WALLET_TOP_UP,
             status: TransactionStatus.COMPLETED,
             amount: moneyStr(amt),
-            currency: dto.currency,
+            currency: this.walletCurrency,
             direction: TransactionDirection.CREDIT,
             metadata: { reason: dto.reason ?? 'manual_or_alt_rail_topup', groupId: reference },
           },
@@ -305,8 +315,11 @@ export class WalletService {
       reason?: string;
     },
   ) {
+    if (params.currency !== this.walletCurrency) {
+      throw new BadRequestException('Only NGN credits are supported for now');
+    }
     return this.topUp(userId, {
-      currency: params.currency,
+      currency: this.walletCurrency,
       amount: params.amount,
       clientReference: params.reference,
       reason: params.reason ?? 'wallet_credit',
@@ -326,198 +339,9 @@ export class WalletService {
 
   /** Swap currencies safely with NGN fee. Platform receives fee when NGN is involved. */
   async swap(userId: string, dto: WalletSwapDto) {
-    if (dto.fromCurrency === dto.toCurrency) {
-      throw new BadRequestException('Cannot swap same currency');
-    }
-
-    const amount = toDecimal(dto.amount);
-    if (amount.lte(0)) {
-      throw new BadRequestException('Amount must be positive');
-    }
-
-    const [fromWallet, toWallet] = await Promise.all([
-      this.prisma.wallet.findFirst({ where: { userId, currency: dto.fromCurrency } }),
-      this.prisma.wallet.findFirst({ where: { userId, currency: dto.toCurrency } }),
-    ]);
-    if (!fromWallet || !toWallet) {
-      throw new NotFoundException('Wallets for swap not found');
-    }
-
-    const fxRate = await this.fxService.getExchangeRate(dto.fromCurrency, dto.toCurrency);
-    const fxRateDec = toDecimal(fxRate.toString());
-    if (fxRateDec.lte(0)) {
-      throw new BadRequestException('Invalid FX rate');
-    }
-    const toAmount = fixMoney(amount.mul(fxRateDec));
-
-    const feeCurrency = Currency.NGN;
-    const feeAmount = fixMoney(
-      dto.fromCurrency === feeCurrency || dto.toCurrency === feeCurrency
-        ? toDecimal(NGN_SWAP_FEE)
-        : toDecimal('0'),
-    );
-
-    const referenceBase = dto.clientReference ?? `SWAP-${Date.now()}-${userId}`;
-
-    const result = await this.prisma.$transaction(async (tx) => {
-      let fromBalance = toDecimal(fromWallet.balance.toString());
-      let toBalance = toDecimal(toWallet.balance.toString());
-
-      const feeDebitWalletId =
-        feeAmount.gt(0) && dto.fromCurrency === feeCurrency
-          ? fromWallet.id
-          : feeAmount.gt(0) && dto.toCurrency === feeCurrency
-            ? toWallet.id
-            : null;
-
-      if (feeAmount.gt(0)) {
-        if (dto.fromCurrency === feeCurrency) {
-          const totalDebit = amount.plus(feeAmount);
-          if (fromBalance.lt(totalDebit)) {
-            throw new BadRequestException('Insufficient balance for swap including fee');
-          }
-          fromBalance = fromBalance.minus(totalDebit);
-          toBalance = toBalance.plus(toAmount);
-        } else {
-          if (fromBalance.lt(amount)) {
-            throw new BadRequestException('Insufficient balance for swap');
-          }
-          if (toAmount.lt(feeAmount)) {
-            throw new BadRequestException('Swap amount too small to cover fee');
-          }
-          fromBalance = fromBalance.minus(amount);
-          toBalance = toBalance.plus(toAmount).minus(feeAmount);
-        }
-      } else {
-        if (fromBalance.lt(amount)) {
-          throw new BadRequestException('Insufficient balance for swap');
-        }
-        fromBalance = fromBalance.minus(amount);
-        toBalance = toBalance.plus(toAmount);
-      }
-
-      const updatedFrom = await tx.wallet.update({
-        where: { id: fromWallet.id },
-        data: { balance: moneyStr(fixMoney(fromBalance)) },
-      });
-
-      const updatedTo = await tx.wallet.update({
-        where: { id: toWallet.id },
-        data: { balance: moneyStr(fixMoney(toBalance)) },
-      });
-
-      let platformWallet: Awaited<ReturnType<typeof this.getPlatformWallet>> | null = null;
-      if (feeAmount.gt(0)) {
-        platformWallet = await this.getPlatformWallet(tx, feeCurrency);
-        const platformBalance = fixMoney(toDecimal(platformWallet.balance.toString()).plus(feeAmount));
-        await tx.wallet.update({
-          where: { id: platformWallet.id },
-          data: { balance: moneyStr(platformBalance) },
-        });
-      }
-
-      const debitMeta: Prisma.InputJsonValue = {
-        toCurrency: dto.toCurrency,
-        groupId: referenceBase,
-      };
-      const creditMeta: Prisma.InputJsonValue = {
-        fromCurrency: dto.fromCurrency,
-        groupId: referenceBase,
-      };
-      const feeMeta: Prisma.InputJsonValue = { feeType: 'SWAP_PROCESSING_FEE', groupId: referenceBase };
-
-      const transactions: Array<{
-        walletId: string;
-        userId: string;
-        reference: string;
-        groupId: string;
-        externalReference: null;
-        type: TransactionType;
-        status: TransactionStatus;
-        amount: string;
-        currency: Currency;
-        direction: TransactionDirection;
-        metadata: Prisma.InputJsonValue;
-      }> = [
-        {
-          walletId: fromWallet.id,
-          userId,
-          reference: `${referenceBase}-DEBIT`,
-          groupId: referenceBase,
-          externalReference: null,
-          type: TransactionType.WALLET_SWAP,
-          status: TransactionStatus.COMPLETED,
-          amount: moneyStr(fixMoney(amount)),
-          currency: dto.fromCurrency,
-          direction: TransactionDirection.DEBIT,
-          metadata: debitMeta,
-        },
-        {
-          walletId: toWallet.id,
-          userId,
-          reference: `${referenceBase}-CREDIT`,
-          groupId: referenceBase,
-          externalReference: null,
-          type: TransactionType.WALLET_SWAP,
-          status: TransactionStatus.COMPLETED,
-          amount: moneyStr(toAmount),
-          currency: dto.toCurrency,
-          direction: TransactionDirection.CREDIT,
-          metadata: creditMeta,
-        },
-      ];
-
-      if (feeAmount.gt(0) && platformWallet && feeDebitWalletId) {
-        transactions.push(
-          {
-            walletId: feeDebitWalletId,
-            userId,
-            reference: `${referenceBase}-FEE-DEBIT`,
-            groupId: referenceBase,
-            externalReference: null,
-            type: TransactionType.FEE,
-            status: TransactionStatus.COMPLETED,
-            amount: moneyStr(feeAmount),
-            currency: feeCurrency,
-            direction: TransactionDirection.DEBIT,
-            metadata: feeMeta,
-          },
-          {
-            walletId: platformWallet.id,
-            userId: PLATFORM_USER_ID,
-            reference: `${referenceBase}-FEE-CREDIT`,
-            groupId: referenceBase,
-            externalReference: null,
-            type: TransactionType.FEE,
-            status: TransactionStatus.COMPLETED,
-            amount: moneyStr(feeAmount),
-            currency: feeCurrency,
-            direction: TransactionDirection.CREDIT,
-            metadata: feeMeta,
-          },
-        );
-      }
-
-      await tx.transaction.createMany({ data: transactions });
-
-      return { updatedFrom, updatedTo, feeAmount };
-    });
-
-    return {
-      fromCurrency: dto.fromCurrency,
-      toCurrency: dto.toCurrency,
-      amount: formatMoney(amount),
-      receivedAmount: formatMoney(toAmount),
-      fee: formatMoney(result.feeAmount),
-      before: {
-        fromBalance: formatMoney(toDecimal(fromWallet.balance.toString())),
-        toBalance: formatMoney(toDecimal(toWallet.balance.toString())),
-      },
-      after: {
-        fromBalance: formatMoney(toDecimal(result.updatedFrom.balance.toString())),
-        toBalance: formatMoney(toDecimal(result.updatedTo.balance.toString())),
-      },
-    };
+    void userId;
+    void dto;
+    throw new BadRequestException('Swap feature coming soon');
   }
 
   /**

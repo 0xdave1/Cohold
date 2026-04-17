@@ -1,11 +1,14 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsString } from 'class-validator';
 import { Currency } from '@prisma/client';
+import { SUPPORTED_CURRENCIES } from '../../../common/constants/currency.constants';
 
 export class WalletSwapDto {
   @IsEnum(Currency)
+  @IsIn(SUPPORTED_CURRENCIES)
   fromCurrency!: Currency;
 
   @IsEnum(Currency)
+  @IsIn(SUPPORTED_CURRENCIES)
   toCurrency!: Currency;
 
   /**

@@ -1,11 +1,13 @@
-import { IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import { Currency } from '@prisma/client';
+import { SUPPORTED_CURRENCIES } from '../../../common/constants/currency.constants';
 
 export class P2PExecuteDto {
   @IsString()
   recipientUserId!: string;
 
   @IsEnum(Currency)
+  @IsIn(SUPPORTED_CURRENCIES)
   currency!: Currency;
 
   /** Decimal-safe amount as string */

@@ -8,10 +8,12 @@ import { normalizeUsername } from '../../common/username/username.util';
 import { P2PExecuteDto } from './dto/p2p-execute.dto';
 import { P2PPreviewDto } from './dto/p2p-preview.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SUPPORTED_CURRENCIES } from '../../common/constants/currency.constants';
 
 @Injectable()
 export class TransferService {
   private readonly logger = new Logger(TransferService.name);
+  private readonly transferCurrency = SUPPORTED_CURRENCIES[0];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -71,6 +73,9 @@ export class TransferService {
 
   async preview(senderId: string, dto: P2PPreviewDto) {
     await this.assertUserHasUsername(senderId);
+    if (dto.currency !== this.transferCurrency) {
+      throw new BadRequestException('Only NGN transfers are supported for now');
+    }
 
     if (dto.recipientUserId === senderId) {
       throw new BadRequestException('Cannot transfer to yourself');
@@ -85,10 +90,10 @@ export class TransferService {
         select: { id: true, username: true, firstName: true, lastName: true, isFrozen: true },
       }),
       this.prisma.wallet.findUnique({
-        where: { userId_currency: { userId: senderId, currency: dto.currency } },
+        where: { userId_currency: { userId: senderId, currency: this.transferCurrency } },
       }),
       this.prisma.wallet.findUnique({
-        where: { userId_currency: { userId: dto.recipientUserId, currency: dto.currency } },
+        where: { userId_currency: { userId: dto.recipientUserId, currency: this.transferCurrency } },
       }),
     ]);
 
@@ -103,7 +108,7 @@ export class TransferService {
     if (recipientAmount.lte(0)) throw new BadRequestException('Amount too small');
 
     return {
-      currency: dto.currency,
+      currency: this.transferCurrency,
       amount: formatMoney(amount),
       fee: formatMoney(fee),
       recipientAmount: formatMoney(recipientAmount),
@@ -118,6 +123,9 @@ export class TransferService {
 
   async execute(senderId: string, dto: P2PExecuteDto) {
     const senderUsername = await this.assertUserHasUsername(senderId);
+    if (dto.currency !== this.transferCurrency) {
+      throw new BadRequestException('Only NGN transfers are supported for now');
+    }
 
     if (dto.recipientUserId === senderId) {
       throw new BadRequestException('Cannot transfer to yourself');
@@ -147,10 +155,10 @@ export class TransferService {
 
     const [senderWallet, recipientWallet] = await Promise.all([
       this.prisma.wallet.findUnique({
-        where: { userId_currency: { userId: senderId, currency: dto.currency } },
+        where: { userId_currency: { userId: senderId, currency: this.transferCurrency } },
       }),
       this.prisma.wallet.findUnique({
-        where: { userId_currency: { userId: dto.recipientUserId, currency: dto.currency } },
+        where: { userId_currency: { userId: dto.recipientUserId, currency: this.transferCurrency } },
       }),
     ]);
     if (!senderWallet) throw new BadRequestException('Sender wallet not found for currency');
@@ -192,7 +200,7 @@ export class TransferService {
           data: {
             senderId,
             recipientId: recipient.id,
-            currency: dto.currency,
+            currency: this.transferCurrency,
             amount: moneyStr(amount),
             fee: moneyStr(fee),
             recipientAmount: moneyStr(recipientAmount),
@@ -231,7 +239,7 @@ export class TransferService {
               amount: moneyStr(amount),
               fee: moneyStr(fee),
               netAmount: moneyStr(recipientAmount),
-              currency: dto.currency,
+              currency: this.transferCurrency,
               direction: TransactionDirection.DEBIT,
               metadata: senderMeta,
             },
@@ -246,7 +254,7 @@ export class TransferService {
               amount: moneyStr(recipientAmount),
               fee: null,
               netAmount: moneyStr(recipientAmount),
-              currency: dto.currency,
+              currency: this.transferCurrency,
               direction: TransactionDirection.CREDIT,
               metadata: recipientMeta,
             },
@@ -261,7 +269,7 @@ export class TransferService {
         await this.notificationsService.notifyIncomingP2PReceived(
           recipient.id,
           formatMoney(amount),
-          dto.currency,
+          this.transferCurrency,
           senderUsername,
           created.id,
         );
@@ -387,20 +395,16 @@ export class TransferService {
 
     // Backward-compatible endpoint: preserve legacy behavior (first wallet) while enforcing username.
     const [senderWallet, recipientWallet] = await Promise.all([
-      this.prisma.wallet.findFirst({
-        where: { userId: sender.id },
+      this.prisma.wallet.findUnique({
+        where: { userId_currency: { userId: sender.id, currency: this.transferCurrency } },
       }),
-      this.prisma.wallet.findFirst({
-        where: { userId: recipient.id },
+      this.prisma.wallet.findUnique({
+        where: { userId_currency: { userId: recipient.id, currency: this.transferCurrency } },
       }),
     ]);
 
     if (!senderWallet || !recipientWallet) {
       throw new BadRequestException('Both users must have wallets');
-    }
-
-    if (senderWallet.currency !== recipientWallet.currency) {
-      throw new BadRequestException('P2P transfer requires same-currency wallets for now');
     }
 
     const senderBalance = toDecimal(senderWallet.balance.toString());
