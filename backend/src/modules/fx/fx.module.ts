@@ -1,10 +1,10 @@
 import { Global, Module } from '@nestjs/common';
 import { FxService } from './fx.service';
-import { CacheModule } from '../cache/cache.module';
+import { RedisModule } from '../redis/redis.module';
 
 @Global()
 @Module({
-  imports: [CacheModule],
+  imports: [RedisModule],
   providers: [FxService],
   exports: [FxService],
 })

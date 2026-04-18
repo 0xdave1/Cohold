@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CacheService } from '../cache/cache.service';
+
 import { Currency } from '@prisma/client';
 import { toDecimal } from '../../common/money/decimal.util';
 import axios, { AxiosInstance } from 'axios';
@@ -18,7 +18,7 @@ export class FxService {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly cacheService: CacheService,
+    
   ) {
     // For free tier, no API key needed. For paid tiers, use EXCHANGE_RATE_API_KEY
     this._apiKey = this.configService.get<string>('fx.apiKey') ?? null;
@@ -38,11 +38,8 @@ export class FxService {
       return 1;
     }
 
-    const cacheKey = `fx:${from}:${to}`;
-    const cached = await this.cacheService.get<number>(cacheKey);
-    if (cached) {
-      return cached;
-    }
+    
+    
 
     try {
       // exchangerate-api.io: free tier no key; paid tier can use EXCHANGE_RATE_API_KEY
@@ -57,7 +54,7 @@ export class FxService {
       }
 
       // Cache for 5 minutes
-      await this.cacheService.set(cacheKey, rate, 300);
+      
 
       return rate;
     } catch (error: any) {
