@@ -23,7 +23,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     const url =
       this.configService.get<string>('config.redis.url') ??
-      this.configService.get<string>('REDIS_URL'); // fallback (some modules may read env directly in tests)
+      this.configService.get<string>('REDIS_URL');
 
     if (!url) {
       this.enabled = false;
@@ -34,14 +34,17 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     this.enabled = true;
     this.client = createClient({ url });
 
-    this.client.on('connect', () => this.logger.log('Redis connecting…'));
+    this.client.on('connect', () => this.logger.log('Redis connecting...'));
     this.client.on('ready', () => this.logger.log('Redis ready.'));
-    this.client.on('reconnecting', () => this.logger.warn('Redis reconnecting…'));
-    this.client.on('error', (err) => this.logger.error(`Redis error: ${err?.message ?? err}`));
+    this.client.on('reconnecting', () => this.logger.warn('Redis reconnecting...'));
+    this.client.on('error', (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Redis error: ${message}`);
+    });
 
-    // Fire-and-forget connect; consumers will see RedisUnavailableError if not ready.
-    void this.client.connect().catch((err) => {
-      this.logger.error(`Redis connect failed: ${err?.message ?? err}`);
+    void this.client.connect().catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Redis connect failed: ${message}`);
     });
   }
 
@@ -49,21 +52,17 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     if (this.client) {
       try {
         await this.client.quit();
-      } catch (e) {
-        this.logger.warn(`Redis quit failed: ${(e as Error)?.message ?? e}`);
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        this.logger.warn(`Redis quit failed: ${message}`);
       } finally {
         this.client = null;
       }
     }
   }
 
-  /**
-   * Raw Redis client accessor (avoid using directly unless needed).
-   * Prefer helper methods to keep key semantics consistent.
-   */
   raw(): RedisClientType {
-    const c = this.assertClient();
-    return c;
+    return this.assertClient();
   }
 
   isEnabled(): boolean {
@@ -71,15 +70,17 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   private assertClient(): RedisClientType {
-    if (!this.enabled || !this.client) throw new RedisUnavailableError();
+    if (!this.enabled || !this.client || !this.client.isOpen) {
+      throw new RedisUnavailableError();
+    }
     return this.client;
   }
 
   async get<T = unknown>(key: string): Promise<T | null> {
     const c = this.assertClient();
-    const v = await c.get(key);
-    if (v == null) return null;
-    return JSON.parse(v) as T;
+    const value = await c.get(key);
+    if (value == null) return null;
+    return JSON.parse(value) as T;
   }
 
   async set(
@@ -96,14 +97,17 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       await c.set(key, payload, { EX: ttl, NX: true });
       return;
     }
+
     if (ttl && ttl > 0) {
       await c.set(key, payload, { EX: ttl });
       return;
     }
+
     if (nx) {
       await c.set(key, payload, { NX: true });
       return;
     }
+
     await c.set(key, payload);
   }
 
@@ -114,16 +118,15 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async increment(key: string, by = 1, ttlSeconds?: number): Promise<number> {
     const c = this.assertClient();
-    // Use a small transaction to preserve TTL on first creation.
     const multi = c.multi();
     multi.incrBy(key, by);
+
     if (ttlSeconds && ttlSeconds > 0) {
-      // Ensure TTL exists; `EXPIRE` is idempotent.
       multi.expire(key, ttlSeconds);
     }
+
     const res = await multi.exec();
     const first = res?.[0] as unknown;
-    // redis v4 returns number directly for INCRBY in MULTI responses.
     return typeof first === 'number' ? first : Number(first);
   }
 
@@ -132,4 +135,3 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return c.expire(key, ttlSeconds);
   }
 }
-
