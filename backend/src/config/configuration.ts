@@ -13,7 +13,6 @@ export default registerAs('config', () => ({
   db: {
     url: process.env.DATABASE_URL,
   },
-  // Redis temporarily disabled – can be re-enabled later
   redis: { url: process.env.REDIS_URL },
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET,

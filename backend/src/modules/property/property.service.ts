@@ -3,10 +3,44 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertyStatus } from '@prisma/client';
 import { formatHighPrecision, toDecimal } from '../../common/money/decimal.util';
+import { CacheService } from '../cache/cache.service';
 
 @Injectable()
 export class PropertyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: CacheService,
+  ) {}
+
+  /**
+   * Safe caching boundary:
+   * Property listing/detail data is safe to cache briefly (non-money source of truth).
+   * Never cache wallet balances, ledger, or ownership state here.
+   */
+  private keyList(page: number, limit: number) {
+    return `properties:list:${page}:${limit}`;
+  }
+  private keyDetail(id: string) {
+    return `properties:detail:${id}`;
+  }
+  private keyDetails(id: string) {
+    return `properties:details:${id}`;
+  }
+
+  private async bustPropertyCaches(propertyId?: string) {
+    // Keep invalidation conservative and cheap:
+    // - bust the updated property’s detail keys
+    // - bust the first few listing pages (common hot reads)
+    const tasks: Promise<any>[] = [];
+    if (propertyId) {
+      tasks.push(this.cache.del(this.keyDetail(propertyId)));
+      tasks.push(this.cache.del(this.keyDetails(propertyId)));
+    }
+    for (const page of [1, 2, 3]) {
+      tasks.push(this.cache.del(this.keyList(page, 20)));
+    }
+    await Promise.all(tasks);
+  }
 
   async createProperty(adminId: string, dto: CreatePropertyDto) {
     const totalValue = toDecimal(dto.totalValue);
@@ -50,6 +84,8 @@ export class PropertyService {
       },
     });
 
+    // Property listing is safe to cache; invalidate after writes.
+    await this.bustPropertyCaches(property.id);
     return property;
   }
 
@@ -78,6 +114,7 @@ export class PropertyService {
       },
     });
 
+    await this.bustPropertyCaches(propertyId);
     return updated;
   }
 
@@ -106,6 +143,7 @@ export class PropertyService {
       },
     });
 
+    await this.bustPropertyCaches(propertyId);
     return updated;
   }
 
@@ -134,11 +172,19 @@ export class PropertyService {
       },
     });
 
+    await this.bustPropertyCaches(propertyId);
     return updated;
   }
 
   /** List all properties (no approval filter). Returns all non-deleted for user investment listing. */
   async listPublished(page = 1, limit = 20) {
+    const cacheKey = this.keyList(page, limit);
+    const cached = await this.cache.get<{
+      items: any[];
+      meta: { page: number; limit: number; total: number };
+    }>(cacheKey);
+    if (cached) return cached;
+
     const skip = (page - 1) * limit;
     const where = { deletedAt: null };
     const [items, total] = await Promise.all([
@@ -166,7 +212,7 @@ export class PropertyService {
       }),
       this.prisma.property.count({ where }),
     ]);
-    return {
+    const result = {
       items: items.map((p) => ({
         ...p,
         totalValue: p.totalValue.toString(),
@@ -181,10 +227,16 @@ export class PropertyService {
       })),
       meta: { page, limit, total },
     };
+    await this.cache.set(cacheKey, result, 30);
+    return result;
   }
 
   /** Get a single property by id (for user-facing listing detail). No approval filter. */
   async getPublishedById(id: string) {
+    const cacheKey = this.keyDetail(id);
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
+
     const property = await this.prisma.property.findFirst({
       where: { id, deletedAt: null },
       select: {
@@ -206,7 +258,7 @@ export class PropertyService {
     if (!property) {
       throw new NotFoundException('Property not found');
     }
-    return {
+    const result = {
       ...property,
       totalValue: property.totalValue.toString(),
       sharePrice: property.sharePrice.toString(),
@@ -215,9 +267,15 @@ export class PropertyService {
       sharesTotal: property.sharesTotal.toString(),
       sharesSold: property.sharesSold.toString(),
     };
+    await this.cache.set(cacheKey, result, 30); // short TTL: safe to be slightly stale
+    return result;
   }
 
   async getDetails(propertyId: string) {
+    const cacheKey = this.keyDetails(propertyId);
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
+
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
       include: {
@@ -235,10 +293,12 @@ export class PropertyService {
       ? soldShares.div(totalShares).mul(100)
       : toDecimal(0);
 
-    return {
+    const result = {
       ...property,
       fundingProgressPercent: formatHighPrecision(progress),
     };
+    await this.cache.set(cacheKey, result, 30);
+    return result;
   }
 }
 

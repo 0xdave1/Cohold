@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Injectable,
   Logger,
-  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -13,10 +12,11 @@ import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { EmailService } from '../email/email.service';
-import { CacheService } from '../cache/cache.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Currency } from '@prisma/client';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { AuthOtpService, type OtpPurpose } from './auth-otp.service';
+import { AuthAttemptsService } from './auth-attempts.service';
 
 @Injectable()
 export class AuthService {
@@ -27,8 +27,9 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
-    private readonly cacheService: CacheService,
     private readonly notificationsService: NotificationsService,
+    private readonly otpStore: AuthOtpService,
+    private readonly attempts: AuthAttemptsService,
   ) {}
 
   async validateUser(email: string, password: string) {
@@ -36,8 +37,16 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('Invalid credentials');
     if (user.isFrozen) throw new UnauthorizedException('Account is disabled');
 
+    await this.attempts.assertEmailNotLockedForLogin(email);
+
     const passwordValid = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
+    if (!passwordValid) {
+      await this.attempts.recordLoginFailure(email);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Successful login clears failures for this email.
+    await this.attempts.reset('login', email.trim().toLowerCase());
 
     return user;
   }
@@ -72,7 +81,7 @@ export class AuthService {
   }
 
   /** Request a 6-digit OTP and send via email */
-  async requestOtp(email: string, purpose: 'signup' | 'login' | 'transaction' | 'delete_account' = 'signup') {
+  async requestOtp(email: string, purpose: OtpPurpose = 'signup') {
     if (purpose === 'signup') {
       const row = await this.prisma.user.findUnique({
         where: { email },
@@ -104,9 +113,24 @@ export class AuthService {
       }
     }
 
+    // Prevent OTP spamming (per-purpose per-email).
+    await this.attempts.assertEmailNotLockedForOtpRequest(purpose, email);
+    const reqCount = await this.attempts.recordOtpRequest(purpose, email);
+    if (reqCount >= 3) {
+      // recordOtpRequest already locks when threshold is reached
+      this.logger.warn(`OTP request threshold reached for ${purpose}:${email}`);
+    }
+
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const cacheKey = `otp:${email}:${purpose}`;
-    await this.cacheService.set(cacheKey, otp, 600); // 10 minutes
+    const ttlSeconds = 600; // 10 minutes
+
+    if (purpose === 'transaction') {
+      const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
+      if (!user) throw new BadRequestException('No account found for this email.');
+      await this.otpStore.storeTxnOtp(user.id, otp, ttlSeconds);
+    } else {
+      await this.otpStore.storeEmailOtp(purpose === 'login' ? 'login' : purpose, email, otp, ttlSeconds);
+    }
 
     await this.emailService.sendOtpEmail(
       email,
@@ -116,13 +140,35 @@ export class AuthService {
   }
 
   /** Verify OTP from cache */
-  async verifyOtp(dto: VerifyOtpDto, purpose: 'signup' | 'login' | 'transaction' | 'delete_account' = 'signup'): Promise<boolean> {
-    const cacheKey = `otp:${dto.email}:${purpose}`;
-    const storedOtp = await this.cacheService.get<string>(cacheKey);
+  async verifyOtp(dto: VerifyOtpDto, purpose: OtpPurpose = 'signup'): Promise<boolean> {
+    // Lockouts for repeated OTP failures.
+    await this.attempts.assertEmailNotLockedForOtpVerify(purpose, dto.email);
 
-    if (!storedOtp || storedOtp !== dto.otp) throw new UnauthorizedException('Invalid or expired OTP');
+    if (purpose === 'transaction') {
+      // Backwards-compatible: if transaction OTP is verified through this endpoint, look up userId.
+      const user = await this.prisma.user.findUnique({
+        where: { email: dto.email },
+        select: { id: true },
+      });
+      if (!user) throw new BadRequestException('No account found for this email.');
+      const stored = await this.otpStore.readTxnOtp(user.id);
+      if (!stored || stored !== dto.otp) {
+        await this.attempts.recordOtpVerifyFailure(purpose, dto.email);
+        throw AuthAttemptsService.invalidOtp();
+      }
+      await this.otpStore.consumeTxnOtp(user.id);
+      await this.attempts.reset('otp-verify', `${purpose}:${dto.email.trim().toLowerCase()}`);
+      return true;
+    }
 
-    await this.cacheService.del(cacheKey);
+    const storedOtp = await this.otpStore.readEmailOtp(purpose, dto.email);
+    if (!storedOtp || storedOtp !== dto.otp) {
+      await this.attempts.recordOtpVerifyFailure(purpose, dto.email);
+      throw AuthAttemptsService.invalidOtp();
+    }
+
+    await this.otpStore.consumeEmailOtp(purpose, dto.email);
+    await this.attempts.reset('otp-verify', `${purpose}:${dto.email.trim().toLowerCase()}`);
     return true;
   }
 
@@ -131,14 +177,14 @@ export class AuthService {
    * Consumes the OTP on success.
    */
   async verifyTransactionOtpForUser(userId: string, otp: string): Promise<void> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true },
-    });
-    if (!user) {
-      throw new NotFoundException('User not found');
+    await this.attempts.assertNotLockedTxnOtpVerify(userId);
+    const stored = await this.otpStore.readTxnOtp(userId);
+    if (!stored || stored !== otp) {
+      await this.attempts.recordTxnOtpVerifyFailure(userId);
+      throw AuthAttemptsService.invalidOtp();
     }
-    await this.verifyOtp({ email: user.email, otp } as VerifyOtpDto, 'transaction');
+    await this.otpStore.consumeTxnOtp(userId);
+    await this.attempts.reset('txn-otp-verify', userId);
   }
 
   /** Signup user (creates account, wallets, and sends OTP) */
@@ -267,8 +313,12 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto) {
-    // Frontend uses purpose 'login' when requesting OTP for reset.
-    await this.verifyOtp({ email: dto.email, otp: dto.otp } as VerifyOtpDto, 'login');
+    // Prefer reset OTP purpose; keep backwards compatibility with older clients using 'login'.
+    try {
+      await this.verifyOtp({ email: dto.email, otp: dto.otp } as VerifyOtpDto, 'reset');
+    } catch (e) {
+      await this.verifyOtp({ email: dto.email, otp: dto.otp } as VerifyOtpDto, 'login');
+    }
 
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (!user) throw new BadRequestException('User not found');

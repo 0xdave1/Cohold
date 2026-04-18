@@ -5,7 +5,7 @@ export class OtpRequestDto {
   email!: string;
 
   /**
-   * Purpose of OTP: 'signup' | 'login' | 'transaction' | 'delete_account'
+   * Purpose of OTP: 'signup' | 'login' | 'reset' | 'transaction' | 'delete_account'
    */
-  purpose?: 'signup' | 'login' | 'transaction' | 'delete_account';
+  purpose?: 'signup' | 'login' | 'reset' | 'transaction' | 'delete_account';
 }

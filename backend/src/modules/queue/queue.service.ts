@@ -1,45 +1,86 @@
-// Redis/Queue temporarily disabled – can be re-enabled later
+import { Injectable, Logger, OnModuleDestroy, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { ConnectionOptions, JobsOptions, Queue, Worker } from 'bullmq';
 
-import { Injectable } from '@nestjs/common';
-
-type SupportedQueueName =
-  | 'email'
-  | 'payment-reconciliation'
-  | 'document-processing'
-  | 'distribution'
-  | 'audit';
-
-type Queue = any;
-type Worker = any;
-type JobsOptions = any;
+type SupportedQueueName = 'email' | 'payment-reconciliation' | 'document-processing' | 'distribution' | 'audit';
 
 @Injectable()
-export class QueueService {
-  constructor() {}
+export class QueueService implements OnModuleDestroy {
+  private readonly logger = new Logger(QueueService.name);
+  private readonly queues = new Map<SupportedQueueName, Queue>();
+  private readonly workers: Worker[] = [];
+  private connection: ConnectionOptions | null = null;
+  private enabled = false;
 
-  getQueue(_name: SupportedQueueName): Queue {
-    throw new Error(
-      'Redis temporarily disabled – cannot use queues. Re-enable Redis and BullMQ in queue.service.ts to use QueueService.getQueue().',
-    );
+  constructor(private readonly configService: ConfigService) {
+    const url = this.configService.get<string>('config.redis.url');
+    if (!url) {
+      this.enabled = false;
+      this.logger.warn('REDIS_URL not set. BullMQ queues are disabled.');
+      return;
+    }
+    this.enabled = true;
+    const parsed = new URL(url);
+    const port = parsed.port ? parseInt(parsed.port, 10) : 6379;
+    this.connection = {
+      host: parsed.hostname,
+      port,
+      username: parsed.username || undefined,
+      password: parsed.password || undefined,
+      tls: parsed.protocol === 'rediss:' ? {} : undefined,
+      maxRetriesPerRequest: null, // recommended for BullMQ
+    };
+    this.logger.log('BullMQ queues enabled.');
+  }
+
+  private assertEnabled() {
+    if (!this.enabled || !this.connection) {
+      throw new ServiceUnavailableException('Queue infrastructure unavailable.');
+    }
+  }
+
+  getQueue(name: SupportedQueueName): Queue {
+    this.assertEnabled();
+    const existing = this.queues.get(name);
+    if (existing) return existing;
+
+    const q = new Queue(name, { connection: this.connection! });
+    this.queues.set(name, q);
+    return q;
   }
 
   async addJob<T = any>(
-    _name: SupportedQueueName,
-    _jobName: string,
-    _data: T,
-    _opts?: JobsOptions,
+    name: SupportedQueueName,
+    jobName: string,
+    data: T,
+    opts?: JobsOptions,
   ): Promise<void> {
-    throw new Error(
-      'Redis temporarily disabled – cannot add jobs. Re-enable Redis and BullMQ in queue.service.ts to use QueueService.addJob().',
-    );
+    const q = this.getQueue(name);
+    await q.add(jobName, data, opts);
   }
 
   createWorker<T = any>(
-    _name: SupportedQueueName,
-    _processor: (job: { data: T }) => Promise<void>,
+    name: SupportedQueueName,
+    processor: (job: { data: T }) => Promise<void>,
   ): Worker {
-    throw new Error(
-      'Redis temporarily disabled – cannot create workers. Re-enable Redis and BullMQ in queue.service.ts to use QueueService.createWorker().',
+    this.assertEnabled();
+    const worker = new Worker(
+      name,
+      async (job) => processor({ data: job.data as T }),
+      { connection: this.connection! },
     );
+    worker.on('failed', (job, err) => {
+      this.logger.error(`Worker failed (${name}) job=${job?.id}: ${err?.message ?? err}`);
+    });
+    this.workers.push(worker);
+    return worker;
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await Promise.allSettled(this.workers.map((w) => w.close()));
+    await Promise.allSettled(Array.from(this.queues.values()).map((q) => q.close()));
+    this.workers.length = 0;
+    this.queues.clear();
+    this.connection = null;
   }
 }

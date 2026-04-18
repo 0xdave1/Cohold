@@ -9,9 +9,15 @@ export const validationSchema = Joi.object({
 
   DATABASE_URL: Joi.string().uri().required(),
 
-  // Redis temporarily disabled – can be re-enabled later
-  // REDIS_URL: Joi.string().uri().required(),
-  REDIS_URL: Joi.string().uri().optional(),
+  // Redis powers OTP, attempt lockouts, safe caching, and queues (ephemeral state only).
+  // Postgres remains the source of truth for money, ledger, and ownership state.
+  REDIS_URL: Joi.string()
+    .uri()
+    .when('NODE_ENV', {
+      is: Joi.valid('production', 'staging'),
+      then: Joi.required(),
+      otherwise: Joi.optional(),
+    }),
 
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),

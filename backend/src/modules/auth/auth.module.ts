@@ -6,8 +6,9 @@ import { AuthController } from './auth.controller';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminRoleGuard } from '../../common/guards/admin-role.guard';
 import { EmailModule } from '../email/email.module';
-import { CacheModule } from '../cache/cache.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AuthOtpService } from './auth-otp.service';
+import { AuthAttemptsService } from './auth-attempts.service';
 
 @Global()
 @Module({
@@ -22,11 +23,10 @@ import { NotificationsModule } from '../notifications/notifications.module';
       }),
     }),
     EmailModule,
-    CacheModule,
     NotificationsModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard, AdminRoleGuard],
+  providers: [AuthService, AuthOtpService, AuthAttemptsService, JwtAuthGuard, AdminRoleGuard],
   exports: [AuthService, JwtModule, JwtAuthGuard, AdminRoleGuard],
 })
 export class AuthModule {}

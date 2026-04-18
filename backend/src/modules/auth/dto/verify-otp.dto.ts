@@ -9,7 +9,7 @@ export class VerifyOtpDto {
   otp!: string;
 
   @IsOptional()
-  @IsIn(['signup', 'login', 'transaction', 'delete_account'])
-  purpose?: 'signup' | 'login' | 'transaction' | 'delete_account';
+  @IsIn(['signup', 'login', 'reset', 'transaction', 'delete_account'])
+  purpose?: 'signup' | 'login' | 'reset' | 'transaction' | 'delete_account';
 }
 

@@ -17,8 +17,8 @@ import { AdminModule } from './modules/admin/admin.module';
 import { DistributionModule } from './modules/distribution/distribution.module';
 import { WebhookModule } from './modules/webhook/webhook.module';
 import { QueueModule } from './modules/queue/queue.module';
-// Redis temporarily disabled – CacheModule kept; CacheService uses in-memory fallback
 import { CacheModule as CoholdCacheModule } from './modules/cache/cache.module';
+import { RedisModule } from './modules/redis/redis.module';
 import { SearchModule } from './modules/search/search.module';
 import { GatewayModule } from './modules/gateway/gateway.module';
 import { EmailModule } from './modules/email/email.module';
@@ -46,7 +46,8 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
       },
     ]),
     PrismaModule,
-    CoholdCacheModule, // uses in-memory cache while Redis disabled
+    RedisModule,
+    CoholdCacheModule, // Redis-backed when configured; otherwise in-memory safe cache
     QueueModule,
     SearchModule,
     GatewayModule,
