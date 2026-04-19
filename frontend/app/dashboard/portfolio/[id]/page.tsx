@@ -182,15 +182,18 @@ export default function PortfolioInvestmentPage() {
             <p className="text-xs text-dashboard-body">No documents uploaded for this listing.</p>
           ) : (
             (property?.documents ?? []).map((d) => (
-              <div
+              <a
                 key={d.id}
+                href={d.url}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex items-center justify-between rounded-lg border border-dashboard-border px-3 py-2"
               >
                 <div>
                   <p className="text-xs font-medium text-dashboard-heading">{d.type}</p>
                   <p className="text-[10px] text-dashboard-body">Document</p>
                 </div>
-              </div>
+              </a>
             ))
           )}
         </div>

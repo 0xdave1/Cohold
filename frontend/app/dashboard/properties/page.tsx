@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useProperties } from '@/lib/hooks/use-properties';
 import { formatMoney } from '@/lib/hooks/use-wallet';
 import Link from 'next/link';
+import Image from 'next/image';
 import { detectListingMode, modeLabel } from '@/lib/listings/category';
 import { formatAnnualYieldPercent } from '@/lib/format/yield';
 
@@ -81,6 +82,16 @@ export default function PropertiesPage() {
                 className="rounded-xl border border-dashboard-border bg-dashboard-card overflow-hidden shadow-[0_1px_2px_rgba(0,0,0,0.05)] block"
               >
                 <div className="relative h-32 bg-dashboard-border/60">
+                  {p.coverImageUrl ? (
+                    <Image
+                      src={p.coverImageUrl}
+                      alt={p.title}
+                      fill
+                      sizes="(max-width: 768px) 100vw, 600px"
+                      className="h-full w-full object-cover"
+                      unoptimized
+                    />
+                  ) : null}
                   <div className="absolute left-2 top-2 flex gap-1.5">
                     <span className="rounded-md bg-[#D6EDF8] px-2 py-0.5 text-[10px] font-medium text-[#0A4A74]">
                       {modeLabel(category)}

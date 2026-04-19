@@ -21,16 +21,25 @@ export interface Property {
   annualYield?: string | null;
   status: string;
   createdAt: string;
+  coverImageUrl?: string | null;
 }
 
 export interface PropertyDocument {
   id: string;
   type: string;
-  s3Key: string;
+  url: string;
+}
+
+export interface PropertyImage {
+  id: string;
+  url: string;
+  altText?: string | null;
+  position: number;
 }
 
 export interface PropertyDetails extends Property {
   investments?: Array<{ userId: string; amount: string }>;
+  images?: PropertyImage[];
   documents?: PropertyDocument[];
   fundingProgressPercent?: string;
   /** Unitless rate from API, e.g. 0.125 = 12.5% p.a. */

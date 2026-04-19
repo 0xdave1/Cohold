@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useMemo } from 'react';
+import Image from 'next/image';
 import { usePropertyDetails } from '@/lib/hooks/use-properties';
 import { useMyInvestments } from '@/lib/hooks/use-investments';
 import { formatMoney } from '@/lib/hooks/use-wallet';
@@ -80,6 +81,8 @@ export default function PropertyDetailPage() {
       : `/dashboard/properties/${id}/own-home`;
   const installmentPath = `/dashboard/properties/${id}/installment`;
   const investorCount = property.investments?.length ?? 0;
+  const galleryImages = property.images ?? [];
+  const heroImage = galleryImages[0]?.url ?? property.coverImageUrl ?? null;
 
   const sharesTotalNum = Number(sharesTotal);
   const sharesSoldNum = Number(sharesSold);
@@ -115,7 +118,7 @@ export default function PropertyDetailPage() {
         <BackIconButton href="/dashboard/properties" />
       </div>
 
-      <ListingHero title={property.title} />
+      <ListingHero title={property.title} imageUrl={heroImage} imageCount={galleryImages.length} />
 
       <div className="space-y-2">
         <h1 className="text-[28px] leading-8 font-semibold text-dashboard-heading">{property.title}</h1>
@@ -340,10 +343,43 @@ export default function PropertyDetailPage() {
         </div>
       </SectionCard>
 
+      <SectionCard title={isLand ? 'Land gallery' : 'Property gallery'}>
+        {galleryImages.length > 0 ? (
+          <div className="grid grid-cols-2 gap-2">
+            {galleryImages.map((img) => (
+              <a
+                key={img.id}
+                href={img.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative block h-24 overflow-hidden rounded-lg border border-dashboard-border"
+              >
+                <Image
+                  src={img.url}
+                  alt={img.altText ?? property.title}
+                  fill
+                  sizes="200px"
+                  className="h-full w-full object-cover"
+                  unoptimized
+                />
+              </a>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-dashboard-body">No property images uploaded yet.</p>
+        )}
+      </SectionCard>
+
       <SectionCard title={isLand ? 'Land documents' : 'Property documents'}>
         <div className="space-y-2">
           {(property.documents ?? []).slice(0, 6).map((d) => (
-            <div key={d.id} className="flex items-center justify-between rounded-lg border border-dashboard-border px-3 py-2">
+            <a
+              key={d.id}
+              href={d.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between rounded-lg border border-dashboard-border px-3 py-2"
+            >
               <div>
                 <p className="text-xs font-medium text-dashboard-heading">{d.type}</p>
                 <p className="text-[10px] text-dashboard-body">PDF</p>
@@ -351,7 +387,7 @@ export default function PropertyDetailPage() {
               <svg className="h-4 w-4 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l7-7m0 0h-6m6 0v6M10 14l-7 7m0 0h6m-6 0v-6" />
               </svg>
-            </div>
+            </a>
           ))}
           {(!property.documents || property.documents.length === 0) && (
             <p className="text-xs text-dashboard-body">No documents uploaded yet.</p>

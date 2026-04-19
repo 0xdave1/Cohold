@@ -4,13 +4,65 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertyStatus } from '@prisma/client';
 import { formatHighPrecision, toDecimal } from '../../common/money/decimal.util';
 import { RedisService, RedisUnavailableError } from '../redis/redis.service';
+import { StorageService } from '../storage/storage.service';
 
 @Injectable()
 export class PropertyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly storage: StorageService,
   ) {}
+
+  private async signedReadUrlOrNull(key: string | null | undefined): Promise<string | null> {
+    if (!key) return null;
+    return this.storage.createSignedReadUrl(key, 300).catch(() => null);
+  }
+
+  private async buildPublicImages(propertyId: string) {
+    const images = await this.prisma.propertyImage.findMany({
+      where: { propertyId },
+      orderBy: { position: 'asc' },
+      select: {
+        id: true,
+        storageKey: true,
+        url: true,
+        altText: true,
+        position: true,
+      },
+    });
+
+    return Promise.all(
+      images.map(async (img) => ({
+        id: img.id,
+        url: (await this.signedReadUrlOrNull(img.storageKey)) ?? img.url ?? '',
+        altText: img.altText ?? null,
+        position: img.position,
+      })),
+    );
+  }
+
+  private async buildPublicDocuments(propertyId: string) {
+    const docs = await this.prisma.propertyDocument.findMany({
+      where: { propertyId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        type: true,
+        s3Key: true,
+      },
+    });
+
+    const mapped = await Promise.all(
+      docs.map(async (doc) => ({
+        id: doc.id,
+        type: doc.type,
+        url: await this.signedReadUrlOrNull(doc.s3Key),
+      })),
+    );
+
+    return mapped.filter((d) => Boolean(d.url)) as Array<{ id: string; type: string; url: string }>;
+  }
 
   /**
    * Safe caching boundary:
@@ -243,24 +295,45 @@ export class PropertyService {
           annualYield: true,
           status: true,
           createdAt: true,
+          images: {
+            orderBy: { position: 'asc' },
+            take: 1,
+            select: {
+              storageKey: true,
+              url: true,
+            },
+          },
         },
       }),
       this.prisma.property.count({ where }),
     ]);
 
+    const mappedItems = await Promise.all(
+      items.map(async (p) => {
+        const firstImage = p.images[0];
+        const coverImageUrl = firstImage
+          ? (await this.signedReadUrlOrNull(firstImage.storageKey)) ?? firstImage.url ?? null
+          : null;
+
+        return {
+          ...p,
+          images: undefined,
+          coverImageUrl,
+          totalValue: p.totalValue.toString(),
+          sharePrice: p.sharePrice.toString(),
+          fundingGoal: p.totalValue.toString(),
+          fundedAmount: p.currentRaised.toString(),
+          minInvestment: p.minInvestment.toString(),
+          currentRaised: p.currentRaised.toString(),
+          sharesTotal: p.sharesTotal.toString(),
+          sharesSold: p.sharesSold.toString(),
+          annualYield: p.annualYield != null ? p.annualYield.toString() : null,
+        };
+      }),
+    );
+
     const result = {
-      items: items.map((p) => ({
-        ...p,
-        totalValue: p.totalValue.toString(),
-        sharePrice: p.sharePrice.toString(),
-        fundingGoal: p.totalValue.toString(),
-        fundedAmount: p.currentRaised.toString(),
-        minInvestment: p.minInvestment.toString(),
-        currentRaised: p.currentRaised.toString(),
-        sharesTotal: p.sharesTotal.toString(),
-        sharesSold: p.sharesSold.toString(),
-        annualYield: p.annualYield != null ? p.annualYield.toString() : null,
-      })),
+      items: mappedItems,
       meta: { page, limit, total },
     };
 
@@ -290,6 +363,14 @@ export class PropertyService {
         sharesSold: true,
         status: true,
         createdAt: true,
+        images: {
+          orderBy: { position: 'asc' },
+          take: 1,
+          select: {
+            storageKey: true,
+            url: true,
+          },
+        },
       },
     });
 
@@ -299,6 +380,10 @@ export class PropertyService {
 
     const result = {
       ...property,
+      images: undefined,
+      coverImageUrl: property.images[0]
+        ? (await this.signedReadUrlOrNull(property.images[0].storageKey)) ?? property.images[0].url ?? null
+        : null,
       totalValue: property.totalValue.toString(),
       sharePrice: property.sharePrice.toString(),
       minInvestment: property.minInvestment.toString(),
@@ -321,7 +406,6 @@ export class PropertyService {
       where: { id: propertyId },
       include: {
         investments: true,
-        documents: true,
       },
     });
 
@@ -335,8 +419,15 @@ export class PropertyService {
       ? soldShares.div(totalShares).mul(100)
       : toDecimal(0);
 
+    const [images, documents] = await Promise.all([
+      this.buildPublicImages(property.id),
+      this.buildPublicDocuments(property.id),
+    ]);
+
     const result = {
       ...property,
+      images,
+      documents,
       fundingProgressPercent: formatHighPrecision(progress),
     };
 

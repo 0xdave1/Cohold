@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { DashboardHeaderActions } from '@/components/dashboard/DashboardHeaderActions';
 import { AccountsModal } from '@/components/wallet/AccountsModal';
 import { AccountDetailsModal } from '@/components/wallet/AccountDetailsModal';
@@ -85,6 +86,13 @@ export default function HomeDashboardPage() {
   );
   const listings = propertiesData?.items ?? [];
   const fractionalListings = listings.slice(0, 6);
+  const listingCoverById = useMemo(
+    () =>
+      new Map(
+        listings.map((p) => [p.id, p.coverImageUrl ?? null] as const),
+      ),
+    [listings],
+  );
 
   return (
     <div className="space-y-6">
@@ -295,16 +303,29 @@ export default function HomeDashboardPage() {
               className="flex-1 min-w-[280px] rounded-xl p-6 shadow-sm"
             />
           ) : (
-            myInvestments.slice(0, 5).map((inv) => (
+            myInvestments.slice(0, 5).map((inv) => {
+              const cover = listingCoverById.get(inv.propertyId) ?? null;
+              return (
               <Link
                 key={inv.id}
                 href={`/dashboard/portfolio/${inv.id}`}
                 className="flex-shrink-0 w-[280px] snap-start rounded-xl border border-dashboard-border bg-dashboard-card overflow-hidden shadow-sm hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-shadow"
               >
                 <div className="h-36 bg-dashboard-border/50 flex items-center justify-center rounded-t-xl">
-                  <svg className="h-12 w-12 text-dashboard-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                  </svg>
+                  {cover ? (
+                    <Image
+                      src={cover}
+                      alt={inv.property?.title ?? 'Property'}
+                      fill
+                      sizes="280px"
+                      className="h-full w-full object-cover"
+                      unoptimized
+                    />
+                  ) : (
+                    <svg className="h-12 w-12 text-dashboard-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    </svg>
+                  )}
                 </div>
                 <div className="p-3">
                   <p className="text-sm font-semibold text-dashboard-heading line-clamp-2">{inv.property?.title ?? 'Property'}</p>
@@ -316,7 +337,8 @@ export default function HomeDashboardPage() {
                   <p className="text-xs font-normal text-dashboard-muted mt-0.5">{inv.status}</p>
                 </div>
               </Link>
-            ))
+              );
+            })
           )}
         </div>
       </section>
@@ -342,6 +364,16 @@ export default function HomeDashboardPage() {
                 className="rounded-xl border border-dashboard-border bg-dashboard-card overflow-hidden shadow-sm hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-shadow flex flex-col"
               >
                 <div className="relative h-32 bg-dashboard-border/50 rounded-t-xl">
+                  {p.coverImageUrl ? (
+                    <Image
+                      src={p.coverImageUrl}
+                      alt={p.title}
+                      fill
+                      sizes="(max-width: 768px) 50vw, 320px"
+                      className="h-full w-full object-cover"
+                      unoptimized
+                    />
+                  ) : null}
                   <span className="absolute left-2 top-2 rounded-md bg-emerald-500 px-2 py-0.5 text-xs font-medium text-white">
                     Active ⚡
                   </span>

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import Image from 'next/image';
 
 export function BackIconButton({ href }: { href: string }) {
   return (
@@ -17,23 +18,47 @@ export function BackIconButton({ href }: { href: string }) {
   );
 }
 
-export function ListingHero({ title, slideLabel = '1/5' }: { title: string; slideLabel?: string }) {
+export function ListingHero({
+  title,
+  slideLabel,
+  imageUrl,
+  imageCount = 0,
+}: {
+  title: string;
+  slideLabel?: string;
+  imageUrl?: string | null;
+  imageCount?: number;
+}) {
+  const dots = Math.max(1, Math.min(6, imageCount || 1));
+  const computedSlideLabel = slideLabel ?? `1/${Math.max(1, imageCount || 1)}`;
+
   return (
     <div className="relative h-44 overflow-hidden rounded-xl bg-dashboard-border/70">
       <div className="absolute inset-0 bg-gradient-to-b from-black/0 to-black/20" />
       <div className="absolute right-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-dashboard-heading">
-        {slideLabel}
+        {computedSlideLabel}
       </div>
       <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1">
-        {[0, 1, 2, 3, 4, 5].map((i) => (
+        {Array.from({ length: dots }).map((_, i) => (
           <span
             key={i}
-            className={`h-1.5 w-1.5 rounded-full ${i === 1 ? 'bg-white' : 'bg-white/60'}`}
+            className={`h-1.5 w-1.5 rounded-full ${i === 0 ? 'bg-white' : 'bg-white/60'}`}
             aria-hidden
           />
         ))}
       </div>
-      <div className="h-full w-full bg-[linear-gradient(135deg,#8a8a8a,#d1d1d1)]" />
+      {imageUrl ? (
+        <Image
+          src={imageUrl}
+          alt={title}
+          fill
+          sizes="100vw"
+          className="h-full w-full object-cover"
+          unoptimized
+        />
+      ) : (
+        <div className="h-full w-full bg-[linear-gradient(135deg,#8a8a8a,#d1d1d1)]" />
+      )}
       <span className="sr-only">{title}</span>
     </div>
   );
