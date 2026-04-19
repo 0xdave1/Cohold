@@ -7,11 +7,6 @@ import { useParams } from 'next/navigation';
 import { adminApi } from '@/lib/admin/api';
 import type { PropertyDetail, PropertyInvestor } from '@/lib/admin/types';
 import {
-  adminUploadPropertyDocument,
-  adminUploadPropertyImage,
-  type PropertyDocType,
-} from '@/lib/uploads/admin-presigned-upload';
-import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
@@ -66,7 +61,7 @@ export default function PropertyDetailPage() {
   const [tab, setTab] = useState<Tab>('info');
   const [closing, setClosing] = useState(false);
 
-  const refreshProperty = useCallback(async () => {
+  const fetchProperty = useCallback(async () => {
     if (!id) return;
     try {
       const d = await adminApi.propertyDetail(id);
@@ -79,8 +74,8 @@ export default function PropertyDetailPage() {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
-    refreshProperty().finally(() => setLoading(false));
-  }, [id, refreshProperty]);
+    fetchProperty().finally(() => setLoading(false));
+  }, [id, fetchProperty]);
 
   const handleClose = async () => {
     if (!id || !prop) return;
@@ -149,12 +144,9 @@ export default function PropertyDetailPage() {
               {closing ? 'Closing...' : 'Close property'}
             </button>
           )}
-          <Link
-            href={`/admin/property-listings/${id}/edit`}
-            className="rounded-lg bg-[#1a3a4a] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-          >
-            Edit details
-          </Link>
+          <span className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-500">
+            Edit details (coming soon)
+          </span>
         </div>
       </div>
 
@@ -184,9 +176,9 @@ export default function PropertyDetailPage() {
       </div>
 
       {tab === 'info' && <PropertyInfoTab prop={prop} />}
-      {tab === 'features' && <FeaturesTab prop={prop} onMediaUpdated={refreshProperty} />}
+      {tab === 'features' && <FeaturesTab prop={prop} />}
       {tab === 'investors' && <InvestorsTab propertyId={prop.id} />}
-      {tab === 'documents' && <DocumentsTab prop={prop} onDocumentsUpdated={refreshProperty} />}
+      {tab === 'documents' && <DocumentsTab prop={prop} />}
     </div>
   );
 }
@@ -250,34 +242,9 @@ function PropertyInfoTab({ prop }: { prop: PropertyDetail }) {
 
 /* ── Features & Pictures Tab ─────────────────────── */
 
-function FeaturesTab({
-  prop,
-  onMediaUpdated,
-}: {
-  prop: PropertyDetail;
-  onMediaUpdated: () => Promise<void>;
-}) {
+function FeaturesTab({ prop }: { prop: PropertyDetail }) {
   const features = prop.features ?? [];
   const images = prop.images ?? [];
-  const [uploading, setUploading] = useState(false);
-
-  const handleAddImages = async (fileList: FileList | null) => {
-    if (!fileList?.length) return;
-    let nextPos =
-      images.reduce((max, img) => Math.max(max, img.position ?? 0), 0) + 1;
-    setUploading(true);
-    try {
-      for (const file of Array.from(fileList)) {
-        await adminUploadPropertyImage(prop.id, file, nextPos);
-        nextPos += 1;
-      }
-      await onMediaUpdated();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Image upload failed');
-    } finally {
-      setUploading(false);
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -325,25 +292,9 @@ function FeaturesTab({
           </div>
         )}
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <label
-            className={`inline-flex cursor-pointer items-center rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 ${uploading ? 'pointer-events-none opacity-50' : ''}`}
-          >
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              multiple
-              className="hidden"
-              disabled={uploading}
-              onChange={(e) => {
-                void handleAddImages(e.target.files);
-                e.target.value = '';
-              }}
-            />
-            {uploading ? 'Uploading…' : 'Add images'}
-          </label>
-          <span className="text-xs text-gray-400">JPEG, PNG, or WebP up to 5MB each</span>
-        </div>
+        <p className="mt-4 text-xs text-gray-400">
+          Media uploads are managed from the listing creation flow.
+        </p>
       </div>
     </div>
   );
@@ -462,76 +413,12 @@ function InvestorsTab({ propertyId }: { propertyId: string }) {
 
 /* ── Documents Tab ───────────────────────────────── */
 
-const PROPERTY_DOC_TYPES: { value: PropertyDocType; label: string }[] = [
-  { value: 'TITLE', label: 'Title' },
-  { value: 'SURVEY', label: 'Survey' },
-  { value: 'DEED', label: 'Deed' },
-  { value: 'OTHER', label: 'Other' },
-];
-
-function DocumentsTab({
-  prop,
-  onDocumentsUpdated,
-}: {
-  prop: PropertyDetail;
-  onDocumentsUpdated: () => Promise<void>;
-}) {
+function DocumentsTab({ prop }: { prop: PropertyDetail }) {
   const docs = prop.documents ?? [];
-  const [docType, setDocType] = useState<PropertyDocType>('OTHER');
-  const [uploading, setUploading] = useState(false);
-
-  const handleFile = async (file: File | undefined) => {
-    if (!file) return;
-    setUploading(true);
-    try {
-      await adminUploadPropertyDocument(prop.id, file, docType);
-      await onDocumentsUpdated();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Document upload failed');
-    } finally {
-      setUploading(false);
-    }
-  };
 
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-gray-700">Documents</h3>
-
-      <div className="flex flex-col gap-3 rounded-xl border border-dashed border-gray-300 bg-gray-50/50 p-4 sm:flex-row sm:items-end">
-        <div className="min-w-0 flex-1">
-          <label htmlFor="prop-doc-type" className="mb-1 block text-xs font-medium text-gray-500">
-            Document type
-          </label>
-          <select
-            id="prop-doc-type"
-            value={docType}
-            onChange={(e) => setDocType(e.target.value as PropertyDocType)}
-            disabled={uploading}
-            className="w-full max-w-xs rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
-          >
-            {PROPERTY_DOC_TYPES.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <label
-          className={`inline-flex cursor-pointer items-center justify-center rounded-lg bg-[#1a3a4a] px-4 py-2 text-sm font-medium text-white hover:opacity-90 ${uploading ? 'pointer-events-none opacity-60' : ''}`}
-        >
-          <input
-            type="file"
-            accept="application/pdf,image/jpeg,image/png"
-            className="hidden"
-            disabled={uploading}
-            onChange={(e) => {
-              void handleFile(e.target.files?.[0]);
-              e.target.value = '';
-            }}
-          />
-          {uploading ? 'Uploading…' : 'Upload document'}
-        </label>
-      </div>
 
       {docs.length === 0 ? (
         <div className="rounded-xl border border-gray-200 bg-white px-6 py-12 text-center text-sm text-gray-400">
@@ -570,6 +457,9 @@ function DocumentsTab({
           ))}
         </div>
       )}
+      <p className="text-xs text-gray-400">
+        Document uploads are managed from the listing creation flow.
+      </p>
     </div>
   );
 }

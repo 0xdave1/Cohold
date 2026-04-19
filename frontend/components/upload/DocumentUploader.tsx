@@ -44,11 +44,11 @@ export function DocumentUploader({ label, category, disabled, onFileSelected, hi
       <p className="text-sm font-medium text-dashboard-heading">{label}</p>
       <label
         htmlFor={id}
-        className={`flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-dashboard-border bg-white px-4 py-6 transition-colors hover:border-cohold-blue/50 ${disabled || busy ? 'opacity-60 pointer-events-none' : ''}`}
+        className={`flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-dashboard-border bg-white px-4 py-6 transition-colors hover:border-cohold-blue/50 ${disabled || busy ? 'pointer-events-none opacity-60' : ''}`}
       >
         <Upload className="h-6 w-6 text-dashboard-body" />
         <span className="text-sm text-dashboard-body">
-          {busy ? 'Uploading…' : <span className="text-cohold-blue font-medium">Tap to upload</span>}
+          {busy ? 'Uploading…' : <span className="font-medium text-cohold-blue">Tap to upload</span>}
         </span>
         <span className="text-[11px] text-dashboard-muted">{hint ?? clientUploadHint(category)}</span>
         <input

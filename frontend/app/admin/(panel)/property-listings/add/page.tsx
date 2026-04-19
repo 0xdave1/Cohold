@@ -610,7 +610,13 @@ function MediaStep({ form, set }: { form: FormData; set: <K extends keyof FormDa
           <label className="flex cursor-pointer flex-col items-center gap-3 rounded-xl border-2 border-dashed border-gray-300 px-6 py-10 transition-colors hover:border-gray-400">
             <Upload className="h-6 w-6 text-gray-400" />
             <p className="text-sm text-gray-400">Upload image</p>
-            <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) set('coverImage', e.target.files[0]); }} />
+            <p className="text-xs text-gray-400">{clientUploadHint('propertyImage')}</p>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => { if (e.target.files?.[0]) set('coverImage', e.target.files[0]); }}
+            />
           </label>
         )}
       </div>
@@ -643,7 +649,14 @@ function MediaStep({ form, set }: { form: FormData; set: <K extends keyof FormDa
           <label className="flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 transition-colors hover:border-gray-400">
             <Upload className="h-5 w-5 text-gray-400" />
             <span className="text-xs text-gray-400">Upload additional images</span>
-            <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { if (e.target.files) set('additionalImages', [...form.additionalImages, ...Array.from(e.target.files)]); }} />
+            <span className="text-[10px] text-gray-400">{clientUploadHint('propertyImage')}</span>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              className="hidden"
+              onChange={(e) => { if (e.target.files) set('additionalImages', [...form.additionalImages, ...Array.from(e.target.files)]); }}
+            />
           </label>
         </div>
       </div>
