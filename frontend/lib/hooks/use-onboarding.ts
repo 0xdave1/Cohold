@@ -19,6 +19,10 @@ export interface UserProfile {
   onboardingCompletedAt?: string | null;
   emailVerifiedAt?: string | null;
   createdAt?: string;
+  /** Private object key in R2 (source of truth). */
+  profilePhotoKey?: string | null;
+  /** Short-lived signed URL for display; derived from `profilePhotoKey`. */
+  profilePhotoUrl?: string | null;
 }
 
 export interface UpdateProfilePayload {

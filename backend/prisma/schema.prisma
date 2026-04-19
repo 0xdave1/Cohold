@@ -30,6 +30,7 @@ model User {
   onboardingCompletedAt DateTime?
   isFrozen              Boolean               @default(false)
   lastLoginAt           DateTime?
+  profilePhotoKey       String?
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
   investments           Investment[]
@@ -317,7 +318,11 @@ model PropertyDocument {
 model PropertyImage {
   id         String   @id @default(uuid())
   propertyId String
-  url        String
+  /// Legacy public URL field (do not use as source of truth). Kept for compatibility.
+  url        String?
+  /// Private storage key in R2/S3. Derive signed read URL at request time.
+  storageKey String?
+  altText    String?
   position   Int
   createdAt  DateTime @default(now())
   property   Property @relation(fields: [propertyId], references: [id])
@@ -379,7 +384,11 @@ model KycVerification {
   status             KycStatus @default(PENDING)
   governmentIdType   String?
   governmentIdNumber String?
+  /// Legacy single-key field (kept for backward compatibility). Prefer explicit keys below.
   documentKey        String?
+  documentFrontKey   String?
+  documentBackKey    String?
+  selfieKey          String?
   failureReason      String?
   requiresReview     Boolean   @default(false)
   reviewedById       String?

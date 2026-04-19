@@ -3,8 +3,10 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, Check, ChevronDown, ShieldCheck, X } from 'lucide-react';
-import { useSubmitBvn, useSubmitNin, useKycStatus } from '@/lib/hooks/use-kyc';
+import { useSubmitBvn, useSubmitNin, useKycStatus, useKycDocumentUpload } from '@/lib/hooks/use-kyc';
 import { getApiErrorMessage } from '@/lib/api/errors';
+import { DocumentUploader } from '@/components/upload/DocumentUploader';
+import type { KycDocType } from '@/lib/uploads/upload-file';
 
 export default function KycWizardPage() {
   const [method, setMethod] = useState<'bvn' | 'nin' | null>(null);
@@ -17,6 +19,7 @@ export default function KycWizardPage() {
   const { data: kycStatus } = useKycStatus();
   const submitBvn = useSubmitBvn();
   const submitNin = useSubmitNin();
+  const kycDocUpload = useKycDocumentUpload();
 
   const bvnValid = useMemo(() => bvn.length === 11 && /^\d+$/.test(bvn), [bvn]);
   const ninValid = useMemo(() => nin.length === 11 && /^\d+$/.test(nin), [nin]);
@@ -248,6 +251,40 @@ export default function KycWizardPage() {
             </div>
           </div>
         )}
+
+        <div className="space-y-4 rounded-xl border border-dashboard-border bg-dashboard-card p-4">
+          <h2 className="text-sm font-semibold text-dashboard-heading">Identification documents</h2>
+          <p className="text-xs text-dashboard-body">
+            Upload clear photos or PDFs of your ID (front and back) and a selfie if required. Files go directly to secure storage.
+          </p>
+          <DocumentUploader
+            label="ID — front"
+            category="kycDocument"
+            disabled={kycDocUpload.isPending}
+            onFileSelected={async (file) => {
+              await kycDocUpload.mutateAsync({ docType: 'ID_FRONT' as KycDocType, file });
+            }}
+          />
+          <DocumentUploader
+            label="ID — back"
+            category="kycDocument"
+            disabled={kycDocUpload.isPending}
+            onFileSelected={async (file) => {
+              await kycDocUpload.mutateAsync({ docType: 'ID_BACK' as KycDocType, file });
+            }}
+          />
+          <DocumentUploader
+            label="Selfie"
+            category="kycDocument"
+            disabled={kycDocUpload.isPending}
+            onFileSelected={async (file) => {
+              await kycDocUpload.mutateAsync({ docType: 'SELFIE' as KycDocType, file });
+            }}
+          />
+          {kycDocUpload.isSuccess ? (
+            <p className="text-xs text-green-700">Document saved.</p>
+          ) : null}
+        </div>
 
         {/* Verification note */}
         <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">

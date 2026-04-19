@@ -8,6 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMe, useOnboarding } from '@/lib/hooks/use-onboarding';
 import { COUNTRIES } from '@/lib/constants/countries';
 import { getApiErrorMessage } from '@/lib/api/errors';
+import { AvatarUploader } from '@/components/upload/AvatarUploader';
 
 const schema = z.object({
   firstName: z.string().min(1, 'First name is required'),
@@ -101,14 +102,7 @@ export default function EditProfilePage() {
         </div>
         <p className="text-sm text-dashboard-body">Make edits to your profile</p>
 
-        <div className="flex flex-col items-center gap-2">
-          <div className="h-20 w-20 rounded-full bg-cohold-icon-bg flex items-center justify-center text-2xl font-semibold text-dashboard-heading">
-            {initials}
-          </div>
-          <button type="button" className="text-sm font-medium text-cohold-blue hover:underline">
-            Edit photo
-          </button>
-        </div>
+        <AvatarUploader initials={initials} photoUrl={me?.profilePhotoUrl} />
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div>

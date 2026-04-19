@@ -34,6 +34,9 @@ export const validationSchema = Joi.object({
   S3_BUCKET: Joi.string().required(),
   S3_REGION: Joi.string().required(),
   S3_ENDPOINT: Joi.string().uri().required(),
+  // Backwards-compatible aliases (preferred names)
+  S3_ACCESS_KEY_ID: Joi.string().optional(),
+  S3_SECRET_ACCESS_KEY: Joi.string().optional(),
 
   EMAIL_API_KEY: Joi.string().required(),
   EMAIL_FROM: Joi.string().email().required(),

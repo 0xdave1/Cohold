@@ -82,4 +82,13 @@ export const adminApi = {
   onlineSupportAgents: () => adminFetch<any>('admin/support/presence/online'),
   presignSupportAttachment: (body: any) =>
     adminFetch<any>('admin/support/attachments/presign', { method: 'POST', body: JSON.stringify(body) }),
+
+  presignPropertyImage: (propertyId: string, body: any) =>
+    adminFetch<any>(`admin/properties/${propertyId}/images/presign`, { method: 'POST', body: JSON.stringify(body) }),
+  completePropertyImage: (propertyId: string, body: any) =>
+    adminFetch<any>(`admin/properties/${propertyId}/images/complete`, { method: 'POST', body: JSON.stringify(body) }),
+  presignPropertyDocument: (propertyId: string, body: any) =>
+    adminFetch<any>(`admin/properties/${propertyId}/documents/presign`, { method: 'POST', body: JSON.stringify(body) }),
+  completePropertyDocument: (propertyId: string, body: any) =>
+    adminFetch<any>(`admin/properties/${propertyId}/documents/complete`, { method: 'POST', body: JSON.stringify(body) }),
 };

@@ -117,8 +117,8 @@ export interface PropertyListing {
 }
 
 export interface PropertyDetail extends PropertyListing {
-  documents: { id: string; type: string; s3Key: string; createdAt: string }[];
-  images: { id: string; url: string; position: number; createdAt: string }[];
+  documents: { id: string; type: string; s3Key: string; url: string | null; createdAt: string }[];
+  images: { id: string; url: string | null; position: number; createdAt: string; storageKey?: string | null }[];
   totalInvestors: number;
   yieldPercentage: string;
   features: string[];

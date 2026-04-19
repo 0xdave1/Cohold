@@ -7,6 +7,10 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { AdminRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { PresignPropertyImageDto } from './dto/presign-property-image.dto';
+import { CompletePropertyImageDto } from './dto/complete-property-image.dto';
+import { PresignPropertyDocumentDto } from './dto/presign-property-document.dto';
+import { CompletePropertyDocumentDto } from './dto/complete-property-document.dto';
 
 @ApiTags('admin')
 @ApiBearerAuth('admin-jwt')
@@ -215,6 +219,30 @@ export class AdminController {
   @Get('properties/:id')
   async propertyDetail(@Param('id') id: string) {
     return this.adminService.getPropertyDetail(id);
+  }
+
+  @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Post('properties/:id/images/presign')
+  async presignPropertyImage(@Param('id') id: string, @Body() dto: PresignPropertyImageDto) {
+    return this.adminService.presignPropertyImage(id, dto);
+  }
+
+  @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Post('properties/:id/images/complete')
+  async completePropertyImage(@Param('id') id: string, @Body() dto: CompletePropertyImageDto) {
+    return this.adminService.completePropertyImage(id, dto);
+  }
+
+  @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Post('properties/:id/documents/presign')
+  async presignPropertyDocument(@Param('id') id: string, @Body() dto: PresignPropertyDocumentDto) {
+    return this.adminService.presignPropertyDocument(id, dto);
+  }
+
+  @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Post('properties/:id/documents/complete')
+  async completePropertyDocument(@Param('id') id: string, @Body() dto: CompletePropertyDocumentDto) {
+    return this.adminService.completePropertyDocument(id, dto);
   }
 
   @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)

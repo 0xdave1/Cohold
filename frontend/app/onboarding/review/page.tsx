@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { PencilIcon } from '@/components/auth/AuthIcons';
 import { auth } from '@/components/auth/auth-styles';
 import { useMe, useOnboarding } from '@/lib/hooks/use-onboarding';
+import { AvatarUploader } from '@/components/upload/AvatarUploader';
 
 export default function ReviewPage() {
   const router = useRouter();
@@ -16,6 +17,8 @@ export default function ReviewPage() {
   const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ') || '—';
   const phone = [profile?.phoneCountryCode, profile?.phoneNumber].filter(Boolean).join(' ').trim() || '—';
   const address = [profile?.houseNumber, profile?.streetName, profile?.city, profile?.state].filter(Boolean).join(', ') || '—';
+  const avatarInitials =
+    [profile?.firstName?.[0], profile?.lastName?.[0]].filter(Boolean).join('').toUpperCase() || 'U';
 
   const handleConfirm = async () => {
     setError(null);
@@ -47,12 +50,7 @@ export default function ReviewPage() {
       </div>
 
       <div className="mt-8 flex flex-col items-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-cohold-icon-bg text-xl font-bold text-auth-heading">
-          {(profile?.firstName?.[0] ?? '') + (profile?.lastName?.[0] ?? '')}
-        </div>
-        <button type="button" className="mt-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-auth-heading hover:bg-gray-200">
-          Edit photo
-        </button>
+        <AvatarUploader initials={avatarInitials} photoUrl={profile?.profilePhotoUrl} />
       </div>
 
       <div className="mt-6 rounded-xl border border-[hsl(var(--auth-input-border))] bg-white p-4 space-y-3">

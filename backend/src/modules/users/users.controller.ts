@@ -9,6 +9,10 @@ import { DeleteAccountDto } from './dto/delete-account.dto';
 import { VerifyOtpDto } from '../auth/dto/verify-otp.dto';
 import { SetUsernameDto } from './dto/set-username.dto';
 import { AddLinkedBankDto } from './dto/add-linked-bank.dto';
+import { PresignProfilePhotoDto } from './dto/presign-profile-photo.dto';
+import { CompleteProfilePhotoDto } from './dto/complete-profile-photo.dto';
+import { assertValidUpload, extensionFromFileName } from '../storage/upload-validation';
+import { StorageService } from '../storage/storage.service';
 
 @ApiTags('users')
 @ApiBearerAuth('user-jwt')
@@ -18,6 +22,7 @@ export class UsersController {
   constructor(
     private readonly usersService: UsersService,
     private readonly authService: AuthService,
+    private readonly storageService: StorageService,
   ) {}
 
   @Get('me')
@@ -75,6 +80,25 @@ export class UsersController {
   @Delete('me/linked-banks/:id')
   async removeLinkedBank(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.usersService.removeLinkedBank(user.id, id);
+  }
+
+  @Post('me/profile-photo/presign')
+  async presignProfilePhoto(@CurrentUser() user: { id: string }, @Body() dto: PresignProfilePhotoDto) {
+    assertValidUpload({
+      category: 'profilePhoto',
+      contentType: dto.contentType,
+      fileSize: dto.fileSize,
+      fileName: dto.fileName,
+    });
+    const ext = extensionFromFileName(dto.fileName) || 'jpg';
+    const key = this.storageService.generateProfilePhotoKey(user.id, ext);
+    const uploadUrl = await this.storageService.createPresignedUploadUrl(key, dto.contentType, 900);
+    return { key, uploadUrl, expiresIn: 900 };
+  }
+
+  @Post('me/profile-photo/complete')
+  async completeProfilePhoto(@CurrentUser() user: { id: string }, @Body() dto: CompleteProfilePhotoDto) {
+    return this.usersService.setProfilePhotoKey(user.id, dto.key);
   }
 }
 

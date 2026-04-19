@@ -1,10 +1,12 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AdminAccountStatus, AdminRole, KycStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { toDecimal, formatMoney } from '../../common/money/decimal.util';
 import { WalletService } from '../wallet/wallet.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as bcrypt from 'bcrypt';
+import { StorageService } from '../storage/storage.service';
+import { assertValidUpload, extensionFromFileName } from '../storage/upload-validation';
 
 type AdminUiRole = 'SUPER_ADMIN' | 'FINANCE_ADMIN' | 'OPERATION_ADMIN' | 'COMPLIANCE_ADMIN';
 type AdminUiStatus = 'ACTIVE' | 'SUSPENDED' | 'INACTIVE';
@@ -17,6 +19,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly notificationsService: NotificationsService,
+    private readonly storage: StorageService,
   ) {}
 
   async getDashboardOverview() {
@@ -160,6 +163,7 @@ export class AdminService {
         investments: {
           select: { id: true, propertyId: true, amount: true, currency: true, shares: true, status: true },
         },
+        kycVerification: true,
       },
     });
     if (!user) throw new Error('User not found');
@@ -173,9 +177,30 @@ export class AdminService {
       toDecimal(0),
     );
 
-    const { passwordHash: _pw, ...safeUser } = user;
+    const { passwordHash: _pw, kycVerification, ...safeUser } = user;
+
+    const profilePhotoUrl = safeUser.profilePhotoKey
+      ? await this.storage.createSignedReadUrl(safeUser.profilePhotoKey, 300).catch(() => null)
+      : null;
+
+    const sign = async (key: string | null | undefined) =>
+      key ? await this.storage.createSignedReadUrl(key, 300).catch(() => null) : null;
+
+    const kycForAdmin = kycVerification
+      ? {
+          ...kycVerification,
+          documentFrontUrl: await sign(kycVerification.documentFrontKey ?? kycVerification.documentKey),
+          documentBackUrl: await sign(kycVerification.documentBackKey),
+          selfieUrl: await sign(kycVerification.selfieKey),
+          documentLegacyUrl: kycVerification.documentKey
+            ? await sign(kycVerification.documentKey)
+            : null,
+        }
+      : null;
+
     return {
       ...safeUser,
+      profilePhotoUrl,
       wallets: user.wallets.map((w) => ({ ...w, balance: w.balance.toString() })),
       investments: user.investments.map((inv) => ({
         ...inv,
@@ -183,6 +208,7 @@ export class AdminService {
         shares: inv.shares.toString(),
       })),
       linkedBanks: [],
+      kycVerification: kycForAdmin,
       totalInvested: totalInvested.toString(),
       walletBalance: walletBalance.toString(),
       totalReferrals: 0,
@@ -746,6 +772,34 @@ export class AdminService {
 
     const { investments: _inv, ...rest } = property;
 
+    const images = await Promise.all(
+      (property.images ?? []).map(async (img) => {
+        const key = img.storageKey ?? null;
+        const signedUrl = key ? await this.storage.createSignedReadUrl(key, 300).catch(() => null) : null;
+        return {
+          id: img.id,
+          storageKey: key,
+          url: signedUrl ?? img.url ?? null,
+          altText: img.altText ?? null,
+          position: img.position,
+          createdAt: img.createdAt,
+        };
+      }),
+    );
+
+    const documents = await Promise.all(
+      (property.documents ?? []).map(async (doc) => {
+        const signedUrl = doc.s3Key ? await this.storage.createSignedReadUrl(doc.s3Key, 300).catch(() => null) : null;
+        return {
+          id: doc.id,
+          type: doc.type,
+          s3Key: doc.s3Key,
+          url: signedUrl,
+          createdAt: doc.createdAt,
+        };
+      }),
+    );
+
     return {
       ...rest,
       totalValue: property.totalValue.toString(),
@@ -756,6 +810,78 @@ export class AdminService {
       sharesSold: property.sharesSold.toString(),
       totalInvestors,
       yieldPercentage,
+      images,
+      documents,
+    };
+  }
+
+  async presignPropertyImage(propertyId: string, body: { fileName: string; contentType: string; fileSize: number; position?: number }) {
+    const prop = await this.prisma.property.findFirst({ where: { id: propertyId, deletedAt: null }, select: { id: true } });
+    if (!prop) throw new NotFoundException('Property not found');
+
+    assertValidUpload({ category: 'propertyImage', contentType: body.contentType, fileSize: body.fileSize, fileName: body.fileName });
+    const ext = extensionFromFileName(body.fileName) || 'jpg';
+    const key = this.storage.generatePropertyImageKey(propertyId, ext);
+    const uploadUrl = await this.storage.createPresignedUploadUrl(key, body.contentType, 900);
+    return { key, uploadUrl, expiresIn: 900 };
+  }
+
+  async completePropertyImage(propertyId: string, body: { key: string; altText?: string; position?: number }) {
+    if (!body.key.startsWith(`properties/${propertyId}/images/`)) {
+      throw new BadRequestException('Invalid upload key');
+    }
+    const prop = await this.prisma.property.findFirst({ where: { id: propertyId, deletedAt: null }, select: { id: true } });
+    if (!prop) throw new NotFoundException('Property not found');
+
+    const pos = typeof body.position === 'number'
+      ? body.position
+      : (await this.prisma.propertyImage.count({ where: { propertyId } })) + 1;
+
+    const created = await this.prisma.propertyImage.create({
+      data: {
+        propertyId,
+        storageKey: body.key,
+        altText: body.altText?.trim() || null,
+        position: pos,
+      },
+      select: { id: true, storageKey: true, altText: true, position: true, createdAt: true, url: true },
+    });
+
+    return {
+      ...created,
+      url: created.storageKey ? await this.storage.createSignedReadUrl(created.storageKey, 300).catch(() => null) : null,
+    };
+  }
+
+  async presignPropertyDocument(propertyId: string, body: { type: string; fileName: string; contentType: string; fileSize: number }) {
+    const prop = await this.prisma.property.findFirst({ where: { id: propertyId, deletedAt: null }, select: { id: true } });
+    if (!prop) throw new NotFoundException('Property not found');
+
+    assertValidUpload({ category: 'propertyDocument', contentType: body.contentType, fileSize: body.fileSize, fileName: body.fileName });
+    const ext = extensionFromFileName(body.fileName) || (body.contentType === 'application/pdf' ? 'pdf' : 'jpg');
+    const key = this.storage.generatePropertyDocumentKey(propertyId, ext);
+    const uploadUrl = await this.storage.createPresignedUploadUrl(key, body.contentType, 900);
+    return { key, uploadUrl, expiresIn: 900 };
+  }
+
+  async completePropertyDocument(propertyId: string, body: { type: string; key: string }) {
+    if (!body.key.startsWith(`properties/${propertyId}/documents/`)) {
+      throw new BadRequestException('Invalid upload key');
+    }
+    const prop = await this.prisma.property.findFirst({ where: { id: propertyId, deletedAt: null }, select: { id: true } });
+    if (!prop) throw new NotFoundException('Property not found');
+
+    const created = await this.prisma.propertyDocument.create({
+      data: {
+        propertyId,
+        type: body.type,
+        s3Key: body.key,
+      },
+      select: { id: true, type: true, s3Key: true, createdAt: true },
+    });
+    return {
+      ...created,
+      url: created.s3Key ? await this.storage.createSignedReadUrl(created.s3Key, 300).catch(() => null) : null,
     };
   }
 

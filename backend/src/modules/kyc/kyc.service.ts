@@ -13,6 +13,9 @@ import { EmailService } from '../email/email.service';
 import { SubmitNinDto } from './dto/submit-nin.dto';
 import { WalletService } from '../wallet/wallet.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PresignKycUploadDto } from './dto/presign-kyc-upload.dto';
+import { CompleteKycUploadDto } from './dto/complete-kyc-upload.dto';
+import { assertValidUpload, extensionFromFileName } from '../storage/upload-validation';
 
 @Injectable()
 export class KycService {
@@ -98,6 +101,7 @@ export class KycService {
 
   /**
    * Upload KYC document (ID front/back or selfie).
+   * Legacy multipart endpoint (kept for compatibility). Prefer presign/complete flow.
    */
   async uploadDocument(
     userId: string,
@@ -125,7 +129,7 @@ export class KycService {
     }
 
     // Upload to S3/R2
-    const key = this.storageService.generateKycDocumentKey(userId, documentType);
+    const key = this.storageService.generateKycDocumentKeyLegacy(userId, documentType);
     await this.storageService.uploadDocument(key, file.buffer, file.mimetype);
 
     // Update KYC verification record
@@ -143,6 +147,54 @@ export class KycService {
     });
 
     return { documentKey: key };
+  }
+
+  async presignKycUpload(userId: string, dto: PresignKycUploadDto) {
+    const docType =
+      dto.docType === 'ID_FRONT' ? 'ID_FRONT'
+      : dto.docType === 'ID_BACK' ? 'ID_BACK'
+      : 'SELFIE';
+
+    assertValidUpload({
+      category: 'kycDocument',
+      contentType: dto.contentType,
+      fileSize: dto.fileSize,
+      fileName: dto.fileName,
+    });
+
+    const ext = extensionFromFileName(dto.fileName) || (dto.contentType === 'application/pdf' ? 'pdf' : 'jpg');
+    const key = this.storageService.generateKycDocumentKey(userId, docType, ext);
+    const uploadUrl = await this.storageService.createPresignedUploadUrl(key, dto.contentType, 900);
+    return { key, uploadUrl, expiresIn: 900 };
+  }
+
+  async completeKycUpload(userId: string, dto: CompleteKycUploadDto) {
+    const key = dto.key;
+    if (!key.startsWith(`users/${userId}/kyc/`)) {
+      throw new BadRequestException('Invalid upload key');
+    }
+
+    const patch =
+      dto.docType === 'ID_FRONT'
+        ? { documentFrontKey: key, documentKey: key }
+        : dto.docType === 'ID_BACK'
+          ? { documentBackKey: key, documentKey: key }
+          : { selfieKey: key, documentKey: key };
+
+    await this.prisma.kycVerification.upsert({
+      where: { userId },
+      update: {
+        status: KycStatus.PENDING,
+        ...patch,
+      },
+      create: {
+        userId,
+        status: KycStatus.PENDING,
+        ...patch,
+      },
+    });
+
+    return { status: KycStatus.PENDING };
   }
 
   async approveKyc(adminId: string, userId: string, _dto: KycReviewDto) {

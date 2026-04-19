@@ -7,6 +7,11 @@ import { useParams } from 'next/navigation';
 import { adminApi } from '@/lib/admin/api';
 import type { PropertyDetail, PropertyInvestor } from '@/lib/admin/types';
 import {
+  adminUploadPropertyDocument,
+  adminUploadPropertyImage,
+  type PropertyDocType,
+} from '@/lib/uploads/admin-presigned-upload';
+import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
@@ -61,15 +66,21 @@ export default function PropertyDetailPage() {
   const [tab, setTab] = useState<Tab>('info');
   const [closing, setClosing] = useState(false);
 
+  const refreshProperty = useCallback(async () => {
+    if (!id) return;
+    try {
+      const d = await adminApi.propertyDetail(id);
+      setProp(d);
+    } catch {
+      /* ignore */
+    }
+  }, [id]);
+
   useEffect(() => {
     if (!id) return;
     setLoading(true);
-    adminApi
-      .propertyDetail(id)
-      .then((d: any) => setProp(d))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [id]);
+    refreshProperty().finally(() => setLoading(false));
+  }, [id, refreshProperty]);
 
   const handleClose = async () => {
     if (!id || !prop) return;
@@ -173,9 +184,9 @@ export default function PropertyDetailPage() {
       </div>
 
       {tab === 'info' && <PropertyInfoTab prop={prop} />}
-      {tab === 'features' && <FeaturesTab prop={prop} />}
+      {tab === 'features' && <FeaturesTab prop={prop} onMediaUpdated={refreshProperty} />}
       {tab === 'investors' && <InvestorsTab propertyId={prop.id} />}
-      {tab === 'documents' && <DocumentsTab prop={prop} />}
+      {tab === 'documents' && <DocumentsTab prop={prop} onDocumentsUpdated={refreshProperty} />}
     </div>
   );
 }
@@ -239,9 +250,34 @@ function PropertyInfoTab({ prop }: { prop: PropertyDetail }) {
 
 /* ── Features & Pictures Tab ─────────────────────── */
 
-function FeaturesTab({ prop }: { prop: PropertyDetail }) {
+function FeaturesTab({
+  prop,
+  onMediaUpdated,
+}: {
+  prop: PropertyDetail;
+  onMediaUpdated: () => Promise<void>;
+}) {
   const features = prop.features ?? [];
   const images = prop.images ?? [];
+  const [uploading, setUploading] = useState(false);
+
+  const handleAddImages = async (fileList: FileList | null) => {
+    if (!fileList?.length) return;
+    let nextPos =
+      images.reduce((max, img) => Math.max(max, img.position ?? 0), 0) + 1;
+    setUploading(true);
+    try {
+      for (const file of Array.from(fileList)) {
+        await adminUploadPropertyImage(prop.id, file, nextPos);
+        nextPos += 1;
+      }
+      await onMediaUpdated();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Image upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -270,18 +306,44 @@ function FeaturesTab({ prop }: { prop: PropertyDetail }) {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {images.map((img) => (
               <div key={img.id} className="relative aspect-[4/3] overflow-hidden rounded-lg bg-gray-100">
-                <Image
-                  src={img.url}
-                  alt={`Property image ${img.position}`}
-                  width={400}
-                  height={300}
-                  unoptimized
-                  className="h-full w-full object-cover"
-                />
+                {img.url ? (
+                  <Image
+                    src={img.url}
+                    alt={`Property image ${img.position}`}
+                    width={400}
+                    height={300}
+                    unoptimized
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full min-h-[120px] items-center justify-center px-2 text-center text-xs text-gray-400">
+                    Preview unavailable
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <label
+            className={`inline-flex cursor-pointer items-center rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 ${uploading ? 'pointer-events-none opacity-50' : ''}`}
+          >
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              className="hidden"
+              disabled={uploading}
+              onChange={(e) => {
+                void handleAddImages(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            {uploading ? 'Uploading…' : 'Add images'}
+          </label>
+          <span className="text-xs text-gray-400">JPEG, PNG, or WebP up to 5MB each</span>
+        </div>
       </div>
     </div>
   );
@@ -400,12 +462,77 @@ function InvestorsTab({ propertyId }: { propertyId: string }) {
 
 /* ── Documents Tab ───────────────────────────────── */
 
-function DocumentsTab({ prop }: { prop: PropertyDetail }) {
+const PROPERTY_DOC_TYPES: { value: PropertyDocType; label: string }[] = [
+  { value: 'TITLE', label: 'Title' },
+  { value: 'SURVEY', label: 'Survey' },
+  { value: 'DEED', label: 'Deed' },
+  { value: 'OTHER', label: 'Other' },
+];
+
+function DocumentsTab({
+  prop,
+  onDocumentsUpdated,
+}: {
+  prop: PropertyDetail;
+  onDocumentsUpdated: () => Promise<void>;
+}) {
   const docs = prop.documents ?? [];
+  const [docType, setDocType] = useState<PropertyDocType>('OTHER');
+  const [uploading, setUploading] = useState(false);
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      await adminUploadPropertyDocument(prop.id, file, docType);
+      await onDocumentsUpdated();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Document upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-gray-700">Documents</h3>
+
+      <div className="flex flex-col gap-3 rounded-xl border border-dashed border-gray-300 bg-gray-50/50 p-4 sm:flex-row sm:items-end">
+        <div className="min-w-0 flex-1">
+          <label htmlFor="prop-doc-type" className="mb-1 block text-xs font-medium text-gray-500">
+            Document type
+          </label>
+          <select
+            id="prop-doc-type"
+            value={docType}
+            onChange={(e) => setDocType(e.target.value as PropertyDocType)}
+            disabled={uploading}
+            className="w-full max-w-xs rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+          >
+            {PROPERTY_DOC_TYPES.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <label
+          className={`inline-flex cursor-pointer items-center justify-center rounded-lg bg-[#1a3a4a] px-4 py-2 text-sm font-medium text-white hover:opacity-90 ${uploading ? 'pointer-events-none opacity-60' : ''}`}
+        >
+          <input
+            type="file"
+            accept="application/pdf,image/jpeg,image/png"
+            className="hidden"
+            disabled={uploading}
+            onChange={(e) => {
+              void handleFile(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
+          {uploading ? 'Uploading…' : 'Upload document'}
+        </label>
+      </div>
+
       {docs.length === 0 ? (
         <div className="rounded-xl border border-gray-200 bg-white px-6 py-12 text-center text-sm text-gray-400">
           No documents uploaded.
@@ -422,16 +549,23 @@ function DocumentsTab({ prop }: { prop: PropertyDetail }) {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-gray-900">{doc.type || 'Document'}</p>
-                <p className="text-xs text-gray-400">PDF</p>
+                <p className="text-xs text-gray-400">Stored securely</p>
               </div>
-              <a
-                href={doc.s3Key}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="shrink-0 text-gray-400 hover:text-gray-600"
-              >
-                <Download className="h-4 w-4" />
-              </a>
+              {doc.url ? (
+                <a
+                  href={doc.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 text-gray-400 hover:text-gray-600"
+                  title="Download"
+                >
+                  <Download className="h-4 w-4" />
+                </a>
+              ) : (
+                <span className="shrink-0 text-xs text-gray-300" title="Link unavailable">
+                  —
+                </span>
+              )}
             </div>
           ))}
         </div>

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
-import { useAuthStore } from '@/stores/auth.store';
+import { uploadKycDocument, type KycDocType } from '@/lib/uploads/upload-file';
 import { useMe } from './use-onboarding';
 
 /** KYC status from backend (User.kycStatus / KycVerification.status). */
@@ -14,7 +14,6 @@ const ME_QUERY_KEY = ['users', 'me'];
 
 /**
  * Returns current user's KYC status (derived from /users/me via useMe).
- * Invalidating ME_QUERY_KEY after BVN submit or document upload refreshes this.
  */
 export function useKycStatus() {
   const meQuery = useMe();
@@ -30,9 +29,6 @@ export interface SubmitBvnResponse {
   status: string;
 }
 
-/**
- * Submits BVN for KYC. Invalidates user/me and KYC status on success.
- */
 export function useSubmitBvn() {
   const queryClient = useQueryClient();
 
@@ -40,6 +36,7 @@ export function useSubmitBvn() {
     mutationFn: async (bvn: string): Promise<SubmitBvnResponse> => {
       const res = await apiClient.post<SubmitBvnResponse>('/kyc/bvn', { bvn });
       if (!res.success) throw new Error(res.error ?? 'Failed to submit BVN');
+      if (res.data == null) throw new Error('Invalid response from server');
       return res.data;
     },
     onSuccess: () => {
@@ -56,6 +53,7 @@ export function useSubmitNin() {
     mutationFn: async (nin: string): Promise<SubmitBvnResponse> => {
       const res = await apiClient.post<SubmitBvnResponse>('/kyc/nin', { nin });
       if (!res.success) throw new Error(res.error ?? 'Failed to submit NIN');
+      if (res.data == null) throw new Error('Invalid response from server');
       return res.data;
     },
     onSuccess: () => {
@@ -65,48 +63,15 @@ export function useSubmitNin() {
   });
 }
 
-export type KycDocumentType = 'id-front' | 'id-back' | 'selfie';
-
-export interface UploadKycDocumentResponse {
-  documentKey: string;
-}
-
 /**
- * Uploads a KYC document (ID front/back or selfie).
- * Uses multipart/form-data with field names: file, documentType.
+ * Presigned R2 upload for ID front / back / selfie (`/kyc/uploads/presign` + `complete`).
  */
-export function useUploadKycDocument() {
+export function useKycDocumentUpload() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (payload: {
-      documentType: KycDocumentType;
-      file: File;
-    }): Promise<{ success: boolean; data: UploadKycDocumentResponse }> => {
-      const formData = new FormData();
-      formData.append('file', payload.file);
-      formData.append('documentType', payload.documentType);
-
-      const baseURL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1';
-      const token = useAuthStore.getState().accessToken;
-
-      const res = await fetch(`${baseURL}/kyc/upload-document`, {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-      });
-
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json?.error ?? json?.message ?? 'Upload failed');
-      }
-      if (!json.success || !json.data?.documentKey) {
-        throw new Error(json?.error ?? 'Upload failed');
-      }
-      return {
-        success: json.success,
-        data: { documentKey: json.data.documentKey },
-      };
+    mutationFn: async (payload: { docType: KycDocType; file: File }) => {
+      return uploadKycDocument(payload.file, payload.docType);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY });
@@ -114,3 +79,5 @@ export function useUploadKycDocument() {
     },
   });
 }
+
+export type { KycDocType };

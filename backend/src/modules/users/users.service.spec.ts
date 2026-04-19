@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { ConflictException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
 describe('UsersService linked banks', () => {
   let service: UsersService;
 
@@ -24,8 +25,15 @@ describe('UsersService linked banks', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    const storageMock = {
+      createSignedReadUrl: jest.fn().mockResolvedValue('https://signed.example'),
+    };
     const moduleRef = await Test.createTestingModule({
-      providers: [UsersService, { provide: PrismaService, useValue: prismaMock }],
+      providers: [
+        UsersService,
+        { provide: PrismaService, useValue: prismaMock },
+        { provide: StorageService, useValue: storageMock },
+      ],
     }).compile();
     service = moduleRef.get(UsersService);
   });

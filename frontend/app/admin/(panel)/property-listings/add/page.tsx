@@ -5,6 +5,12 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
+  adminUploadPropertyDocument,
+  adminUploadPropertyImage,
+  type PropertyDocType,
+} from '@/lib/uploads/admin-presigned-upload';
+import { clientUploadHint } from '@/lib/uploads/upload-validation-client';
+import {
   ArrowLeft,
   FileText,
   DollarSign,
@@ -36,6 +42,15 @@ const DOC_TYPES = [
   'Certificate of Occupancy', 'Right of Occupancy', 'Deed of Agreement',
   'Corporate Affairs Commission (CAC) registration',
 ];
+
+/** Maps UI document labels to backend `PropertyDocument.type` enum. */
+function mapDocLabelToApiType(label: string): PropertyDocType {
+  const l = (label || '').toLowerCase();
+  if (l.includes('deed')) return 'DEED';
+  if (l.includes('survey')) return 'SURVEY';
+  if (l.includes('occupancy') || l.includes('certificate') || l.includes('right of')) return 'TITLE';
+  return 'OTHER';
+}
 
 interface FormData {
   propertyType: string;
@@ -99,6 +114,7 @@ export default function AddListingPage() {
   const [form, setForm] = useState<FormData>(initial);
   const [newFeature, setNewFeature] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [submitPhase, setSubmitPhase] = useState<'idle' | 'creating' | 'uploading'>('idle');
 
   const set = <K extends keyof FormData>(key: K, value: FormData[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -117,6 +133,7 @@ export default function AddListingPage() {
 
   const handleSubmit = async () => {
     setSubmitting(true);
+    setSubmitPhase('creating');
     try {
       const body = {
         title: form.propertyName.trim(),
@@ -139,15 +156,73 @@ export default function AddListingPage() {
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.message || data.error || 'Failed to create property');
+        throw new Error(
+          typeof data?.message === 'string'
+            ? data.message
+            : typeof data?.error === 'string'
+              ? data.error
+              : 'Failed to create property',
+        );
       }
 
-      router.push('/admin/property-listings');
+      const propertyId: string | undefined = data?.data?.id ?? data?.id;
+      if (!propertyId) {
+        throw new Error('Property was created but no id was returned.');
+      }
+
+      setSubmitPhase('uploading');
+      const uploadErrors: string[] = [];
+
+      if (form.coverImage) {
+        try {
+          await adminUploadPropertyImage(propertyId, form.coverImage, 0);
+        } catch (e) {
+          uploadErrors.push(
+            `Cover image: ${e instanceof Error ? e.message : 'upload failed'}`,
+          );
+        }
+      }
+
+      let position = 1;
+      for (const file of form.additionalImages) {
+        try {
+          await adminUploadPropertyImage(propertyId, file, position);
+          position += 1;
+        } catch (e) {
+          uploadErrors.push(
+            `${file.name}: ${e instanceof Error ? e.message : 'upload failed'}`,
+          );
+        }
+      }
+
+      for (const doc of form.documents) {
+        if (!doc.file) continue;
+        try {
+          await adminUploadPropertyDocument(
+            propertyId,
+            doc.file,
+            mapDocLabelToApiType(doc.type),
+          );
+        } catch (e) {
+          uploadErrors.push(
+            `${doc.name}: ${e instanceof Error ? e.message : 'upload failed'}`,
+          );
+        }
+      }
+
+      if (uploadErrors.length > 0) {
+        alert(
+          `Listing created. Some files could not be uploaded — you can add them from the property page.\n\n${uploadErrors.join('\n')}`,
+        );
+      }
+
+      router.push(`/admin/property-listings/${propertyId}`);
     } catch (err) {
       console.error(err);
       alert(err instanceof Error ? err.message : 'Failed to create property');
     } finally {
       setSubmitting(false);
+      setSubmitPhase('idle');
     }
   };
 
@@ -191,7 +266,14 @@ export default function AddListingPage() {
           {step === 'documentation' && <DocumentationStep form={form} set={set} />}
           {step === 'media' && <MediaStep form={form} set={set} />}
           {step === 'terms' && <TermsStep form={form} set={set} />}
-          {step === 'preview' && <PreviewStep form={form} onSubmit={handleSubmit} submitting={submitting} />}
+          {step === 'preview' && (
+            <PreviewStep
+              form={form}
+              onSubmit={handleSubmit}
+              submitting={submitting}
+              submitPhase={submitPhase}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -478,8 +560,15 @@ function DocumentationStep({ form, set }: { form: FormData; set: <K extends keyo
             <label className="flex cursor-pointer flex-col items-center gap-3 rounded-xl border-2 border-dashed border-gray-300 px-6 py-8 transition-colors hover:border-gray-400">
               <Upload className="h-6 w-6 text-gray-400" />
               <p className="text-sm text-gray-500"><span className="font-medium text-[#1a3a4a]">Click to upload</span> or drag and drop</p>
-              <p className="text-xs text-gray-400">PDF (max size of 5MB)</p>
-              <input type="file" accept=".pdf" className="hidden" onChange={(e) => { if (e.target.files?.[0]) addDoc(e.target.files[0]); }} />
+              <p className="text-xs text-gray-400">{clientUploadHint('propertyDocument')}</p>
+              <input
+                type="file"
+                accept="application/pdf,image/jpeg,image/png"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files?.[0]) addDoc(e.target.files[0]);
+                }}
+              />
             </label>
             <div className="mt-5 flex gap-3">
               <button type="button" onClick={() => setShowModal(false)} className="flex-1 rounded-lg border border-gray-300 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
@@ -581,7 +670,17 @@ function TermsStep({ form, set }: { form: FormData; set: <K extends keyof FormDa
 
 /* ── Preview Step ────────────────────────────────── */
 
-function PreviewStep({ form, onSubmit, submitting }: { form: FormData; onSubmit: () => void; submitting: boolean }) {
+function PreviewStep({
+  form,
+  onSubmit,
+  submitting,
+  submitPhase,
+}: {
+  form: FormData;
+  onSubmit: () => void;
+  submitting: boolean;
+  submitPhase: 'idle' | 'creating' | 'uploading';
+}) {
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold text-gray-900">Preview</h2>
@@ -617,8 +716,19 @@ function PreviewStep({ form, onSubmit, submitting }: { form: FormData; onSubmit:
       )}
 
       <div className="flex justify-end gap-3">
-        <button type="button" onClick={onSubmit} disabled={submitting} className="rounded-lg bg-[#1a3a4a] px-6 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">
-          {submitting ? 'Submitting...' : 'Create listing'}
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={submitting}
+          className="rounded-lg bg-[#1a3a4a] px-6 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {submitting
+            ? submitPhase === 'uploading'
+              ? 'Uploading media...'
+              : submitPhase === 'creating'
+                ? 'Creating listing...'
+                : 'Submitting...'
+            : 'Create listing'}
         </button>
       </div>
     </div>

@@ -6,10 +6,14 @@ import { ResidentialDetailsDto } from './dto/residential-details.dto';
 import { AddLinkedBankDto } from './dto/add-linked-bank.dto';
 import { assertValidUsername, normalizeUsername, validateUsername } from '../../common/username/username.util';
 import { Currency, Prisma } from '@prisma/client';
+import { StorageService } from '../storage/storage.service';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+  ) {}
 
   async getMe(userId: string) {
     const user = await this.prisma.user.findUnique({
@@ -30,6 +34,7 @@ export class UsersService {
         state: true,
         kycStatus: true,
         onboardingCompletedAt: true,
+        profilePhotoKey: true,
         createdAt: true,
       },
     });
@@ -41,7 +46,22 @@ export class UsersService {
     return {
       ...user,
       requiresUsernameSetup: user.username == null,
+      profilePhotoUrl: user.profilePhotoKey
+        ? await this.storage.createSignedReadUrl(user.profilePhotoKey, 300).catch(() => null)
+        : null,
     };
+  }
+
+  async setProfilePhotoKey(userId: string, key: string) {
+    // Verify key belongs to current user.
+    if (!key.startsWith(`users/${userId}/profile/`)) {
+      throw new BadRequestException('Invalid upload key');
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { profilePhotoKey: key },
+    });
+    return this.getMe(userId);
   }
 
   async checkUsernameAvailability(usernameInput: string) {

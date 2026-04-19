@@ -12,6 +12,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SubmitBvnDto } from './dto/submit-bvn.dto';
 import { SubmitNinDto } from './dto/submit-nin.dto';
 import { KycReviewDto } from './dto/kyc-review.dto';
+import { PresignKycUploadDto } from './dto/presign-kyc-upload.dto';
+import { CompleteKycUploadDto } from './dto/complete-kyc-upload.dto';
 
 @ApiTags('kyc')
 @Controller()
@@ -49,6 +51,20 @@ export class KycController {
     @Body('documentType') documentType: 'id-front' | 'id-back' | 'selfie',
   ) {
     return this.kycService.uploadDocument(user.id, documentType, file);
+  }
+
+  @ApiBearerAuth('user-jwt')
+  @UseGuards(JwtAuthGuard)
+  @Post('kyc/uploads/presign')
+  async presign(@CurrentUser() user: { id: string }, @Body() dto: PresignKycUploadDto) {
+    return this.kycService.presignKycUpload(user.id, dto);
+  }
+
+  @ApiBearerAuth('user-jwt')
+  @UseGuards(JwtAuthGuard)
+  @Post('kyc/uploads/complete')
+  async complete(@CurrentUser() user: { id: string }, @Body() dto: CompleteKycUploadDto) {
+    return this.kycService.completeKycUpload(user.id, dto);
   }
 
   @ApiBearerAuth('admin-jwt')
