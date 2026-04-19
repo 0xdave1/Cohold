@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMe, useOnboarding } from '@/lib/hooks/use-onboarding';
+import { getProfileInitials, useMe, useOnboarding } from '@/lib/hooks/use-onboarding';
 import { COUNTRIES } from '@/lib/constants/countries';
 import { getApiErrorMessage } from '@/lib/api/errors';
 import { AvatarUploader } from '@/components/upload/AvatarUploader';
@@ -21,10 +21,6 @@ const schema = z.object({
 });
 
 type FormValues = z.infer<typeof schema>;
-
-function getInitials(first?: string | null, last?: string | null) {
-  return [first?.[0], last?.[0]].filter(Boolean).join('').toUpperCase() || 'U';
-}
 
 export default function EditProfilePage() {
   const { data: me, isLoading } = useMe();
@@ -83,7 +79,7 @@ export default function EditProfilePage() {
     );
   }
 
-  const initials = getInitials(me?.firstName, me?.lastName);
+  const initials = getProfileInitials(me?.firstName, me?.lastName);
 
   return (
     <div className="min-h-screen bg-dashboard-bg pb-20">

@@ -5,7 +5,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { PencilIcon } from '@/components/auth/AuthIcons';
 import { auth } from '@/components/auth/auth-styles';
-import { useMe, useOnboarding } from '@/lib/hooks/use-onboarding';
+import { getProfileInitials, useMe, useOnboarding } from '@/lib/hooks/use-onboarding';
 import { AvatarUploader } from '@/components/upload/AvatarUploader';
 
 export default function ReviewPage() {
@@ -17,8 +17,7 @@ export default function ReviewPage() {
   const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ') || '—';
   const phone = [profile?.phoneCountryCode, profile?.phoneNumber].filter(Boolean).join(' ').trim() || '—';
   const address = [profile?.houseNumber, profile?.streetName, profile?.city, profile?.state].filter(Boolean).join(', ') || '—';
-  const avatarInitials =
-    [profile?.firstName?.[0], profile?.lastName?.[0]].filter(Boolean).join('').toUpperCase() || 'U';
+  const avatarInitials = getProfileInitials(profile?.firstName, profile?.lastName);
 
   const handleConfirm = async () => {
     setError(null);
@@ -50,7 +49,7 @@ export default function ReviewPage() {
       </div>
 
       <div className="mt-8 flex flex-col items-center">
-        <AvatarUploader initials={avatarInitials} photoUrl={profile?.profilePhotoUrl} />
+        <AvatarUploader variant="auth" initials={avatarInitials} photoUrl={profile?.profilePhotoUrl} />
       </div>
 
       <div className="mt-6 rounded-xl border border-[hsl(var(--auth-input-border))] bg-white p-4 space-y-3">

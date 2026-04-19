@@ -58,12 +58,39 @@ export interface PlatformUser {
   updatedAt: string;
 }
 
+/** KYC record on admin user detail, including signed read URLs for review. */
+export interface AdminUserKycVerification {
+  id: string;
+  userId: string;
+  status: string;
+  governmentIdType: string | null;
+  governmentIdNumber: string | null;
+  documentKey: string | null;
+  documentFrontKey: string | null;
+  documentBackKey: string | null;
+  selfieKey: string | null;
+  failureReason: string | null;
+  requiresReview: boolean;
+  reviewedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  documentFrontUrl: string | null;
+  documentBackUrl: string | null;
+  selfieUrl: string | null;
+  /** Signed URL for legacy `documentKey` when present. */
+  documentLegacyUrl: string | null;
+}
+
 export interface UserDetail extends PlatformUser {
   houseNumber: string | null;
   streetName: string | null;
   city: string | null;
   state: string | null;
   bvn: string | null;
+  profilePhotoKey?: string | null;
+  /** Signed GET URL for profile photo (private bucket). */
+  profilePhotoUrl?: string | null;
+  kycVerification?: AdminUserKycVerification | null;
   wallets: { id: string; currency: string; balance: string }[];
   investments: { id: string; propertyId: string; amount: string; currency: string; shares: string; status: string }[];
   linkedBanks: { id: string; accountNumber: string; bankName: string; accountName: string; currency: string }[];

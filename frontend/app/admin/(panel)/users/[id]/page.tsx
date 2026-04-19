@@ -4,11 +4,12 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { adminApi } from '@/lib/admin/api';
-import type { UserDetail, UserTransaction } from '@/lib/admin/types';
+import type { AdminUserKycVerification, UserDetail, UserTransaction } from '@/lib/admin/types';
 import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   MoreHorizontal,
   User as UserIcon,
   X,
@@ -141,12 +142,21 @@ export default function AdminUserDetailPage() {
         {/* User header card */}
         <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-6 py-5">
           <div className="flex items-center gap-4">
-            <div
-              className="flex h-11 w-11 items-center justify-center rounded-full text-sm font-semibold text-white"
-              style={{ backgroundColor: '#C53030' }}
-            >
-              {initials}
-            </div>
+            {user.profilePhotoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- signed R2 URL; host not in next/image config
+              <img
+                src={user.profilePhotoUrl}
+                alt=""
+                className="h-11 w-11 shrink-0 rounded-full object-cover ring-2 ring-gray-100"
+              />
+            ) : (
+              <div
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+                style={{ backgroundColor: '#C53030' }}
+              >
+                {initials}
+              </div>
+            )}
             <div>
               <p className="text-sm font-semibold text-gray-900">{name}</p>
               <p className="text-xs text-gray-400">{user.email}</p>
@@ -259,30 +269,146 @@ function InfoRow({ label, value }: { label: string; value: string | null | undef
 
 /* ── Personal Info Tab ───────────────────────────────── */
 
-function PersonalInfoTab({ user }: { user: UserDetail }) {
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-6">
-      <h3 className="mb-5 text-sm font-semibold text-gray-700">Personal information</h3>
-      <div className="grid grid-cols-2 gap-x-10 gap-y-5 sm:grid-cols-3">
-        <InfoRow label="User ID" value={`#${user.id.replace(/-/g, '').slice(0, 6).toUpperCase()}`} />
-        <InfoRow label="Full name" value={[user.firstName, user.lastName].filter(Boolean).join(' ') || null} />
-        <InfoRow label="Email" value={user.email} />
-        <InfoRow
-          label="Phone number"
-          value={user.phoneNumber ? `${user.phoneCountryCode ?? ''} ${user.phoneNumber}` : null}
-        />
-        <InfoRow
-          label="KYC status"
-          value={user.kycStatus === 'VERIFIED' ? 'Complete' : user.kycStatus}
-        />
-        <InfoRow label="Account status" value={user.isFrozen ? 'Restricted' : 'Active'} />
-        <InfoRow label="Date of registration" value={fmtDate(user.createdAt)} />
-        <InfoRow
-          label="Verification status"
-          value={user.kycStatus === 'VERIFIED' ? 'Complete' : user.kycStatus}
-        />
-        <InfoRow label="Account status" value={user.isFrozen ? 'Restricted' : 'Active'} />
+function KycDocumentCard({ label, url }: { label: string; url: string | null | undefined }) {
+  if (!url) {
+    return (
+      <div className="flex min-h-[140px] flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-4 py-6 text-center">
+        <p className="text-xs font-medium text-gray-600">{label}</p>
+        <p className="mt-2 text-xs text-gray-400">Not uploaded</p>
       </div>
+    );
+  }
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-3 py-2">
+        <span className="text-xs font-medium text-gray-700">{label}</span>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs font-medium text-[#1a3a4a] hover:underline"
+        >
+          Open <ExternalLink className="h-3 w-3" />
+        </a>
+      </div>
+      <div className="relative bg-[#fafafa]">
+        {/* eslint-disable-next-line @next/next/no-img-element -- signed URL; may be non-image */}
+        <img
+          src={url}
+          alt=""
+          className="mx-auto max-h-56 w-full object-contain"
+          onError={(e) => {
+            e.currentTarget.style.display = 'none';
+          }}
+        />
+        <p className="px-3 py-2 text-center text-[11px] leading-snug text-gray-500">
+          If preview is blank, use Open — file may be a PDF or unsupported format in-browser.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function KycReviewSection({ kyc }: { kyc: AdminUserKycVerification }) {
+  const showExtraLegacy =
+    Boolean(kyc.documentLegacyUrl) &&
+    kyc.documentLegacyUrl !== kyc.documentFrontUrl;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-1 border-b border-gray-100 pb-3 sm:flex-row sm:items-end sm:justify-between">
+        <h3 className="text-sm font-semibold text-gray-700">KYC documents</h3>
+        <div className="text-xs text-gray-500">
+          <span className="text-gray-400">ID type: </span>
+          {kyc.governmentIdType ?? '\u2014'}
+          <span className="mx-2 text-gray-300">|</span>
+          <span className="text-gray-400">ID number: </span>
+          {kyc.governmentIdNumber ?? '\u2014'}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <KycDocumentCard label="ID — front" url={kyc.documentFrontUrl} />
+        <KycDocumentCard label="ID — back" url={kyc.documentBackUrl} />
+        <KycDocumentCard label="Selfie" url={kyc.selfieUrl} />
+        {showExtraLegacy && (
+          <KycDocumentCard label="Legacy / additional document" url={kyc.documentLegacyUrl} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PersonalInfoTab({ user }: { user: UserDetail }) {
+  const kyc = user.kycVerification;
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-gray-200 bg-white p-6">
+        <h3 className="mb-5 text-sm font-semibold text-gray-700">Personal information</h3>
+        <div className="mb-6 flex flex-col gap-4 border-b border-gray-100 pb-6 sm:flex-row sm:items-start">
+          <div className="shrink-0">
+            {user.profilePhotoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={user.profilePhotoUrl}
+                alt=""
+                className="h-24 w-24 rounded-2xl object-cover ring-2 ring-gray-100"
+              />
+            ) : (
+              <div
+                className="flex h-24 w-24 items-center justify-center rounded-2xl text-xl font-semibold text-white"
+                style={{ backgroundColor: '#C53030' }}
+              >
+                {(user.firstName?.[0] ?? user.email[0]).toUpperCase()}
+                {(user.lastName?.[0] ?? '').toUpperCase()}
+              </div>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-gray-900">Profile photo</p>
+            <p className="mt-1 text-xs text-gray-500">
+              {user.profilePhotoUrl
+                ? 'Shown from stored file (signed URL, expires shortly).'
+                : 'No profile photo on file.'}
+            </p>
+            {user.profilePhotoUrl && (
+              <a
+                href={user.profilePhotoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#1a3a4a] hover:underline"
+              >
+                Open full size <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-x-10 gap-y-5 sm:grid-cols-3">
+          <InfoRow label="User ID" value={`#${user.id.replace(/-/g, '').slice(0, 6).toUpperCase()}`} />
+          <InfoRow label="Full name" value={[user.firstName, user.lastName].filter(Boolean).join(' ') || null} />
+          <InfoRow label="Email" value={user.email} />
+          <InfoRow
+            label="Phone number"
+            value={user.phoneNumber ? `${user.phoneCountryCode ?? ''} ${user.phoneNumber}` : null}
+          />
+          <InfoRow
+            label="KYC status"
+            value={user.kycStatus === 'VERIFIED' ? 'Complete' : user.kycStatus}
+          />
+          <InfoRow label="Account status" value={user.isFrozen ? 'Restricted' : 'Active'} />
+          <InfoRow label="Date of registration" value={fmtDate(user.createdAt)} />
+        </div>
+      </div>
+
+      {kyc ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-6">
+          <KycReviewSection kyc={kyc} />
+        </div>
+      ) : (
+        <div className="rounded-xl border border-gray-200 bg-white px-6 py-8 text-center text-sm text-gray-500">
+          No KYC verification record for this user.
+        </div>
+      )}
     </div>
   );
 }
