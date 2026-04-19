@@ -22,12 +22,8 @@ export class StorageService {
     // Backwards compatible env mapping:
     // - existing config uses S3_ACCESS_KEY / S3_SECRET_KEY
     // - new expected names use S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY
-    const accessKey =
-      this.configService.get<string>('s3.accessKey') ??
-      this.configService.get<string>('s3.accessKeyId');
-    const secretKey =
-      this.configService.get<string>('s3.secretKey') ??
-      this.configService.get<string>('s3.secretAccessKey');
+    const accessKey = this.configService.get<string>('s3.accessKeyId');
+    const secretKey = this.configService.get<string>('s3.secretAccessKey');
     const endpoint = this.configService.get<string>('s3.endpoint');
     const region = this.configService.get<string>('s3.region');
     this.bucket = this.configService.get<string>('s3.bucket') ?? 'cohold-assets';
