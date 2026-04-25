@@ -3,12 +3,12 @@
 import { useAuthStore } from '@/stores/auth.store';
 
 /**
- * Returns true when auth bootstrap completed AND accessToken is present.
- * Use for React Query `enabled` to prevent API calls before auth is ready.
+ * True after auth bootstrap finished and the session is cookie-backed + user hydrated.
+ * Use for React Query `enabled` to avoid authenticated API calls before cookies/session are ready.
  */
 export function useAuthReady(): boolean {
   const authChecked = useAuthStore((s) => s.authChecked);
-  const accessToken = useAuthStore((s) => s.accessToken);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
-  return authChecked && !!accessToken;
+  return authChecked && isAuthenticated;
 }

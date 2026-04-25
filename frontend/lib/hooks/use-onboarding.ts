@@ -53,7 +53,7 @@ const ME_QUERY_KEY = ['users', 'me'];
  */
 export function useMe(options?: { enabled?: boolean }) {
   const authChecked = useAuthStore((s) => s.authChecked);
-  const accessToken = useAuthStore((s) => s.accessToken);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   return useQuery({
     queryKey: ME_QUERY_KEY,
@@ -62,9 +62,9 @@ export function useMe(options?: { enabled?: boolean }) {
       if (!res.success) throw new Error(res.error ?? 'Failed to fetch profile');
       return res.data;
     },
-    enabled: options?.enabled !== false && authChecked && !!accessToken,
+    enabled: options?.enabled !== false && authChecked && isAuthenticated,
     refetchOnWindowFocus: true,
-    refetchInterval: accessToken ? 30000 : false,
+    refetchInterval: isAuthenticated ? 30000 : false,
   });
 }
 

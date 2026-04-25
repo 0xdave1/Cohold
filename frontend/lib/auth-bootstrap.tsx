@@ -5,10 +5,9 @@ import { useAuthStore } from '@/stores/auth.store';
 import { apiClient } from '@/lib/api/client';
 
 /**
- * Security-first auth bootstrap:
- * - no localStorage token persistence
- * - attempt cookie-backed refresh once on app load
- * - hydrate in-memory auth state + user profile from backend truth
+ * Cookie-only auth bootstrap:
+ * - POST /auth/refresh (cookies + CSRF) then GET /users/me
+ * - store user in Zustand only; no access/refresh tokens in JS
  */
 export function AuthBootstrap({ children }: { children: ReactNode }) {
   const authChecked = useAuthStore((s) => s.authChecked);

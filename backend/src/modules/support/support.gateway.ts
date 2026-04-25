@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Server, Socket } from 'socket.io';
 import { SupportMessageType, SupportSenderType, SupportStatus } from '@prisma/client';
+import { getAccessTokenFromHandshake } from '../../common/ws/handshake-access-token';
 
 type AuthedSocket = Socket & {
   data: {
@@ -35,7 +36,7 @@ export class SupportGateway implements OnGatewayConnection {
   ) {}
 
   async handleConnection(client: AuthedSocket): Promise<void> {
-    const token = client.handshake.auth?.token ?? client.handshake.query?.token;
+    const token = getAccessTokenFromHandshake(client);
     if (!token || typeof token !== 'string') {
       client.disconnect(true);
       return;

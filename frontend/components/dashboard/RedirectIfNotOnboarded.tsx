@@ -12,24 +12,23 @@ export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const { accessToken, authChecked } = useAuthStore((s) => ({
-    accessToken: s.accessToken,
+  const { isAuthenticated, authChecked } = useAuthStore((s) => ({
+    isAuthenticated: s.isAuthenticated,
     authChecked: s.authChecked,
   }));
 
   const meQuery = useMe({
-    enabled: authChecked && !!accessToken,
+    enabled: authChecked && isAuthenticated,
   });
 
   const { data: profile, isLoading, isError, error } = meQuery;
 
-  useOtpNotVerifiedRecovery(isError, error, authChecked && !!accessToken && isError);
+  useOtpNotVerifiedRecovery(isError, error, authChecked && isAuthenticated && isError);
 
-  // ✅ Redirects ONLY after hydration
   useEffect(() => {
     if (!authChecked) return;
 
-    if (!accessToken) {
+    if (!isAuthenticated) {
       router.replace('/login');
       return;
     }
@@ -41,22 +40,18 @@ export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Username is now required for the product identity layer.
-    // Legacy users with `username=null` must complete setup before using dashboard features.
     const usernameMissing = profile && !profile.username;
     const onUsernameSetup = pathname?.startsWith('/dashboard/username');
     if (profile && profile.onboardingCompletedAt != null && usernameMissing && !onUsernameSetup) {
       router.replace('/dashboard/username');
     }
-  }, [authChecked, accessToken, profile, isLoading, isError, router, pathname]);
+  }, [authChecked, isAuthenticated, profile, isLoading, isError, router, pathname]);
 
-  // ✅ Block render until hydration completes
   if (!authChecked) {
     return null;
   }
 
-  // ✅ Stable loading state
-  if (accessToken && isLoading) {
+  if (isAuthenticated && isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950">
         <p className="text-slate-400">Loading...</p>
@@ -64,8 +59,7 @@ export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
     );
   }
 
-  // ✅ Error handling AFTER hydration only
-  if (accessToken && isError) {
+  if (isAuthenticated && isError) {
     const code = axios.isAxiosError(error) ? getApiErrorCode(error) : undefined;
 
     if (code === 'OTP_NOT_VERIFIED') {
@@ -92,9 +86,8 @@ export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
     );
   }
 
-  // ✅ Prevent flicker during redirect
   if (
-    accessToken &&
+    isAuthenticated &&
     !isLoading &&
     profile &&
     (profile.onboardingCompletedAt == null ||

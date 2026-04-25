@@ -15,6 +15,8 @@ export class CsrfGuard implements CanActivate {
     '/api/v1/auth/request-otp',
     '/api/v1/auth/verify-otp',
     '/api/v1/auth/reset-password',
+    /** Uses HttpOnly refresh cookie; no readable CSRF on cold load before first session. */
+    '/api/v1/auth/refresh',
     '/api/v1/webhook',
   ];
 

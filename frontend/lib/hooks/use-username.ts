@@ -37,7 +37,7 @@ export function useUsernameAvailability(username: string) {
 export function useSetUsername() {
   const setSession = useAuthStore((s) => s.setSession);
   const session = useAuthStore((s) => ({
-    accessToken: s.accessToken,
+    isAuthenticated: s.isAuthenticated,
     role: s.role,
     user: s.user,
   }));
@@ -52,7 +52,7 @@ export function useSetUsername() {
       return res.data;
     },
     onSuccess: (me) => {
-      if (session.accessToken && session.role) {
+      if (session.isAuthenticated && session.role) {
         setSession({
           role: session.role,
           user: {

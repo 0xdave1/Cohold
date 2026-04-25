@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { getApiErrorCode } from '@/lib/api/errors';
 
 /**
- * When /users/me fails with OTP_NOT_VERIFIED (stale token or policy mismatch),
+ * When /users/me fails with OTP_NOT_VERIFIED (stale session or policy mismatch),
  * clear the client session and send the user to signup OTP verification.
  */
 export function useOtpNotVerifiedRecovery(

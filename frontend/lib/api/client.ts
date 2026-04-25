@@ -21,6 +21,11 @@ function getCookie(name: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/** Methods that must send X-CSRF-Token (matches backend non-safe, non-exempt routes; includes PUT). */
+function methodRequiresCsrf(method: string): boolean {
+  return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+}
+
 function isRefreshRequest(config: InternalAxiosRequestConfig | undefined): boolean {
   const url = config?.url ?? '';
   return url.includes('/auth/refresh');
@@ -47,12 +52,13 @@ class ApiClient {
 
     this.instance = axios.create({
       baseURL,
+      /** Cookie-only auth: send HttpOnly session cookies on same-site / credentialed cross-site requests. */
       withCredentials: true,
     });
 
     this.instance.interceptors.request.use((config) => {
       const method = String(config.method ?? 'get').toUpperCase();
-      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      if (methodRequiresCsrf(method)) {
         const csrfToken = getCookie('cohold_csrf_token');
         if (csrfToken) {
           config.headers = config.headers ?? {};
@@ -79,13 +85,10 @@ class ApiClient {
   }
 
   private async refreshAccessToken(): Promise<void> {
-    const res = await axios.post<ApiResponse<{ requiresUsernameSetup?: boolean }>>(
-      `${getBaseURL()}/auth/refresh`,
+    /** Use shared instance so CSRF + withCredentials apply (refresh is not CSRF-exempt). */
+    const res = await this.instance.post<ApiResponse<{ requiresUsernameSetup?: boolean }>>(
+      '/auth/refresh',
       {},
-      {
-        headers: { 'Content-Type': 'application/json' },
-        withCredentials: true,
-      },
     );
 
     const body = res.data;

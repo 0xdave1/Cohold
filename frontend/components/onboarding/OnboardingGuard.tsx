@@ -9,23 +9,23 @@ import { useOtpNotVerifiedRecovery } from '@/lib/hooks/use-otp-not-verified-sess
 import { getApiErrorCode } from '@/lib/api/errors';
 
 /**
- * Requires a valid access token and a verified /users/me profile.
+ * Requires cookie session + verified /users/me profile.
  * Unauthenticated users go to login; stale unverified sessions go to signup OTP verification.
  */
 export function OnboardingGuard({ children }: { children: ReactNode }) {
   const router = useRouter();
   const authChecked = useAuthStore((s) => s.authChecked);
-  const accessToken = useAuthStore((s) => s.accessToken);
-  const meQuery = useMe({ enabled: authChecked && accessToken !== null });
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const meQuery = useMe({ enabled: authChecked && isAuthenticated });
 
-  useOtpNotVerifiedRecovery(meQuery.isError, meQuery.error, accessToken !== null && meQuery.isError);
+  useOtpNotVerifiedRecovery(meQuery.isError, meQuery.error, isAuthenticated && meQuery.isError);
 
   useEffect(() => {
     if (!authChecked) return;
-    if (accessToken === null) {
+    if (!isAuthenticated) {
       router.replace('/login?redirect=/onboarding/personal-details');
     }
-  }, [accessToken, authChecked, router]);
+  }, [isAuthenticated, authChecked, router]);
 
   if (!authChecked) {
     return (
@@ -35,7 +35,7 @@ export function OnboardingGuard({ children }: { children: ReactNode }) {
     );
   }
 
-  if (accessToken === null) {
+  if (!isAuthenticated) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-auth-bg">
         <p className="text-auth-body">Redirecting to login...</p>

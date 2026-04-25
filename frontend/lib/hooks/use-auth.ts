@@ -57,12 +57,12 @@ async function finalizeUserSession(params: {
 }
 
 /**
- * Auth mutations and helpers.
+ * Auth mutations and helpers (HttpOnly cookies + CSRF; no tokens in JS).
  *
- * - Signup → request OTP → verify OTP → complete-signup (token + fetch /users/me → store → redirect to onboarding)
- * - Login → token + fetch /users/me → store → redirect to dashboard
- * - Logout clears Zustand session, React Query cache, and redirects to login
- * - 401 with Bearer: API client attempts refresh; session clears only if refresh fails
+ * - Signup → OTP → complete-signup → cookies set → GET /users/me → store user → onboarding
+ * - Login → cookies set → GET /users/me → store user → dashboard
+ * - Logout → POST /auth/logout → clear in-memory user + React Query → login
+ * - 401 on API calls: client POST /auth/refresh (with cookies + CSRF), then retries; session clears if refresh fails
  */
 export function useAuth() {
   const router = useRouter();

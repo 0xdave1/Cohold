@@ -10,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Server, Socket } from 'socket.io';
+import { getAccessTokenFromHandshake } from '../../common/ws/handshake-access-token';
 
 @WebSocketGateway({
   namespace: '/ws/user',
@@ -26,7 +27,7 @@ export class UserGateway implements OnGatewayConnection {
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
-    const token = client.handshake.auth?.token ?? client.handshake.query?.token;
+    const token = getAccessTokenFromHandshake(client);
     if (!token || typeof token !== 'string') {
       client.disconnect(true);
       return;

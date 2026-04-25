@@ -2,9 +2,19 @@ import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '@/stores/auth.store';
 
+function socketOriginFromApiUrl(): string {
+  const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
+  try {
+    const u = new URL(base);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return 'http://localhost:4000';
+  }
+}
+
 /**
  * WebSocket hook for real-time updates.
- * Connects to backend WebSocket gateway based on user role.
+ * Auth uses HttpOnly cookies on the handshake (`withCredentials: true`); no tokens in JS.
  */
 export function useWebSocket(namespace: '/ws/user' | '/ws/admin' | '/ws/support', callbacks: {
   onKycStatus?: (data: { status: string }) => void;
@@ -16,14 +26,14 @@ export function useWebSocket(namespace: '/ws/user' | '/ws/admin' | '/ws/support'
   onSupportTyping?: (data: any) => void;
 }) {
   const socketRef = useRef<Socket | null>(null);
-  const accessToken = useAuthStore((s) => s.accessToken);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-    const socket = io(`${apiUrl}${namespace}`, {
-      auth: { token: accessToken },
+    const origin = socketOriginFromApiUrl();
+    const socket = io(`${origin}${namespace}`, {
+      withCredentials: true,
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,
@@ -69,7 +79,7 @@ export function useWebSocket(namespace: '/ws/user' | '/ws/admin' | '/ws/support'
     return () => {
       socket.disconnect();
     };
-  }, [accessToken, namespace, callbacks]);
+  }, [isAuthenticated, namespace, callbacks]);
 
   return socketRef.current;
 }

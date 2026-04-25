@@ -15,7 +15,6 @@ export interface AuthUser {
 }
 
 interface AuthState {
-  accessToken: string | null;
   isAuthenticated: boolean;
   role: AuthRole | null;
   user: AuthUser | null;
@@ -31,7 +30,6 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>()((set) => ({
-  accessToken: null,
   isAuthenticated: false,
   role: null,
   user: null,
@@ -41,7 +39,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
   setAuthChecked: (value) => set({ authChecked: value }),
 
   setSession: ({ role, user }) => {
-    set({ accessToken: 'cookie-session', isAuthenticated: true, role, user });
+    set({ isAuthenticated: true, role, user });
   },
 
   setUser: (user) => set({ user }),
@@ -50,7 +48,6 @@ export const useAuthStore = create<AuthState>()((set) => ({
     set({
       role: null,
       user: null,
-      accessToken: null,
       isAuthenticated: false,
       authChecked: true,
     });
