@@ -3,12 +3,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { P2PTransferDto } from './dto/p2p-transfer.dto';
 import { toDecimal, formatMoney } from '../../common/money/decimal.util';
 import { fixMoney, moneyStr } from '../../common/money/precision.constants';
-import { Currency, Prisma, TransactionDirection, TransactionStatus, TransactionType } from '@prisma/client';
+import { Currency, Prisma, TransactionDirection, TransactionType } from '@prisma/client';
 import { normalizeUsername } from '../../common/username/username.util';
 import { P2PExecuteDto } from './dto/p2p-execute.dto';
 import { P2PPreviewDto } from './dto/p2p-preview.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SUPPORTED_CURRENCIES } from '../../common/constants/currency.constants';
+import { WalletService } from '../wallet/wallet.service';
 
 @Injectable()
 export class TransferService {
@@ -18,6 +19,7 @@ export class TransferService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
+    private readonly walletService: WalletService,
   ) {}
 
   private async assertUserHasUsername(userId: string) {
@@ -187,15 +189,6 @@ export class TransferService {
           throw new BadRequestException('Insufficient balance');
         }
 
-        const newSenderBal = fixMoney(senderBal.minus(amount));
-        const newRecipientBal = fixMoney(toDecimal(lockedRecipient.balance.toString()).plus(recipientAmount));
-
-        await tx.wallet.update({ where: { id: lockedSender.id }, data: { balance: moneyStr(newSenderBal) } });
-        await tx.wallet.update({
-          where: { id: lockedRecipient.id },
-          data: { balance: moneyStr(newRecipientBal) },
-        });
-
         const transfer = await tx.p2PTransfer.create({
           data: {
             senderId,
@@ -225,41 +218,29 @@ export class TransferService {
           note: dto.note ?? null,
           groupId,
         };
-
-        await tx.transaction.createMany({
-          data: [
-            {
-              walletId: lockedSender.id,
-              userId: senderId,
-              reference: `${groupId}-DEBIT`,
-              groupId,
-              externalReference: null,
-              type: TransactionType.P2P_TRANSFER,
-              status: TransactionStatus.COMPLETED,
-              amount: moneyStr(amount),
-              fee: moneyStr(fee),
-              netAmount: moneyStr(recipientAmount),
-              currency: this.transferCurrency,
-              direction: TransactionDirection.DEBIT,
-              metadata: senderMeta,
-            },
-            {
-              walletId: lockedRecipient.id,
-              userId: recipient.id,
-              reference: `${groupId}-CREDIT`,
-              groupId,
-              externalReference: null,
-              type: TransactionType.P2P_TRANSFER,
-              status: TransactionStatus.COMPLETED,
-              amount: moneyStr(recipientAmount),
-              fee: null,
-              netAmount: moneyStr(recipientAmount),
-              currency: this.transferCurrency,
-              direction: TransactionDirection.CREDIT,
-              metadata: recipientMeta,
-            },
-          ],
-        });
+        await this.walletService.postDoubleEntry(tx, groupId, [
+          {
+            walletId: lockedSender.id,
+            userId: senderId,
+            type: TransactionType.P2P_TRANSFER,
+            direction: TransactionDirection.DEBIT,
+            amount: amount,
+            currency: this.transferCurrency,
+            fee: fee,
+            netAmount: recipientAmount,
+            metadata: senderMeta,
+          },
+          {
+            walletId: lockedRecipient.id,
+            userId: recipient.id,
+            type: TransactionType.P2P_TRANSFER,
+            direction: TransactionDirection.CREDIT,
+            amount: amount,
+            currency: this.transferCurrency,
+            netAmount: recipientAmount,
+            metadata: recipientMeta,
+          },
+        ]);
 
         return transfer;
       });
@@ -415,57 +396,41 @@ export class TransferService {
     const baseRef = dto.clientReference ?? `P2P-${Date.now()}-${senderId}`;
 
     const result = await this.prisma.$transaction(async (tx) => {
-      const updatedSenderWallet = await tx.wallet.update({
-        where: { id: senderWallet.id },
-        data: {
-          balance: moneyStr(fixMoney(senderBalance.minus(amount))),
-        },
-      });
+      await tx.$queryRawUnsafe(`SELECT id FROM "Wallet" WHERE id = $1 FOR UPDATE`, senderWallet.id);
+      await tx.$queryRawUnsafe(`SELECT id FROM "Wallet" WHERE id = $1 FOR UPDATE`, recipientWallet.id);
 
-      const updatedRecipientWallet = await tx.wallet.update({
+      await this.walletService.postDoubleEntry(tx, baseRef, [
+        {
+          walletId: senderWallet.id,
+          userId: sender.id,
+          type: TransactionType.P2P_TRANSFER,
+          direction: TransactionDirection.DEBIT,
+          amount: amount,
+          currency: senderWallet.currency,
+          metadata: {
+            recipientId: recipient.id,
+            recipientHandle: dto.recipientHandle,
+            groupId: baseRef,
+          } as Prisma.InputJsonValue,
+        },
+        {
+          walletId: recipientWallet.id,
+          userId: recipient.id,
+          type: TransactionType.P2P_TRANSFER,
+          direction: TransactionDirection.CREDIT,
+          amount: amount,
+          currency: recipientWallet.currency,
+          metadata: {
+            senderId: sender.id,
+            senderUsername: sender.username,
+            groupId: baseRef,
+          } as Prisma.InputJsonValue,
+        },
+      ]);
+
+      const updatedSenderWallet = await tx.wallet.findUniqueOrThrow({ where: { id: senderWallet.id } });
+      const updatedRecipientWallet = await tx.wallet.findUniqueOrThrow({
         where: { id: recipientWallet.id },
-        data: {
-          balance: moneyStr(fixMoney(toDecimal(recipientWallet.balance.toString()).plus(amount))),
-        },
-      });
-
-      await tx.transaction.createMany({
-        data: [
-          {
-            walletId: senderWallet.id,
-            userId: sender.id,
-            reference: `${baseRef}-DEBIT`,
-            groupId: baseRef,
-            externalReference: null,
-            type: TransactionType.P2P_TRANSFER,
-            status: TransactionStatus.COMPLETED,
-            amount: moneyStr(amount),
-            currency: senderWallet.currency,
-            direction: TransactionDirection.DEBIT,
-            metadata: {
-              recipientId: recipient.id,
-              recipientHandle: dto.recipientHandle,
-              groupId: baseRef,
-            },
-          },
-          {
-            walletId: recipientWallet.id,
-            userId: recipient.id,
-            reference: `${baseRef}-CREDIT`,
-            groupId: baseRef,
-            externalReference: null,
-            type: TransactionType.P2P_TRANSFER,
-            status: TransactionStatus.COMPLETED,
-            amount: moneyStr(amount),
-            currency: recipientWallet.currency,
-            direction: TransactionDirection.CREDIT,
-            metadata: {
-              senderId: sender.id,
-              senderUsername: sender.username,
-              groupId: baseRef,
-            },
-          },
-        ],
       });
 
       return {

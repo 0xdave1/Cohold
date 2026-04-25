@@ -20,6 +20,7 @@ import {
 import {
   InvestmentStatus,
   PropertyStatus,
+  Prisma,
   TransactionDirection,
   TransactionStatus,
   TransactionType,
@@ -66,7 +67,7 @@ export class InvestmentService {
         });
         return this.formatInvestmentResponse(existingInvestment, wallet);
       }
-      const existingTx = await this.prisma.transaction.findUnique({
+      const existingTx = await this.prisma.transaction.findFirst({
         where: { reference: clientRef },
       });
       if (existingTx) {
@@ -154,24 +155,6 @@ export class InvestmentService {
 
       const txRef = clientRef ?? `INV-${randomUUID()}`;
 
-      const newUserBalance = fixMoney(userBalance.minus(totalCharge));
-      await tx.wallet.update({
-        where: { id: userWallet.id },
-        data: { balance: moneyStr(newUserBalance) },
-      });
-
-      const newPlatformBalance = fixMoney(toDecimal(platformWallet.balance.toString()).plus(investmentFee));
-      await tx.wallet.update({
-        where: { id: platformWallet.id },
-        data: { balance: moneyStr(newPlatformBalance) },
-      });
-
-      const newEscrowBalance = fixMoney(toDecimal(propertyEscrowWallet.balance.toString()).plus(investmentAmount));
-      await tx.wallet.update({
-        where: { id: propertyEscrowWallet.id },
-        data: { balance: moneyStr(newEscrowBalance) },
-      });
-
       const ownershipPercent = fixOwnership(shares.div(sharesTotalDec).mul(100));
       // currentRaised is historical funding (cumulative); only increases on buy — never reduced on sell.
       const currentRaised = fixMoney(toDecimal(lockedProperty.currentRaised.toString())).plus(investmentAmount);
@@ -202,23 +185,16 @@ export class InvestmentService {
         },
       });
 
-      /**
-       * BUY leg — user wallet (liquid) debited for principal + fee.
-       * amount = totalCharge, fee = platform take, netAmount = principal routed to escrow.
-       */
-      await tx.transaction.create({
-        data: {
+      await this.walletService.postDoubleEntry(tx, txRef, [
+        {
           walletId: userWallet.id,
           userId,
-          reference: txRef,
-          groupId: txRef,
           type: TransactionType.BUY,
-          status: TransactionStatus.COMPLETED,
-          amount: moneyStr(totalCharge),
-          fee: moneyStr(investmentFee),
-          netAmount: moneyStr(investmentAmount),
-          currency,
           direction: TransactionDirection.DEBIT,
+          amount: totalCharge,
+          currency,
+          fee: investmentFee,
+          netAmount: investmentAmount,
           propertyId: dto.propertyId,
           investmentId: investment.id,
           metadata: {
@@ -229,24 +205,16 @@ export class InvestmentService {
             feeType: 'INVESTMENT_FEE_ON_TOP',
             ledgerRole: 'USER_BUY_DEBIT',
             groupId: txRef,
-          },
+          } as Prisma.InputJsonValue,
         },
-      });
-
-      /** Principal to property escrow (not spendable by users — position capital). */
-      await tx.transaction.create({
-        data: {
+        {
           walletId: propertyEscrowWallet.id,
           userId: null,
-          reference: `${txRef}-ESCROW`,
-          groupId: txRef,
           type: TransactionType.PROPERTY_FUNDING,
-          status: TransactionStatus.COMPLETED,
-          amount: moneyStr(investmentAmount),
-          fee: null,
-          netAmount: moneyStr(investmentAmount),
-          currency,
           direction: TransactionDirection.CREDIT,
+          amount: investmentAmount,
+          currency,
+          netAmount: investmentAmount,
           propertyId: dto.propertyId,
           investmentId: investment.id,
           metadata: {
@@ -255,24 +223,17 @@ export class InvestmentService {
             shares: shareStr(shares),
             ledgerRole: 'ESCROW_PRINCIPAL',
             groupId: txRef,
-          },
+          } as Prisma.InputJsonValue,
         },
-      });
-
-      /** Platform revenue from buy spread. */
-      await tx.transaction.create({
-        data: {
+        {
           walletId: platformWallet.id,
           userId: PLATFORM_USER_ID,
-          reference: `${txRef}-FEE`,
-          groupId: txRef,
           type: TransactionType.FEE,
-          status: TransactionStatus.COMPLETED,
-          amount: moneyStr(investmentFee),
-          fee: moneyStr(investmentFee),
-          netAmount: moneyStr(investmentFee),
-          currency,
           direction: TransactionDirection.CREDIT,
+          amount: investmentFee,
+          currency,
+          fee: investmentFee,
+          netAmount: investmentFee,
           propertyId: dto.propertyId,
           investmentId: investment.id,
           metadata: {
@@ -281,9 +242,9 @@ export class InvestmentService {
             feeType: 'INVESTMENT_FEE',
             ledgerRole: 'PLATFORM_FEE',
             groupId: txRef,
-          },
+          } as Prisma.InputJsonValue,
         },
-      });
+      ]);
 
       const updatedUserWallet = await tx.wallet.findUniqueOrThrow({
         where: { id: userWallet.id },
@@ -334,7 +295,7 @@ export class InvestmentService {
 
     const clientRef = dto.clientReference?.trim();
     if (clientRef) {
-      const existingTx = await this.prisma.transaction.findUnique({
+      const existingTx = await this.prisma.transaction.findFirst({
         where: { reference: clientRef },
       });
       if (existingTx) {
@@ -430,8 +391,6 @@ export class InvestmentService {
       await tx.$queryRawUnsafe(`SELECT id FROM "Wallet" WHERE id = $1 FOR UPDATE`, platformWallet.id);
 
       const lockedEscrow = await tx.wallet.findUniqueOrThrow({ where: { id: propertyEscrowWallet.id } });
-      const lockedPlatform = await tx.wallet.findUniqueOrThrow({ where: { id: platformWallet.id } });
-      const lockedUserW = await tx.wallet.findUniqueOrThrow({ where: { id: userWallet.id } });
 
       const escrowBal = toDecimal(lockedEscrow.balance.toString());
       if (escrowBal.lt(sellAmount)) {
@@ -482,38 +441,32 @@ export class InvestmentService {
         });
       }
 
-      const newUserBal = fixMoney(toDecimal(lockedUserW.balance.toString()).plus(netToUser));
-      const newEscrowBal = fixMoney(escrowBal.minus(sellAmount));
-      const newPlatformBal = fixMoney(toDecimal(lockedPlatform.balance.toString()).plus(platformFee));
-
-      await tx.wallet.update({
-        where: { id: userWallet.id },
-        data: { balance: moneyStr(newUserBal) },
-      });
-      await tx.wallet.update({
-        where: { id: propertyEscrowWallet.id },
-        data: { balance: moneyStr(newEscrowBal) },
-      });
-      await tx.wallet.update({
-        where: { id: platformWallet.id },
-        data: { balance: moneyStr(newPlatformBal) },
-      });
-
       const txRef = clientRef ?? `SELL-${randomUUID()}`;
-
-      await tx.transaction.create({
-        data: {
+      await this.walletService.postDoubleEntry(tx, txRef, [
+        {
+          walletId: propertyEscrowWallet.id,
+          userId: null,
+          type: TransactionType.PROPERTY_FUNDING,
+          direction: TransactionDirection.DEBIT,
+          amount: sellAmount,
+          currency,
+          netAmount: sellAmount,
+          propertyId: dto.propertyId,
+          metadata: {
+            propertyId: dto.propertyId,
+            ledgerRole: 'ESCROW_RELEASE_ON_SELL',
+            groupId: txRef,
+          } as Prisma.InputJsonValue,
+        },
+        {
           walletId: userWallet.id,
           userId,
-          reference: txRef,
-          groupId: txRef,
           type: TransactionType.SELL,
-          status: TransactionStatus.COMPLETED,
-          amount: moneyStr(sellAmount),
-          fee: moneyStr(platformFee),
-          netAmount: moneyStr(netToUser),
-          currency,
           direction: TransactionDirection.CREDIT,
+          amount: netToUser,
+          currency,
+          fee: platformFee,
+          netAmount: netToUser,
           propertyId: dto.propertyId,
           metadata: {
             propertyId: dto.propertyId,
@@ -523,56 +476,30 @@ export class InvestmentService {
             profit: moneyStr(profit),
             ledgerRole: 'USER_SELL_PROCEEDS',
             groupId: txRef,
-          },
+          } as Prisma.InputJsonValue,
         },
-      });
-
-      await tx.transaction.create({
-        data: {
-          walletId: propertyEscrowWallet.id,
-          userId: null,
-          reference: `${txRef}-ESCROW`,
-          groupId: txRef,
-          type: TransactionType.PROPERTY_FUNDING,
-          status: TransactionStatus.COMPLETED,
-          amount: moneyStr(sellAmount),
-          fee: null,
-          netAmount: moneyStr(sellAmount),
-          currency,
-          direction: TransactionDirection.DEBIT,
-          propertyId: dto.propertyId,
-          metadata: {
-            propertyId: dto.propertyId,
-            ledgerRole: 'ESCROW_RELEASE_ON_SELL',
-            groupId: txRef,
-          },
-        },
-      });
-
-      if (platformFee.gt(0)) {
-        await tx.transaction.create({
-          data: {
-            walletId: platformWallet.id,
-            userId: PLATFORM_USER_ID,
-            reference: `${txRef}-FEE`,
-            groupId: txRef,
-            type: TransactionType.FEE,
-            status: TransactionStatus.COMPLETED,
-            amount: moneyStr(platformFee),
-            fee: moneyStr(platformFee),
-            netAmount: moneyStr(platformFee),
-            currency,
-            direction: TransactionDirection.CREDIT,
-            propertyId: dto.propertyId,
-            metadata: {
-              propertyId: dto.propertyId,
-              feeType: 'SELL_PROFIT_FEE',
-              ledgerRole: 'PLATFORM_FEE',
-              groupId: txRef,
-            },
-          },
-        });
-      }
+        ...(platformFee.gt(0)
+          ? [
+              {
+                walletId: platformWallet.id,
+                userId: PLATFORM_USER_ID,
+                type: TransactionType.FEE,
+                direction: TransactionDirection.CREDIT,
+                amount: platformFee,
+                currency,
+                fee: platformFee,
+                netAmount: platformFee,
+                propertyId: dto.propertyId,
+                metadata: {
+                  propertyId: dto.propertyId,
+                  feeType: 'SELL_PROFIT_FEE',
+                  ledgerRole: 'PLATFORM_FEE',
+                  groupId: txRef,
+                } as Prisma.InputJsonValue,
+              },
+            ]
+          : []),
+      ]);
 
       const uw = await tx.wallet.findUniqueOrThrow({ where: { id: userWallet.id } });
       const primaryInvestmentId = slices[0]?.investmentId;
@@ -732,23 +659,10 @@ export class InvestmentService {
         throw new BadRequestException('Insufficient property escrow to fund monthly ROI');
       }
 
-      let escrowRunning = escrowBal;
-      let platformRunning = fixMoney(toDecimal(platformWallet.balance.toString()));
-
       const groupId = `ROI-${propertyId}-${period}`;
 
       for (const p of eligible) {
         await tx.$queryRawUnsafe(`SELECT id FROM "Wallet" WHERE id = $1 FOR UPDATE`, p.walletId);
-
-        const lockedUser = await tx.wallet.findUniqueOrThrow({ where: { id: p.walletId } });
-        const newUserBal = fixMoney(toDecimal(lockedUser.balance.toString()).plus(p.netRoi));
-
-        await tx.wallet.update({
-          where: { id: p.walletId },
-          data: { balance: moneyStr(newUserBal) },
-        });
-
-        escrowRunning = fixMoney(escrowRunning.minus(p.roiGross));
 
         const invRow = await tx.investment.findUniqueOrThrow({ where: { id: p.investmentId } });
         const newTotalReturns = fixMoney(toDecimal(invRow.totalReturns.toString()).plus(p.netRoi));
@@ -770,19 +684,35 @@ export class InvestmentService {
           },
         });
 
-        await tx.transaction.create({
-          data: {
+        const payoutRef = `${groupId}-${p.investmentId}`;
+        await this.walletService.postDoubleEntry(tx, payoutRef, [
+          {
+            walletId: escrowWallet.id,
+            userId: null,
+            type: TransactionType.PROPERTY_FUNDING,
+            direction: TransactionDirection.DEBIT,
+            amount: p.roiGross,
+            currency: p.currency,
+            netAmount: p.roiGross,
+            propertyId,
+            investmentId: p.investmentId,
+            metadata: {
+              propertyId,
+              investmentId: p.investmentId,
+              period,
+              ledgerRole: 'ESCROW_FUND_MONTHLY_ROI',
+              groupId,
+            } as Prisma.InputJsonValue,
+          },
+          {
             walletId: p.walletId,
             userId: p.userId,
-            reference: `${groupId}-${p.investmentId}-USER`,
-            groupId,
             type: TransactionType.ROI,
-            status: TransactionStatus.COMPLETED,
-            amount: moneyStr(p.roiGross),
-            fee: moneyStr(p.platformFee),
-            netAmount: moneyStr(p.netRoi),
-            currency: p.currency,
             direction: TransactionDirection.CREDIT,
+            amount: p.netRoi,
+            currency: p.currency,
+            fee: p.platformFee,
+            netAmount: p.netRoi,
             propertyId,
             investmentId: p.investmentId,
             metadata: {
@@ -791,68 +721,29 @@ export class InvestmentService {
               period,
               ledgerRole: 'monthly_yield_roi',
               groupId,
-            },
+            } as Prisma.InputJsonValue,
           },
-        });
-      }
-
-      platformRunning = fixMoney(platformRunning.plus(totalPlatformFees));
-      await tx.wallet.update({
-        where: { id: escrowWallet.id },
-        data: { balance: moneyStr(escrowRunning) },
-      });
-      await tx.wallet.update({
-        where: { id: platformWallet.id },
-        data: { balance: moneyStr(platformRunning) },
-      });
-
-      if (totalPlatformFees.gt(0)) {
-        await tx.transaction.create({
-          data: {
+          {
             walletId: platformWallet.id,
             userId: PLATFORM_USER_ID,
-            reference: `${groupId}-PLATFORM-FEE`,
-            groupId,
             type: TransactionType.FEE,
-            status: TransactionStatus.COMPLETED,
-            amount: moneyStr(totalPlatformFees),
-            fee: moneyStr(totalPlatformFees),
-            netAmount: moneyStr(totalPlatformFees),
-            currency: property.currency,
             direction: TransactionDirection.CREDIT,
+            amount: p.platformFee,
+            currency: p.currency,
+            fee: p.platformFee,
+            netAmount: p.platformFee,
             propertyId,
+            investmentId: p.investmentId,
             metadata: {
               propertyId,
               feeType: 'MONTHLY_ROI_PLATFORM',
+              period,
               ledgerRole: 'PLATFORM_FEE_AGGREGATE',
               groupId,
-            },
+            } as Prisma.InputJsonValue,
           },
-        });
+        ]);
       }
-
-      await tx.transaction.create({
-        data: {
-          walletId: escrowWallet.id,
-          userId: null,
-          reference: `${groupId}-ESCROW`,
-          groupId,
-          type: TransactionType.PROPERTY_FUNDING,
-          status: TransactionStatus.COMPLETED,
-          amount: moneyStr(totalGross),
-          fee: null,
-          netAmount: moneyStr(totalGross),
-          currency: property.currency,
-          direction: TransactionDirection.DEBIT,
-          propertyId,
-          metadata: {
-            propertyId,
-            ledgerRole: 'ESCROW_FUND_MONTHLY_ROI',
-            grossTotal: moneyStr(totalGross),
-            groupId,
-          },
-        },
-      });
 
       if (options?.adminId) {
         await tx.adminActivityLog.create({

@@ -48,12 +48,11 @@ const ME_QUERY_KEY = ['users', 'me'];
 
 /**
  * READ-ONLY hook for fetching current user profile.
- * Does NOT sync data into Zustand - that would cause hydration mismatch.
- * Zustand auth store is the source of truth for auth state.
- * React Query is only for fetching fresh profile data.
+ * Session truth comes from backend auth cookies + refresh bootstrap.
+ * Zustand only keeps in-memory UI/session state for current tab.
  */
 export function useMe(options?: { enabled?: boolean }) {
-  const hasHydrated = useAuthStore((s) => s.hasHydrated);
+  const authChecked = useAuthStore((s) => s.authChecked);
   const accessToken = useAuthStore((s) => s.accessToken);
 
   return useQuery({
@@ -63,7 +62,7 @@ export function useMe(options?: { enabled?: boolean }) {
       if (!res.success) throw new Error(res.error ?? 'Failed to fetch profile');
       return res.data;
     },
-    enabled: options?.enabled !== false && hasHydrated && !!accessToken,
+    enabled: options?.enabled !== false && authChecked && !!accessToken,
     refetchOnWindowFocus: true,
     refetchInterval: accessToken ? 30000 : false,
   });

@@ -14,17 +14,11 @@ function getBaseURL(): string {
   return process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_BASE_URL;
 }
 
-function requestHadAuthorization(config: InternalAxiosRequestConfig | undefined): boolean {
-  if (!config?.headers) return false;
-  const h = config.headers;
-  const auth =
-    (typeof (h as Record<string, unknown>).Authorization === 'string'
-      ? (h as Record<string, string>).Authorization
-      : undefined) ??
-    (typeof (h as Record<string, unknown>).authorization === 'string'
-      ? (h as Record<string, string>).authorization
-      : undefined);
-  return !!auth && String(auth).length > 0;
+function getCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
 function isRefreshRequest(config: InternalAxiosRequestConfig | undefined): boolean {
@@ -57,13 +51,14 @@ class ApiClient {
     });
 
     this.instance.interceptors.request.use((config) => {
-      const token = useAuthStore.getState().accessToken;
-
-      if (token) {
-        config.headers = config.headers ?? {};
-        config.headers.Authorization = `Bearer ${token}`;
+      const method = String(config.method ?? 'get').toUpperCase();
+      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        const csrfToken = getCookie('cohold_csrf_token');
+        if (csrfToken) {
+          config.headers = config.headers ?? {};
+          config.headers['X-CSRF-Token'] = csrfToken;
+        }
       }
-
       return config;
     });
 
@@ -84,15 +79,9 @@ class ApiClient {
   }
 
   private async refreshAccessToken(): Promise<void> {
-    const { refreshToken, setTokens } = useAuthStore.getState();
-
-    if (!refreshToken) {
-      throw new Error('No refresh token');
-    }
-
-    const res = await axios.post<ApiResponse<{ accessToken: string; refreshToken?: string }>>(
+    const res = await axios.post<ApiResponse<{ requiresUsernameSetup?: boolean }>>(
       `${getBaseURL()}/auth/refresh`,
-      { refreshToken },
+      {},
       {
         headers: { 'Content-Type': 'application/json' },
         withCredentials: true,
@@ -101,14 +90,9 @@ class ApiClient {
 
     const body = res.data;
 
-    if (!body.success || !body.data?.accessToken) {
+    if (!body.success) {
       throw new Error(body.error ?? 'Refresh failed');
     }
-
-    setTokens({
-      accessToken: body.data.accessToken,
-      refreshToken: body.data.refreshToken ?? refreshToken,
-    });
   }
 
   private async handleResponseError(error: unknown): Promise<unknown> {
@@ -127,15 +111,6 @@ class ApiClient {
       return Promise.reject(error);
     }
 
-    if (!requestHadAuthorization(originalRequest)) {
-      return Promise.reject(error);
-    }
-
-    if (!useAuthStore.getState().refreshToken) {
-      useAuthStore.getState().clearSession();
-      return Promise.reject(error);
-    }
-
     if (originalRequest._retry) {
       useAuthStore.getState().clearSession();
       return Promise.reject(error);
@@ -145,14 +120,6 @@ class ApiClient {
 
     try {
       await this.ensureRefreshed();
-
-      const token = useAuthStore.getState().accessToken;
-      originalRequest.headers = originalRequest.headers ?? {};
-
-      if (token) {
-        originalRequest.headers.Authorization = `Bearer ${token}`;
-      }
-
       return this.instance(originalRequest);
     } catch {
       useAuthStore.getState().clearSession();

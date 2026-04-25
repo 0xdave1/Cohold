@@ -33,7 +33,7 @@ function getInitials(firstName?: string | null, lastName?: string | null, email?
 }
 
 export default function AccountPage() {
-  const { logout } = useAuth();
+  const { logout, logoutAll } = useAuth();
   const { data: me } = useMe();
   const { data: kycData } = useKycStatus();
   const { user } = useAuthStore();
@@ -157,6 +157,13 @@ export default function AccountPage() {
               icon={<LogOut className="h-5 w-5" />}
               label="Logout"
               onClick={() => setShowLogoutModal(true)}
+            />
+            <AccountSettingRow
+              icon={<ShieldCheck className="h-5 w-5" />}
+              label="Log out all devices"
+              onClick={() => {
+                logoutAll();
+              }}
             />
             <AccountSettingRow
               icon={<Trash2 className="h-5 w-5" />}

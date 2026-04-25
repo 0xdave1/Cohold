@@ -5,9 +5,10 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { WithdrawalThrottleGuard } from './guards/withdrawal-throttle.guard';
 import { PayoutModule } from '../payout/payout.module';
+import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
-  imports: [PrismaModule, NotificationsModule, PayoutModule],
+  imports: [PrismaModule, NotificationsModule, PayoutModule, WalletModule],
   controllers: [WithdrawalController],
   providers: [WithdrawalService, WithdrawalThrottleGuard],
   exports: [WithdrawalService],

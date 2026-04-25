@@ -18,6 +18,9 @@ import { AuthAttemptsService } from './auth-attempts.service';
       useFactory: (config: ConfigService) => ({
         secret: config.get<string>('config.jwt.accessSecret'),
         signOptions: {
+          algorithm: 'HS256',
+          issuer: config.get<string>('config.jwt.issuer') ?? 'cohold-api',
+          audience: config.get<string>('config.jwt.audience') ?? 'cohold-client',
           expiresIn: config.get<string>('config.jwt.accessExpiresIn') ?? '15m',
         },
       }),

@@ -19,6 +19,10 @@ export default registerAs('config', () => ({
     refreshSecret: process.env.JWT_REFRESH_SECRET,
     accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
+    issuer: process.env.JWT_ISSUER ?? 'cohold-api',
+    audience: process.env.JWT_AUDIENCE ?? 'cohold-client',
+    sessionPepper: process.env.AUTH_SESSION_PEPPER ?? process.env.JWT_REFRESH_SECRET,
+    maxSessionLifetimeDays: parseInt(process.env.AUTH_MAX_SESSION_LIFETIME_DAYS ?? '30', 10),
   },
   flutterwave: {
     secretKey: process.env.FLW_SECRET_KEY ?? process.env.FLUTTERWAVE_SECRET_KEY,

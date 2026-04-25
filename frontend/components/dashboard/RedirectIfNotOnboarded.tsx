@@ -12,22 +12,22 @@ export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const { accessToken, hasHydrated } = useAuthStore((s) => ({
+  const { accessToken, authChecked } = useAuthStore((s) => ({
     accessToken: s.accessToken,
-    hasHydrated: s.hasHydrated,
+    authChecked: s.authChecked,
   }));
 
   const meQuery = useMe({
-    enabled: hasHydrated && !!accessToken,
+    enabled: authChecked && !!accessToken,
   });
 
   const { data: profile, isLoading, isError, error } = meQuery;
 
-  useOtpNotVerifiedRecovery(isError, error, hasHydrated && !!accessToken && isError);
+  useOtpNotVerifiedRecovery(isError, error, authChecked && !!accessToken && isError);
 
   // ✅ Redirects ONLY after hydration
   useEffect(() => {
-    if (!hasHydrated) return;
+    if (!authChecked) return;
 
     if (!accessToken) {
       router.replace('/login');
@@ -48,10 +48,10 @@ export function RedirectIfNotOnboarded({ children }: { children: ReactNode }) {
     if (profile && profile.onboardingCompletedAt != null && usernameMissing && !onUsernameSetup) {
       router.replace('/dashboard/username');
     }
-  }, [hasHydrated, accessToken, profile, isLoading, isError, router, pathname]);
+  }, [authChecked, accessToken, profile, isLoading, isError, router, pathname]);
 
   // ✅ Block render until hydration completes
-  if (!hasHydrated) {
+  if (!authChecked) {
     return null;
   }
 

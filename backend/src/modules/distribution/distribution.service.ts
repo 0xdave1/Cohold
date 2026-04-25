@@ -14,12 +14,11 @@ import { NotificationsService } from '../notifications/notifications.service';
 import {
   DistributionStatus,
   InvestmentStatus,
+  Prisma,
   TransactionDirection,
-  TransactionStatus,
   TransactionType,
 } from '@prisma/client';
 import Decimal from 'decimal.js';
-import { randomUUID } from 'crypto';
 
 const BATCH_SIZE = 200;
 const RENT_DISTRIBUTION_FEE_RATE = 0.03; // 3% — admin lump-sum distributions (existing)
@@ -98,6 +97,8 @@ export class DistributionService {
       }
 
       await this.prisma.$transaction(async (tx) => {
+        const platformWallet = await this.walletService.getPlatformWallet(tx, dto.currency);
+        await tx.$queryRawUnsafe(`SELECT id FROM "Wallet" WHERE id = $1 FOR UPDATE`, platformWallet.id);
         for (const investment of batch) {
           const investmentShares = toDecimal(investment.shares.toString());
           const payout = fixMoney(
@@ -124,33 +125,37 @@ export class DistributionService {
             continue;
           }
 
-          const currentBalance = toDecimal(wallet.balance.toString());
-          const newBalance = fixMoney(currentBalance.plus(payout));
-
-          await tx.wallet.update({
-            where: { id: wallet.id },
-            data: { balance: moneyStr(newBalance) },
-          });
-
-          await tx.transaction.create({
-            data: {
-              walletId: wallet.id,
-              userId: investment.userId,
-              reference: `DIST-${distribution.id}-${randomUUID()}`,
-              groupId: distGroupId,
+          const payoutRef = `DIST-${distribution.id}-${investment.id}`;
+          await this.walletService.postDoubleEntry(tx, payoutRef, [
+            {
+              walletId: platformWallet.id,
+              userId: PLATFORM_USER_ID,
               type: TransactionType.DISTRIBUTION,
-              status: TransactionStatus.COMPLETED,
-              amount: moneyStr(payout),
+              direction: TransactionDirection.DEBIT,
+              amount: payout,
               currency: dto.currency,
-              direction: TransactionDirection.CREDIT,
               metadata: {
                 propertyId: dto.propertyId,
                 distributionId: distribution.id,
                 investmentId: investment.id,
                 groupId: distGroupId,
-              },
+              } as Prisma.InputJsonValue,
             },
-          });
+            {
+              walletId: wallet.id,
+              userId: investment.userId,
+              type: TransactionType.DISTRIBUTION,
+              direction: TransactionDirection.CREDIT,
+              amount: payout,
+              currency: dto.currency,
+              metadata: {
+                propertyId: dto.propertyId,
+                distributionId: distribution.id,
+                investmentId: investment.id,
+                groupId: distGroupId,
+              } as Prisma.InputJsonValue,
+            },
+          ]);
 
           await tx.distributionPayout.create({
             data: {
@@ -180,41 +185,6 @@ export class DistributionService {
 
     const remainder = fixMoney(distributableAmount.minus(distributedTotal));
     const finalPlatformFee = platformFee.plus(remainder);
-
-    if (finalPlatformFee.gt(0)) {
-      await this.prisma.$transaction(async (tx) => {
-        const platformWallet = await this.walletService.getPlatformWallet(tx, dto.currency);
-        const currentPlatformBalance = toDecimal(platformWallet.balance.toString());
-        const newPlatformBalance = fixMoney(currentPlatformBalance.plus(finalPlatformFee));
-
-        await tx.wallet.update({
-          where: { id: platformWallet.id },
-          data: { balance: moneyStr(newPlatformBalance) },
-        });
-
-        await tx.transaction.create({
-          data: {
-            walletId: platformWallet.id,
-            userId: PLATFORM_USER_ID,
-            reference: `DIST-FEE-${distribution.id}-${randomUUID()}`,
-            groupId: `DIST-${distribution.id}`,
-            type: TransactionType.FEE,
-            status: TransactionStatus.COMPLETED,
-            amount: moneyStr(finalPlatformFee),
-            currency: dto.currency,
-            direction: TransactionDirection.CREDIT,
-            metadata: {
-              propertyId: dto.propertyId,
-              distributionId: distribution.id,
-              feeType: 'RENT_DISTRIBUTION_FEE',
-              baseFee: moneyStr(platformFee),
-              remainder: moneyStr(remainder),
-              groupId: `DIST-${distribution.id}`,
-            },
-          },
-        });
-      });
-    }
 
     await this.prisma.$transaction(async (tx) => {
       await tx.distribution.update({

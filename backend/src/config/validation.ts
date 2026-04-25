@@ -23,6 +23,10 @@ export const validationSchema = Joi.object({
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
   JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
+  JWT_ISSUER: Joi.string().default('cohold-api'),
+  JWT_AUDIENCE: Joi.string().default('cohold-client'),
+  AUTH_SESSION_PEPPER: Joi.string().min(16).optional(),
+  AUTH_MAX_SESSION_LIFETIME_DAYS: Joi.number().integer().min(1).max(365).default(30),
 
   FLW_SECRET_KEY: Joi.string().optional(),
   FLW_PUBLIC_KEY: Joi.string().optional(),

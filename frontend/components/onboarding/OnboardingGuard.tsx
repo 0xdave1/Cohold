@@ -14,16 +14,26 @@ import { getApiErrorCode } from '@/lib/api/errors';
  */
 export function OnboardingGuard({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const authChecked = useAuthStore((s) => s.authChecked);
   const accessToken = useAuthStore((s) => s.accessToken);
-  const meQuery = useMe({ enabled: accessToken !== null });
+  const meQuery = useMe({ enabled: authChecked && accessToken !== null });
 
   useOtpNotVerifiedRecovery(meQuery.isError, meQuery.error, accessToken !== null && meQuery.isError);
 
   useEffect(() => {
+    if (!authChecked) return;
     if (accessToken === null) {
       router.replace('/login?redirect=/onboarding/personal-details');
     }
-  }, [accessToken, router]);
+  }, [accessToken, authChecked, router]);
+
+  if (!authChecked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-auth-bg">
+        <p className="text-auth-body">Loading...</p>
+      </div>
+    );
+  }
 
   if (accessToken === null) {
     return (

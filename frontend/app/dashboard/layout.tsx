@@ -7,9 +7,9 @@ import { DashboardBottomNav } from '@/components/dashboard/DashboardBottomNav';
 import { DashboardMain } from '@/components/dashboard/DashboardMain';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  const hasHydrated = useAuthStore((s) => s.hasHydrated);
+  const authChecked = useAuthStore((s) => s.authChecked);
 
-  if (!hasHydrated) {
+  if (!authChecked) {
     return null; // prevent hydration mismatch
   }
 

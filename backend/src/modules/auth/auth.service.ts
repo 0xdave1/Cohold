@@ -13,10 +13,25 @@ import { SignupDto } from './dto/signup.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { Currency } from '@prisma/client';
+import { Currency, Prisma, SecurityEventType } from '@prisma/client';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AuthOtpService, type OtpPurpose } from './auth-otp.service';
 import { AuthAttemptsService } from './auth-attempts.service';
+import { createHash, randomUUID } from 'crypto';
+
+type SessionContext = {
+  userAgent?: string | null;
+  ipAddress?: string | null;
+  deviceLabel?: string | null;
+};
+
+type JwtUserPayload = {
+  sub: string;
+  role: 'user';
+  ev: true;
+  tokenType: 'access' | 'refresh';
+  sid?: string;
+};
 
 @Injectable()
 export class AuthService {
@@ -32,6 +47,107 @@ export class AuthService {
     private readonly attempts: AuthAttemptsService,
   ) {}
 
+  private getJwtConfig() {
+    const accessSecret = this.configService.get<string>('config.jwt.accessSecret');
+    const refreshSecret = this.configService.get<string>('config.jwt.refreshSecret');
+    const accessExpiresIn = this.configService.get<string>('config.jwt.accessExpiresIn') ?? '15m';
+    const refreshExpiresIn = this.configService.get<string>('config.jwt.refreshExpiresIn') ?? '7d';
+    const issuer = this.configService.get<string>('config.jwt.issuer') ?? 'cohold-api';
+    const audience = this.configService.get<string>('config.jwt.audience') ?? 'cohold-client';
+    if (!accessSecret || !refreshSecret) {
+      throw new UnauthorizedException('JWT not configured');
+    }
+    return { accessSecret, refreshSecret, accessExpiresIn, refreshExpiresIn, issuer, audience };
+  }
+
+  private hashRefreshToken(refreshToken: string): string {
+    const pepper =
+      this.configService.get<string>('config.jwt.sessionPepper') ??
+      this.configService.get<string>('AUTH_SESSION_PEPPER') ??
+      this.configService.get<string>('JWT_REFRESH_SECRET') ??
+      '';
+    return createHash('sha256').update(`${refreshToken}:${pepper}`).digest('hex');
+  }
+
+  private async signAccessToken(userId: string): Promise<string> {
+    const { accessSecret, accessExpiresIn, issuer, audience } = this.getJwtConfig();
+    return this.jwtService.signAsync(
+      { sub: userId, role: 'user', ev: true, tokenType: 'access' } satisfies JwtUserPayload,
+      {
+        secret: accessSecret,
+        expiresIn: accessExpiresIn,
+        algorithm: 'HS256',
+        issuer,
+        audience,
+      },
+    );
+  }
+
+  private async createRefreshSession(userId: string, context?: SessionContext) {
+    const { refreshSecret, refreshExpiresIn, issuer, audience } = this.getJwtConfig();
+    const sid = randomUUID();
+    const refreshToken = await this.jwtService.signAsync(
+      { sub: userId, role: 'user', ev: true, tokenType: 'refresh', sid } satisfies JwtUserPayload,
+      {
+        secret: refreshSecret,
+        expiresIn: refreshExpiresIn,
+        algorithm: 'HS256',
+        issuer,
+        audience,
+      },
+    );
+    const decoded = await this.jwtService.verifyAsync<JwtUserPayload & { exp: number }>(refreshToken, {
+      secret: refreshSecret,
+      algorithms: ['HS256'],
+      issuer,
+      audience,
+    });
+    const expiresAt = new Date(decoded.exp * 1000);
+    const refreshTokenHash = this.hashRefreshToken(refreshToken);
+    await this.prisma.authSession.create({
+      data: {
+        id: sid,
+        userId,
+        refreshTokenHash,
+        userAgent: context?.userAgent ?? null,
+        ipAddress: context?.ipAddress ?? null,
+        deviceLabel: context?.deviceLabel ?? null,
+        expiresAt,
+      },
+    });
+    return { refreshToken, sessionId: sid, expiresAt };
+  }
+
+  private async revokeAllActiveSessions(userId: string) {
+    await this.prisma.authSession.updateMany({
+      where: { userId, isRevoked: false },
+      data: { isRevoked: true, revokedAt: new Date() },
+    });
+  }
+
+  private getMaxSessionLifetimeMs(): number {
+    const days = this.configService.get<number>('config.jwt.maxSessionLifetimeDays') ?? 30;
+    return days * 24 * 60 * 60 * 1000;
+  }
+
+  private async logSecurityEvent(params: {
+    type: SecurityEventType;
+    userId?: string | null;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    await this.prisma.securityEvent.create({
+      data: {
+        type: params.type,
+        userId: params.userId ?? null,
+        ipAddress: params.ipAddress ?? null,
+        userAgent: params.userAgent ?? null,
+        metadata: (params.metadata as Prisma.InputJsonValue | undefined) ?? undefined,
+      },
+    });
+  }
+
   async validateUser(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) throw new UnauthorizedException('Invalid credentials');
@@ -45,16 +161,12 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Successful login clears failures for this email.
     await this.attempts.reset('login', email.trim().toLowerCase());
-
     return user;
   }
 
-  /** Login user and return access & refresh tokens */
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, context?: SessionContext) {
     const user = await this.validateUser(dto.email, dto.password);
-
     if (!user.emailVerifiedAt) {
       throw new UnauthorizedException({
         code: 'OTP_NOT_VERIFIED',
@@ -62,25 +174,18 @@ export class AuthService {
       });
     }
 
-    const payload = { sub: user.id, role: 'user' as const, ev: true as const };
-    const accessSecret = this.configService.get<string>('config.jwt.accessSecret');
-    const refreshSecret = this.configService.get<string>('config.jwt.refreshSecret');
-    const accessExpiresIn = this.configService.get<string>('config.jwt.accessExpiresIn') ?? '15m';
-    const refreshExpiresIn = this.configService.get<string>('config.jwt.refreshExpiresIn') ?? '7d';
-
-    const accessToken = await this.jwtService.signAsync(payload, {
-      secret: accessSecret,
-      expiresIn: accessExpiresIn,
+    const accessToken = await this.signAccessToken(user.id);
+    const { refreshToken } = await this.createRefreshSession(user.id, context);
+    await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await this.logSecurityEvent({
+      type: SecurityEventType.LOGIN_SUCCESS,
+      userId: user.id,
+      ipAddress: context?.ipAddress ?? null,
+      userAgent: context?.userAgent ?? null,
     });
-    const refreshToken = await this.jwtService.signAsync(payload, {
-      secret: refreshSecret,
-      expiresIn: refreshExpiresIn,
-    });
-
     return { accessToken, refreshToken, requiresUsernameSetup: user.username == null };
   }
 
-  /** Request a 6-digit OTP and send via email */
   async requestOtp(email: string, purpose: OtpPurpose = 'signup') {
     if (purpose === 'signup') {
       const row = await this.prisma.user.findUnique({
@@ -96,14 +201,11 @@ export class AuthService {
         throw new BadRequestException('This email is already verified. Please log in instead.');
       }
     } else {
-      // Login / transaction / delete_account OTPs must never substitute for signup email verification.
       const row = await this.prisma.user.findUnique({
         where: { email },
         select: { id: true, emailVerifiedAt: true },
       });
-      if (!row) {
-        throw new BadRequestException('No account found for this email.');
-      }
+      if (!row) throw new BadRequestException('No account found for this email.');
       if (!row.emailVerifiedAt) {
         throw new BadRequestException({
           code: 'OTP_NOT_VERIFIED',
@@ -113,16 +215,14 @@ export class AuthService {
       }
     }
 
-    // Prevent OTP spamming (per-purpose per-email).
     await this.attempts.assertEmailNotLockedForOtpRequest(purpose, email);
     const reqCount = await this.attempts.recordOtpRequest(purpose, email);
     if (reqCount >= 3) {
-      // recordOtpRequest already locks when threshold is reached
       this.logger.warn(`OTP request threshold reached for ${purpose}:${email}`);
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const ttlSeconds = 600; // 10 minutes
+    const ttlSeconds = 600;
 
     if (purpose === 'transaction') {
       const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
@@ -139,13 +239,10 @@ export class AuthService {
     );
   }
 
-  /** Verify OTP from cache */
   async verifyOtp(dto: VerifyOtpDto, purpose: OtpPurpose = 'signup'): Promise<boolean> {
-    // Lockouts for repeated OTP failures.
     await this.attempts.assertEmailNotLockedForOtpVerify(purpose, dto.email);
 
     if (purpose === 'transaction') {
-      // Backwards-compatible: if transaction OTP is verified through this endpoint, look up userId.
       const user = await this.prisma.user.findUnique({
         where: { email: dto.email },
         select: { id: true },
@@ -172,10 +269,6 @@ export class AuthService {
     return true;
   }
 
-  /**
-   * Verify a transaction-scoped OTP for the authenticated user (email from DB, never from client).
-   * Consumes the OTP on success.
-   */
   async verifyTransactionOtpForUser(userId: string, otp: string): Promise<void> {
     await this.attempts.assertNotLockedTxnOtpVerify(userId);
     const stored = await this.otpStore.readTxnOtp(userId);
@@ -187,7 +280,6 @@ export class AuthService {
     await this.attempts.reset('txn-otp-verify', userId);
   }
 
-  /** Signup user (creates account, wallets, and sends OTP) */
   async signup(dto: SignupDto): Promise<{ message: string; email: string }> {
     const existingUser = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existingUser) {
@@ -202,11 +294,7 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
-
-    const user = await this.prisma.user.create({
-      data: { email: dto.email, passwordHash },
-    });
-
+    const user = await this.prisma.user.create({ data: { email: dto.email, passwordHash } });
     await this.prisma.wallet.createMany({
       data: [
         { userId: user.id, currency: Currency.NGN, balance: 0 },
@@ -215,19 +303,15 @@ export class AuthService {
         { userId: user.id, currency: Currency.EUR, balance: 0 },
       ],
     });
-
     await this.requestOtp(dto.email, 'signup');
-
     return {
       message: 'Account created. Please check your email for verification code.',
       email: dto.email,
     };
   }
 
-  /** Complete signup after OTP verification */
-  async completeSignup(dto: VerifyOtpDto) {
+  async completeSignup(dto: VerifyOtpDto, context?: SessionContext) {
     await this.verifyOtp(dto, 'signup');
-
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (!user) throw new BadRequestException('User not found');
 
@@ -235,88 +319,179 @@ export class AuthService {
       where: { id: user.id },
       data: { emailVerifiedAt: new Date() },
     });
-
     await this.emailService.sendWelcomeEmail(user.email);
-
-    // Send welcome notification
     try {
       await this.notificationsService.notifyWelcome(user.id, user.firstName ?? undefined);
     } catch (err) {
       this.logger.warn(`Failed to send welcome notification: ${err}`);
     }
 
-    const payload = { sub: user.id, role: 'user' as const, ev: true as const };
-    const accessSecret = this.configService.get<string>('config.jwt.accessSecret');
-    const refreshSecret = this.configService.get<string>('config.jwt.refreshSecret');
-    const accessExpiresIn = this.configService.get<string>('config.jwt.accessExpiresIn') ?? '15m';
-    const refreshExpiresIn = this.configService.get<string>('config.jwt.refreshExpiresIn') ?? '7d';
-
-    const accessToken = await this.jwtService.signAsync(payload, {
-      secret: accessSecret,
-      expiresIn: accessExpiresIn,
+    const accessToken = await this.signAccessToken(user.id);
+    const { refreshToken } = await this.createRefreshSession(user.id, context);
+    await this.logSecurityEvent({
+      type: SecurityEventType.LOGIN_SUCCESS,
+      userId: user.id,
+      ipAddress: context?.ipAddress ?? null,
+      userAgent: context?.userAgent ?? null,
+      metadata: { source: 'complete-signup' },
     });
-    const refreshToken = await this.jwtService.signAsync(payload, {
-      secret: refreshSecret,
-      expiresIn: refreshExpiresIn,
-    });
-
     return { accessToken, refreshToken, requiresUsernameSetup: true };
   }
 
-  /** Refresh access token using refresh token */
-  async refresh(refreshToken: string) {
-    const refreshSecret = this.configService.get<string>('config.jwt.refreshSecret');
-    const accessSecret = this.configService.get<string>('config.jwt.accessSecret');
-    const accessExpiresIn = this.configService.get<string>('config.jwt.accessExpiresIn') ?? '15m';
-    if (!refreshSecret || !accessSecret) {
-      throw new UnauthorizedException('JWT not configured');
-    }
+  async refresh(refreshToken: string, context?: SessionContext) {
+    const { refreshSecret, issuer, audience } = this.getJwtConfig();
     try {
-      const payload = await this.jwtService.verifyAsync<{ sub: string; role: string }>(
-        refreshToken,
-        { secret: refreshSecret },
-      );
-
-      let requiresUsernameSetup = false;
-      if (payload.role === 'user') {
-        const user = await this.prisma.user.findUnique({
-          where: { id: payload.sub },
-          select: { id: true, emailVerifiedAt: true, isFrozen: true, username: true },
-        });
-        if (!user || user.isFrozen) {
-          throw new UnauthorizedException('Invalid refresh token');
-        }
-        if (!user.emailVerifiedAt) {
-          throw new UnauthorizedException({
-            code: 'OTP_NOT_VERIFIED',
-            message: 'Please verify your email with the OTP before logging in.',
-          });
-        }
-        requiresUsernameSetup = user.username == null;
+      const payload = await this.jwtService.verifyAsync<JwtUserPayload>(refreshToken, {
+        secret: refreshSecret,
+        algorithms: ['HS256'],
+        issuer,
+        audience,
+      });
+      if (payload.tokenType !== 'refresh' || payload.role !== 'user') {
+        throw new UnauthorizedException('Invalid refresh token');
       }
 
-      const tokenBody =
-        payload.role === 'user'
-          ? { sub: payload.sub, role: payload.role, ev: true as const }
-          : { sub: payload.sub, role: payload.role };
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { id: true, emailVerifiedAt: true, isFrozen: true, username: true },
+      });
+      if (!user || user.isFrozen) throw new UnauthorizedException('Invalid refresh token');
+      if (!user.emailVerifiedAt) {
+        throw new UnauthorizedException({
+          code: 'OTP_NOT_VERIFIED',
+          message: 'Please verify your email with the OTP before logging in.',
+        });
+      }
 
-      const newAccessToken = await this.jwtService.signAsync(tokenBody, {
-        secret: accessSecret,
-        expiresIn: accessExpiresIn,
+      const tokenHash = this.hashRefreshToken(refreshToken);
+      const session = await this.prisma.authSession.findFirst({
+        where: { userId: payload.sub, refreshTokenHash: tokenHash },
       });
 
-      return { accessToken: newAccessToken, refreshToken, requiresUsernameSetup };
+      if (!session || session.isRevoked || session.expiresAt <= new Date()) {
+        await this.revokeAllActiveSessions(payload.sub);
+        await this.logSecurityEvent({
+          type: SecurityEventType.REFRESH_REUSE,
+          userId: payload.sub,
+          ipAddress: context?.ipAddress ?? null,
+          userAgent: context?.userAgent ?? null,
+        });
+        await this.logSecurityEvent({
+          type: SecurityEventType.SESSION_REVOKED,
+          userId: payload.sub,
+          ipAddress: context?.ipAddress ?? null,
+          userAgent: context?.userAgent ?? null,
+          metadata: { reason: 'refresh-reuse-detected' },
+        });
+        throw new UnauthorizedException('Refresh token reuse detected. Please log in again.');
+      }
+
+      const sessionAgeMs = Date.now() - session.createdAt.getTime();
+      if (sessionAgeMs > this.getMaxSessionLifetimeMs()) {
+        await this.prisma.authSession.update({
+          where: { id: session.id },
+          data: { isRevoked: true, revokedAt: new Date(), lastUsedAt: new Date() },
+        });
+        await this.logSecurityEvent({
+          type: SecurityEventType.SESSION_REVOKED,
+          userId: payload.sub,
+          ipAddress: context?.ipAddress ?? null,
+          userAgent: context?.userAgent ?? null,
+          metadata: { reason: 'max-session-lifetime-exceeded' },
+        });
+        throw new UnauthorizedException('Session expired. Please log in again.');
+      }
+
+      const incomingUserAgent = context?.userAgent ?? null;
+      if (
+        incomingUserAgent &&
+        session.userAgent &&
+        session.userAgent.trim() !== incomingUserAgent.trim()
+      ) {
+        await this.logSecurityEvent({
+          type: SecurityEventType.USER_AGENT_MISMATCH,
+          userId: payload.sub,
+          ipAddress: context?.ipAddress ?? null,
+          userAgent: incomingUserAgent,
+          metadata: { previousUserAgent: session.userAgent },
+        });
+      }
+
+      const { refreshToken: nextRefreshToken } = await this.createRefreshSession(payload.sub, context);
+      await this.prisma.authSession.update({
+        where: { id: session.id },
+        data: { isRevoked: true, revokedAt: new Date(), lastUsedAt: new Date() },
+      });
+      const accessToken = await this.signAccessToken(payload.sub);
+      return {
+        accessToken,
+        refreshToken: nextRefreshToken,
+        requiresUsernameSetup: user.username == null,
+      };
     } catch (e) {
       if (e instanceof UnauthorizedException) throw e;
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
 
+  async logoutCurrentSession(userId: string, refreshToken: string) {
+    const hash = this.hashRefreshToken(refreshToken);
+    const now = new Date();
+    await this.prisma.authSession.updateMany({
+      where: { userId, refreshTokenHash: hash, isRevoked: false },
+      data: { isRevoked: true, revokedAt: now, lastUsedAt: now },
+    });
+    await this.logSecurityEvent({
+      type: SecurityEventType.LOGOUT,
+      userId,
+    });
+    return { message: 'Logged out' };
+  }
+
+  async logoutAllSessions(userId: string) {
+    await this.revokeAllActiveSessions(userId);
+    await this.logSecurityEvent({
+      type: SecurityEventType.LOGOUT_ALL,
+      userId,
+    });
+    return { message: 'Logged out of all devices' };
+  }
+
+  async listSessions(userId: string, currentRefreshToken?: string | null) {
+    const currentHash = currentRefreshToken ? this.hashRefreshToken(currentRefreshToken) : null;
+    const now = new Date();
+    const rows = await this.prisma.authSession.findMany({
+      where: { userId, isRevoked: false, expiresAt: { gt: now } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        userAgent: true,
+        ipAddress: true,
+        deviceLabel: true,
+        lastUsedAt: true,
+        expiresAt: true,
+        createdAt: true,
+        refreshTokenHash: true,
+      },
+    });
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        userAgent: row.userAgent,
+        ipAddress: row.ipAddress,
+        deviceLabel: row.deviceLabel,
+        lastUsedAt: row.lastUsedAt,
+        expiresAt: row.expiresAt,
+        createdAt: row.createdAt,
+        isCurrent: currentHash != null && row.refreshTokenHash === currentHash,
+      })),
+    };
+  }
+
   async resetPassword(dto: ResetPasswordDto) {
-    // Prefer reset OTP purpose; keep backwards compatibility with older clients using 'login'.
     try {
       await this.verifyOtp({ email: dto.email, otp: dto.otp } as VerifyOtpDto, 'reset');
-    } catch (e) {
+    } catch {
       await this.verifyOtp({ email: dto.email, otp: dto.otp } as VerifyOtpDto, 'login');
     }
 
@@ -324,12 +499,23 @@ export class AuthService {
     if (!user) throw new BadRequestException('User not found');
 
     const passwordHash = await bcrypt.hash(dto.newPassword, 10);
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { passwordHash },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: user.id }, data: { passwordHash } });
+      await tx.authSession.updateMany({
+        where: { userId: user.id, isRevoked: false },
+        data: { isRevoked: true, revokedAt: new Date() },
+      });
+    });
+    await this.logSecurityEvent({
+      type: SecurityEventType.PASSWORD_RESET,
+      userId: user.id,
+    });
+    await this.logSecurityEvent({
+      type: SecurityEventType.SESSION_REVOKED,
+      userId: user.id,
+      metadata: { reason: 'password-reset' },
     });
 
     return { message: 'Password reset successful' };
   }
-
 }

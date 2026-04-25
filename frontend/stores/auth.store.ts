@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
 
 export type AuthRole = 'user' | 'admin';
 
@@ -17,93 +16,43 @@ export interface AuthUser {
 
 interface AuthState {
   accessToken: string | null;
-  refreshToken: string | null;
+  isAuthenticated: boolean;
   role: AuthRole | null;
   user: AuthUser | null;
   hasHydrated: boolean;
-  setHasHydrated: (value: boolean) => void;
+  authChecked: boolean;
+  setAuthChecked: (value: boolean) => void;
   setSession: (payload: {
-    accessToken: string;
-    refreshToken?: string | null;
     role: AuthRole;
     user: AuthUser | null;
   }) => void;
-  setTokens: (payload: {
-    accessToken: string;
-    refreshToken?: string | null;
-  }) => void;
+  setUser: (user: AuthUser | null) => void;
   clearSession: () => void;
 }
 
-export const AUTH_COOKIE_NAME = 'cohold_user_access_token';
-const AUTH_COOKIE_MAX_AGE = 60 * 15;
+export const useAuthStore = create<AuthState>()((set) => ({
+  accessToken: null,
+  isAuthenticated: false,
+  role: null,
+  user: null,
+  hasHydrated: true,
+  authChecked: false,
 
-function cookieSuffixSecure(): string {
-  if (typeof window === 'undefined') return '';
-  return window.location.protocol === 'https:' ? '; secure' : '';
-}
+  setAuthChecked: (value) => set({ authChecked: value }),
 
-function setAuthCookie(token: string) {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; path=/; max-age=${AUTH_COOKIE_MAX_AGE}; samesite=lax${cookieSuffixSecure()}`;
-}
+  setSession: ({ role, user }) => {
+    set({ accessToken: 'cookie-session', isAuthenticated: true, role, user });
+  },
 
-function clearAuthCookie() {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${AUTH_COOKIE_NAME}=; path=/; max-age=0; samesite=lax${cookieSuffixSecure()}`;
-}
+  setUser: (user) => set({ user }),
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
-      accessToken: null,
-      refreshToken: null,
+  clearSession: () => {
+    set({
       role: null,
       user: null,
-      hasHydrated: false,
-
-      setHasHydrated: (value) => set({ hasHydrated: value }),
-
-      setSession: ({ accessToken, refreshToken = null, role, user }) => {
-        setAuthCookie(accessToken);
-        set({
-          accessToken,
-          refreshToken: refreshToken ?? null,
-          role,
-          user,
-        });
-      },
-
-      setTokens: ({ accessToken, refreshToken = null }) => {
-        setAuthCookie(accessToken);
-        set((state) => ({
-          accessToken,
-          refreshToken: refreshToken ?? state.refreshToken,
-        }));
-      },
-
-      clearSession: () => {
-        clearAuthCookie();
-        set({
-          accessToken: null,
-          refreshToken: null,
-          role: null,
-          user: null,
-        });
-      },
-    }),
-    {
-      name: 'cohold-auth',
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        accessToken: state.accessToken,
-        refreshToken: state.refreshToken,
-        role: state.role,
-        user: state.user,
-      }),
-      onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
-      },
-    },
-  ),
-);
+      accessToken: null,
+      isAuthenticated: false,
+      authChecked: true,
+    });
+  },
+}));

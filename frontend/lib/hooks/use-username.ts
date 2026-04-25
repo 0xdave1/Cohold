@@ -38,7 +38,6 @@ export function useSetUsername() {
   const setSession = useAuthStore((s) => s.setSession);
   const session = useAuthStore((s) => ({
     accessToken: s.accessToken,
-    refreshToken: s.refreshToken,
     role: s.role,
     user: s.user,
   }));
@@ -55,8 +54,6 @@ export function useSetUsername() {
     onSuccess: (me) => {
       if (session.accessToken && session.role) {
         setSession({
-          accessToken: session.accessToken,
-          refreshToken: session.refreshToken,
           role: session.role,
           user: {
             ...(session.user ?? { id: me.id, email: me.email }),

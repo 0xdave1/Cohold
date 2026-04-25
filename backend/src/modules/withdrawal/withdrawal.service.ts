@@ -11,7 +11,6 @@ import {
   KycStatus,
   Prisma,
   TransactionDirection,
-  TransactionStatus,
   TransactionType,
   WithdrawalStatus,
 } from '@prisma/client';
@@ -24,6 +23,7 @@ import { CreateWithdrawalDto } from './dto/create-withdrawal.dto';
 import { ListWithdrawalsQueryDto } from './dto/list-withdrawals.query.dto';
 import { fixMoney, moneyStr } from '../../common/money/precision.constants';
 import { toDecimal } from '../../common/money/decimal.util';
+import { WalletService } from '../wallet/wallet.service';
 import {
   PAYOUT_PROVIDER,
   PayoutProvider,
@@ -42,6 +42,7 @@ export class WithdrawalService {
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
     private readonly notificationsService: NotificationsService,
+    private readonly walletService: WalletService,
     @Inject(PAYOUT_PROVIDER) private readonly payoutProvider: PayoutProvider,
   ) {}
 
@@ -159,12 +160,6 @@ export class WithdrawalService {
       const bal = toDecimal(locked.balance.toString());
       if (bal.lt(amount)) throw new BadRequestException('Insufficient balance');
 
-      const newBal = fixMoney(bal.minus(amount));
-      await tx.wallet.update({
-        where: { id: wallet.id },
-        data: { balance: moneyStr(newBal) },
-      });
-
       const wd = await tx.withdrawal.create({
         data: {
           userId,
@@ -182,28 +177,41 @@ export class WithdrawalService {
         },
       });
 
-      await tx.transaction.create({
-        data: {
+      const payoutWallet = await this.walletService.getPayoutWallet(tx, Currency.NGN);
+      await this.walletService.postDoubleEntry(tx, wd.reference, [
+        {
           walletId: wallet.id,
           userId,
-          reference: `${wd.reference}-DEBIT`,
-          groupId: wd.reference,
-          externalReference: null,
           type: TransactionType.WALLET_WITHDRAWAL,
-          status: TransactionStatus.COMPLETED,
-          amount: moneyStr(amount),
-          fee: moneyStr(fee),
-          netAmount: moneyStr(netAmount),
-          currency: Currency.NGN,
           direction: TransactionDirection.DEBIT,
+          amount,
+          currency: Currency.NGN,
+          fee,
+          netAmount,
           metadata: {
             withdrawalId: wd.id,
             reference: wd.reference,
             bankSnapshot,
-            ledgerRole: 'WITHDRAWAL_DEBIT',
-          },
+            ledgerRole: 'WITHDRAWAL_USER_DEBIT',
+          } as Prisma.InputJsonValue,
         },
-      });
+        {
+          walletId: payoutWallet.id,
+          userId: null,
+          type: TransactionType.WALLET_WITHDRAWAL,
+          direction: TransactionDirection.CREDIT,
+          amount,
+          currency: Currency.NGN,
+          fee,
+          netAmount,
+          metadata: {
+            withdrawalId: wd.id,
+            reference: wd.reference,
+            bankSnapshot,
+            ledgerRole: 'WITHDRAWAL_PAYOUT_CREDIT',
+          } as Prisma.InputJsonValue,
+        },
+      ]);
 
       return wd;
     });
@@ -427,39 +435,51 @@ export class WithdrawalService {
         throw new BadRequestException('Cannot fail a completed withdrawal');
       }
 
-      const reversalTx = await tx.transaction.findUnique({ where: { reference: reversalReference } });
-      if (!reversalTx) {
-        await tx.$queryRawUnsafe(`SELECT id FROM "Wallet" WHERE id = $1 FOR UPDATE`, current.walletId);
-        const locked = await tx.wallet.findUniqueOrThrow({ where: { id: current.walletId } });
-        const newBal = fixMoney(toDecimal(locked.balance.toString()).plus(amount));
-        await tx.wallet.update({
-          where: { id: current.walletId },
-          data: { balance: moneyStr(newBal) },
-        });
-        await tx.transaction.create({
-          data: {
-            walletId: current.walletId,
-            userId: current.userId,
-            reference: reversalReference,
-            groupId: current.reference,
-            externalReference: providerTransferCode ?? current.providerTransferCode ?? null,
+      const reversalLegs = await tx.transaction.findMany({ where: { reference: reversalReference } });
+      if (reversalLegs.length === 0) {
+        const payoutWallet = await this.walletService.getPayoutWallet(tx, current.currency);
+        await this.walletService.postDoubleEntry(tx, reversalReference, [
+          {
+            walletId: payoutWallet.id,
+            userId: null,
             type: TransactionType.WALLET_WITHDRAWAL,
-            status: TransactionStatus.COMPLETED,
-            amount: moneyStr(amount),
-            fee: null,
-            netAmount: moneyStr(amount),
+            direction: TransactionDirection.DEBIT,
+            amount,
             currency: current.currency,
-            direction: TransactionDirection.CREDIT,
+            externalReference: providerTransferCode ?? current.providerTransferCode ?? null,
+            netAmount: amount,
             metadata: {
               withdrawalId: current.id,
               providerReference: providerReference ?? current.providerReference ?? null,
               providerTransferCode: providerTransferCode ?? current.providerTransferCode ?? null,
               reversal: true,
               failureReason: reason,
-              ledgerRole: 'WITHDRAWAL_REVERSAL_CREDIT',
-            },
+              ledgerRole: 'WITHDRAWAL_REVERSAL_PAYOUT_DEBIT',
+            } as Prisma.InputJsonValue,
           },
-        });
+          {
+            walletId: current.walletId,
+            userId: current.userId,
+            type: TransactionType.WALLET_WITHDRAWAL,
+            direction: TransactionDirection.CREDIT,
+            amount,
+            currency: current.currency,
+            externalReference: providerTransferCode ?? current.providerTransferCode ?? null,
+            netAmount: amount,
+            metadata: {
+              withdrawalId: current.id,
+              providerReference: providerReference ?? current.providerReference ?? null,
+              providerTransferCode: providerTransferCode ?? current.providerTransferCode ?? null,
+              reversal: true,
+              failureReason: reason,
+              ledgerRole: 'WITHDRAWAL_REVERSAL_USER_CREDIT',
+            } as Prisma.InputJsonValue,
+          },
+        ]);
+      } else if (reversalLegs.length === 1) {
+        throw new BadRequestException(
+          `Corrupt withdrawal reversal reference ${reversalReference}: single-leg entry detected`,
+        );
       }
 
       await tx.withdrawal.update({

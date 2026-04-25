@@ -72,7 +72,6 @@ async function bootstrap() {
     .setTitle('Cohold API')
     .setDescription('Cohold fractional real estate investment platform API.')
     .setVersion('1.0')
-    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'user-jwt')
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'admin-jwt')
     .build();
 

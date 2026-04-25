@@ -6,6 +6,7 @@ import { Currency, TransactionDirection, TransactionStatus, TransactionType } fr
 import { toDecimal } from '../../common/money/decimal.util';
 import Decimal from 'decimal.js';
 import { FlutterwaveService } from './flutterwave.service';
+import { WalletService, PLATFORM_USER_ID } from '../wallet/wallet.service';
 
 @Injectable()
 export class PaymentService {
@@ -14,6 +15,7 @@ export class PaymentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly flutterwaveService: FlutterwaveService,
+    private readonly walletService: WalletService,
   ) {}
 
   async initializeFlutterwavePayment(data: { amount: number; userId: string; email: string }) {
@@ -27,30 +29,10 @@ export class PaymentService {
     }
 
     const reference = `flw_wallet_${randomUUID()}`;
-    const wallet = await this.prisma.wallet.findFirst({
-      where: { userId: data.userId, currency: Currency.NGN },
-      select: { id: true },
-    });
-
-    await this.prisma.transaction.create({
-      data: {
-        walletId: wallet?.id ?? null,
-        userId: data.userId,
-        reference,
-        groupId: reference,
-        externalReference: null,
-        type: TransactionType.WALLET_TOP_UP,
-        status: TransactionStatus.PENDING,
-        amount: amount.toFixed(4),
-        currency: Currency.NGN,
-        direction: TransactionDirection.CREDIT,
-        metadata: { provider: 'flutterwave', stage: 'initialized' },
-      },
-    });
-
     const init = await this.flutterwaveService.initializePayment({
       amount: amount.toNumber(),
       email: data.email ?? user.email,
+      userId: data.userId,
       reference,
     });
 
@@ -61,22 +43,8 @@ export class PaymentService {
   }
 
   async verifyWalletFunding(userId: string, reference: string) {
-    const pending = await this.prisma.transaction.findFirst({
-      where: {
-        userId,
-        reference,
-        type: TransactionType.WALLET_TOP_UP,
-      },
-    });
-    if (!pending) {
-      throw new NotFoundException('Funding transaction not found');
-    }
-
     const verified = await this.flutterwaveService.verifyPayment(reference);
-    const expectedAmount = toDecimal(pending.amount.toString());
-    if (!expectedAmount.eq(toDecimal(verified.amount.toString()))) {
-      throw new BadRequestException('Verified amount mismatch');
-    }
+    const expectedAmount = toDecimal(verified.amount.toString());
 
     const tx = await this.prisma.$transaction((trx) =>
       this.processWalletFunding(trx, {
@@ -87,12 +55,12 @@ export class PaymentService {
       }),
     );
     return {
-      id: tx.id,
-      reference: tx.reference,
-      status: tx.status,
-      amount: tx.amount.toString(),
-      createdAt: tx.createdAt,
-      updatedAt: tx.updatedAt,
+      id: tx[0]?.id,
+      reference,
+      status: TransactionStatus.COMPLETED,
+      amount: expectedAmount.toString(),
+      createdAt: tx[0]?.createdAt,
+      updatedAt: tx[tx.length - 1]?.updatedAt,
     };
   }
 
@@ -105,15 +73,19 @@ export class PaymentService {
       providerTransactionId?: string | null;
     },
   ) {
-    const existing = await tx.transaction.findUnique({ where: { reference: data.reference } });
-    if (existing && existing.status === TransactionStatus.COMPLETED) {
+    const existing = await tx.transaction.findMany({
+      where: { reference: data.reference, type: TransactionType.WALLET_TOP_UP },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (existing.length >= 2) {
       return existing;
     }
 
-    let lockedWallet = await tx.$queryRaw<Array<{ id: string; balance: Prisma.Decimal }>>(
-      Prisma.sql`SELECT "id", "balance" FROM "Wallet" WHERE "userId" = ${data.userId} AND "currency" = ${Currency.NGN} FOR UPDATE`,
-    );
-    if (!lockedWallet.length) {
+    let userWallet = await tx.wallet.findUnique({
+      where: { userId_currency: { userId: data.userId, currency: Currency.NGN } },
+      select: { id: true },
+    });
+    if (!userWallet) {
       await tx.wallet.create({
         data: {
           userId: data.userId,
@@ -121,57 +93,47 @@ export class PaymentService {
           balance: '0',
         },
       });
-      lockedWallet = await tx.$queryRaw<Array<{ id: string; balance: Prisma.Decimal }>>(
-        Prisma.sql`SELECT "id", "balance" FROM "Wallet" WHERE "userId" = ${data.userId} AND "currency" = ${Currency.NGN} FOR UPDATE`,
-      );
-    }
-    if (!lockedWallet.length) {
-      throw new NotFoundException('Wallet not found');
-    }
-
-    const wallet = lockedWallet[0];
-    const nextBalance = toDecimal(wallet.balance.toString()).plus(data.amount).toFixed(4);
-    await tx.wallet.update({
-      where: { id: wallet.id },
-      data: { balance: nextBalance },
-    });
-
-    if (existing) {
-      return tx.transaction.update({
-        where: { id: existing.id },
-        data: {
-          walletId: wallet.id,
-          status: TransactionStatus.COMPLETED,
-          amount: data.amount.toFixed(4),
-          metadata: {
-            ...(existing.metadata as Record<string, unknown> | null),
-            provider: 'flutterwave',
-            providerTransactionId: data.providerTransactionId ?? null,
-            stage: 'completed',
-          } as Prisma.InputJsonValue,
-        },
+      userWallet = await tx.wallet.findUnique({
+        where: { userId_currency: { userId: data.userId, currency: Currency.NGN } },
+        select: { id: true },
       });
     }
-
-    return tx.transaction.create({
-      data: {
-        walletId: wallet.id,
-        userId: data.userId,
-        reference: data.reference,
-        groupId: data.reference,
-        externalReference: data.providerTransactionId ?? null,
+    if (!userWallet) {
+      throw new NotFoundException('Wallet not found');
+    }
+    const platformWallet = await this.walletService.getPlatformWallet(tx as Prisma.TransactionClient, Currency.NGN);
+    return this.walletService.postDoubleEntry(tx as Prisma.TransactionClient, data.reference, [
+      {
+        walletId: platformWallet.id,
+        userId: PLATFORM_USER_ID,
         type: TransactionType.WALLET_TOP_UP,
-        status: TransactionStatus.COMPLETED,
-        amount: data.amount.toFixed(4),
+        direction: TransactionDirection.DEBIT,
+        amount: data.amount,
         currency: Currency.NGN,
-        direction: TransactionDirection.CREDIT,
+        externalReference: data.providerTransactionId ?? null,
+        netAmount: data.amount,
         metadata: {
           provider: 'flutterwave',
           providerTransactionId: data.providerTransactionId ?? null,
           reason: 'flutterwave_wallet_funding',
-        },
+        } as Prisma.InputJsonValue,
       },
-    });
+      {
+        walletId: userWallet.id,
+        userId: data.userId,
+        type: TransactionType.WALLET_TOP_UP,
+        direction: TransactionDirection.CREDIT,
+        amount: data.amount,
+        currency: Currency.NGN,
+        externalReference: data.providerTransactionId ?? null,
+        netAmount: data.amount,
+        metadata: {
+          provider: 'flutterwave',
+          providerTransactionId: data.providerTransactionId ?? null,
+          reason: 'flutterwave_wallet_funding',
+        } as Prisma.InputJsonValue,
+      },
+    ]);
   }
 
   async handleFlutterwaveWebhook(payload: Record<string, unknown>) {
@@ -181,21 +143,20 @@ export class PaymentService {
       return { received: true };
     }
 
-    const pending = await this.prisma.transaction.findUnique({ where: { reference } });
-    if (!pending?.userId) {
+    const pending = await this.prisma.transaction.findFirst({ where: { reference } });
+    const metaUserId = ((eventData?.meta as Record<string, unknown> | undefined)?.userId as string | undefined) ?? null;
+    const effectiveUserId = pending?.userId ?? metaUserId;
+    if (!effectiveUserId) {
       this.logger.warn(`flutterwave webhook ignored: unknown reference=${reference}`);
       return { received: true };
     }
 
     const verified = await this.flutterwaveService.verifyPayment(reference);
-    const expectedAmount = toDecimal(pending.amount.toString());
-    if (!expectedAmount.eq(toDecimal(verified.amount.toString()))) {
-      throw new BadRequestException('Verified amount mismatch');
-    }
+    const expectedAmount = toDecimal(verified.amount.toString());
 
     await this.prisma.$transaction((trx) =>
       this.processWalletFunding(trx, {
-        userId: pending.userId as string,
+        userId: effectiveUserId,
         amount: expectedAmount,
         reference,
         providerTransactionId: verified.txId,

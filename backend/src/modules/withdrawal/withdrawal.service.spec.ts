@@ -6,9 +6,15 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PAYOUT_PROVIDER } from '../payout/payout-provider.interface';
+import { WalletService } from '../wallet/wallet.service';
 
 describe('WithdrawalService payout orchestration', () => {
   let service: WithdrawalService;
+
+  const walletService = {
+    getPayoutWallet: jest.fn().mockResolvedValue({ id: 'payout-wallet-1' }),
+    postDoubleEntry: jest.fn().mockResolvedValue([]),
+  };
 
   const authService = {
     verifyTransactionOtpForUser: jest.fn(),
@@ -36,18 +42,21 @@ describe('WithdrawalService payout orchestration', () => {
       update: jest.fn(),
       create: jest.fn(),
     },
-    transaction: { findUnique: jest.fn(), create: jest.fn() },
+    transaction: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), count: jest.fn() },
     $transaction: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    walletService.getPayoutWallet.mockResolvedValue({ id: 'payout-wallet-1' });
+    walletService.postDoubleEntry.mockResolvedValue([]);
     const module = await Test.createTestingModule({
       providers: [
         WithdrawalService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: AuthService, useValue: authService },
         { provide: NotificationsService, useValue: notificationsService },
+        { provide: WalletService, useValue: walletService },
         { provide: PAYOUT_PROVIDER, useValue: payoutProvider },
       ],
     }).compile();
@@ -183,6 +192,7 @@ describe('WithdrawalService payout orchestration', () => {
         },
         transaction: {
           findUnique: jest.fn().mockResolvedValue(null),
+          findMany: jest.fn().mockResolvedValue([]),
           create: jest.fn().mockResolvedValue({}),
         },
         $queryRawUnsafe: jest.fn().mockResolvedValue(undefined),

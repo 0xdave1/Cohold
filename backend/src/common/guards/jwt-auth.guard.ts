@@ -13,6 +13,7 @@ export interface JwtPayload {
   role: string;
   /** Present on user access tokens after OTP verification (defense in depth). */
   ev?: boolean;
+  tokenType?: 'access' | 'refresh';
 }
 
 @Injectable()
@@ -26,22 +27,34 @@ export class JwtAuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers.authorization as string | undefined;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Missing or invalid authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      throw new UnauthorizedException('Bearer authorization is not supported');
     }
 
-    const token = authHeader.slice(7);
+    const token = request.cookies?.cohold_access_token as string | undefined;
+    if (!token) {
+      throw new UnauthorizedException('Missing access token cookie');
+    }
     const secret = this.configService.get<string>('config.jwt.accessSecret');
+    const issuer = this.configService.get<string>('config.jwt.issuer') ?? 'cohold-api';
+    const audience = this.configService.get<string>('config.jwt.audience') ?? 'cohold-client';
     if (!secret) {
       throw new UnauthorizedException('JWT not configured');
     }
 
     let payload: JwtPayload;
     try {
-      payload = this.jwtService.verify<JwtPayload>(token, { secret });
+      payload = this.jwtService.verify<JwtPayload>(token, {
+        secret,
+        algorithms: ['HS256'],
+        issuer,
+        audience,
+      });
     } catch {
       throw new UnauthorizedException('Invalid or expired token');
+    }
+    if (payload.tokenType !== 'access') {
+      throw new UnauthorizedException('Invalid token type');
     }
 
     if (payload.role === 'user') {

@@ -3,12 +3,12 @@
 import { useAuthStore } from '@/stores/auth.store';
 
 /**
- * Returns true when Zustand has rehydrated AND accessToken is present.
+ * Returns true when auth bootstrap completed AND accessToken is present.
  * Use for React Query `enabled` to prevent API calls before auth is ready.
  */
 export function useAuthReady(): boolean {
-  const hasHydrated = useAuthStore((s) => s.hasHydrated);
+  const authChecked = useAuthStore((s) => s.authChecked);
   const accessToken = useAuthStore((s) => s.accessToken);
 
-  return hasHydrated && !!accessToken;
+  return authChecked && !!accessToken;
 }
