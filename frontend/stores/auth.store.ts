@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { clearClientCsrfToken } from '@/lib/api/csrf-memory';
 
 export type AuthRole = 'user' | 'admin';
 
@@ -45,6 +46,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
   setUser: (user) => set({ user }),
 
   clearSession: () => {
+    clearClientCsrfToken();
     set({
       role: null,
       user: null,

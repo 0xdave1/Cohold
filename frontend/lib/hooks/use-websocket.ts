@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '@/stores/auth.store';
+import { getApiBaseURL } from '@/lib/api/client';
 
 function socketOriginFromApiUrl(): string {
-  const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
   try {
-    const u = new URL(base);
+    const u = new URL(getApiBaseURL());
     return `${u.protocol}//${u.host}`;
   } catch {
     return 'http://localhost:4000';

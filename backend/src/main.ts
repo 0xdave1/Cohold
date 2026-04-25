@@ -12,27 +12,53 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { json, urlencoded } from 'express';
 
+function normalizeOrigin(origin: string): string {
+  return origin.trim().replace(/\/+$/, '');
+}
+
+function buildCorsOriginValidator(configService: ConfigService): (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => void {
+  const defaults = [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://cohold.vercel.app',
+    'https://cohold.onrender.com',
+  ];
+  const fromConfig = String(configService.get<string>('config.app.corsOrigin') ?? '')
+    .split(',')
+    .map((s) => normalizeOrigin(s))
+    .filter((s) => s.length > 0 && s !== '*');
+  const allowed = new Set<string>([...defaults.map(normalizeOrigin), ...fromConfig]);
+
+  return (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    callback(null, allowed.has(normalizeOrigin(origin)));
+  };
+}
+
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
-    // ✅ FIX 1: Enable rawBody natively. 
-    // This preserves the exact bytes needed for Paystack signature verification.
     rawBody: true,
   });
 
   const configService = app.get(ConfigService);
   const rawApiPrefix = configService.get<string>('config.app.apiPrefix') ?? '/api/v1';
-  const apiPrefix =
-    rawApiPrefix.replace(/^\/+/, '').replace(/\/+$/, '') || 'api/v1';
+  const apiPrefix = rawApiPrefix.replace(/^\/+/, '').replace(/\/+$/, '') || 'api/v1';
 
   app.setGlobalPrefix(apiPrefix);
 
-  const basePath = `/${apiPrefix}`;
-  void basePath;
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('trust proxy', 1);
 
-  // Security & Parsing
   app.use(cookieParser());
-  app.use(helmet());
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }),
+  );
 
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ extended: true, limit: '10mb' }));
@@ -54,16 +80,11 @@ async function bootstrap() {
     new LoggingInterceptor(),
   );
 
-  // ✅ FIX 2: Update CORS to include your specific ngrok URL.
-  // This prevents the "Redirect to Login" issue caused by cross-domain cookie blocks.
   app.enableCors({
-    origin: [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'https://cohold.vercel.app',
-      'https://cohold.onrender.com/', 
-    ],
+    origin: buildCorsOriginValidator(configService),
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Correlation-Id'],
   });
 
   app.enableShutdownHooks();
@@ -80,7 +101,8 @@ async function bootstrap() {
 
   const port = configService.get<number>('config.app.port') ?? 3000;
   await app.listen(port);
-  console.log(`🚀 Server running on: https://cohold.onrender.com/${apiPrefix}`);
+  const apiPath = `/${apiPrefix}`;
+  console.log(`Server listening on port ${port} (global prefix ${apiPath})`);
 }
 
 bootstrap().catch((err) => {

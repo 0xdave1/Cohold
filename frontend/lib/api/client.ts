@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/auth.store';
+import { clearClientCsrfToken, getClientCsrfForRequest, setClientCsrfToken } from '@/lib/api/csrf-memory';
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -8,10 +9,14 @@ export interface ApiResponse<T> {
   meta?: unknown;
 }
 
-const DEFAULT_BASE_URL = 'http://localhost:3000/api/v1';
+/** Production API (Render). Local dev: set NEXT_PUBLIC_API_URL or use localhost:4000 default. */
+export const DEFAULT_API_BASE_URL =
+  process.env.NODE_ENV === 'production'
+    ? 'https://cohold.onrender.com/api/v1'
+    : 'http://localhost:4000/api/v1';
 
-function getBaseURL(): string {
-  return process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_BASE_URL;
+export function getApiBaseURL(): string {
+  return process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_BASE_URL;
 }
 
 function getCookie(name: string): string | null {
@@ -21,7 +26,6 @@ function getCookie(name: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-/** Methods that must send X-CSRF-Token (matches backend non-safe, non-exempt routes; includes PUT). */
 function methodRequiresCsrf(method: string): boolean {
   return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
 }
@@ -43,62 +47,69 @@ function isAuthMutation401Allowed(config: InternalAxiosRequestConfig | undefined
   );
 }
 
-class ApiClient {
-  private instance: AxiosInstance;
-  private refreshPromise: Promise<void> | null = null;
-
-  constructor() {
-    const baseURL = getBaseURL();
-
-    this.instance = axios.create({
-      baseURL,
-      /** Cookie-only auth: send HttpOnly session cookies on same-site / credentialed cross-site requests. */
-      withCredentials: true,
-    });
-
-    this.instance.interceptors.request.use((config) => {
-      const method = String(config.method ?? 'get').toUpperCase();
-      if (methodRequiresCsrf(method)) {
-        const csrfToken = getCookie('cohold_csrf_token');
-        if (csrfToken) {
-          config.headers = config.headers ?? {};
-          config.headers['X-CSRF-Token'] = csrfToken;
-        }
-      }
-      return config;
-    });
-
-    this.instance.interceptors.response.use(
-      (response) => response,
-      async (error: unknown) => this.handleResponseError(error),
-    );
+function captureCsrfFromResponseBody(body: unknown): void {
+  if (!body || typeof body !== 'object') return;
+  const root = body as Record<string, unknown>;
+  const inner = root.data;
+  const csrf =
+    (typeof inner === 'object' && inner !== null && 'csrfToken' in inner
+      ? (inner as Record<string, unknown>).csrfToken
+      : undefined) ?? root.csrfToken;
+  if (typeof csrf === 'string' && csrf.length > 0) {
+    setClientCsrfToken(csrf);
   }
+}
 
-  private ensureRefreshed(): Promise<void> {
-    if (!this.refreshPromise) {
-      this.refreshPromise = this.refreshAccessToken().finally(() => {
-        this.refreshPromise = null;
-      });
-    }
+/**
+ * Shared Axios instance — use this for all app API calls (`withCredentials: true`).
+ * Also exported as `api` for drop-in use with the same interceptors.
+ */
+export const api: AxiosInstance = axios.create({
+  baseURL: getApiBaseURL(),
+  withCredentials: true,
+});
 
-    return this.refreshPromise;
-  }
-
-  private async refreshAccessToken(): Promise<void> {
-    /** Use shared instance so CSRF + withCredentials apply (refresh is not CSRF-exempt). */
-    const res = await this.instance.post<ApiResponse<{ requiresUsernameSetup?: boolean }>>(
-      '/auth/refresh',
-      {},
-    );
-
-    const body = res.data;
-
-    if (!body.success) {
-      throw new Error(body.error ?? 'Refresh failed');
+api.interceptors.request.use((config) => {
+  const method = String(config.method ?? 'get').toUpperCase();
+  if (methodRequiresCsrf(method)) {
+    const csrfToken = getClientCsrfForRequest() ?? getCookie('cohold_csrf_token');
+    if (csrfToken) {
+      config.headers = config.headers ?? {};
+      config.headers['X-CSRF-Token'] = csrfToken;
     }
   }
+  return config;
+});
 
-  private async handleResponseError(error: unknown): Promise<unknown> {
+let refreshPromise: Promise<void> | null = null;
+
+function ensureRefreshed(): Promise<void> {
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+async function refreshAccessToken(): Promise<void> {
+  const res = await api.post<ApiResponse<{ requiresUsernameSetup?: boolean; csrfToken?: string }>>(
+    '/auth/refresh',
+    {},
+  );
+  captureCsrfFromResponseBody(res.data);
+  const body = res.data;
+  if (!body.success) {
+    throw new Error(body.error ?? 'Refresh failed');
+  }
+}
+
+api.interceptors.response.use(
+  (response) => {
+    captureCsrfFromResponseBody(response.data);
+    return response;
+  },
+  async (error: unknown) => {
     if (!axios.isAxiosError(error) || error.response?.status !== 401) {
       return Promise.reject(error);
     }
@@ -106,6 +117,7 @@ class ApiClient {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
     if (isRefreshRequest(originalRequest)) {
+      clearClientCsrfToken();
       useAuthStore.getState().clearSession();
       return Promise.reject(error);
     }
@@ -115,6 +127,7 @@ class ApiClient {
     }
 
     if (originalRequest._retry) {
+      clearClientCsrfToken();
       useAuthStore.getState().clearSession();
       return Promise.reject(error);
     }
@@ -122,20 +135,23 @@ class ApiClient {
     originalRequest._retry = true;
 
     try {
-      await this.ensureRefreshed();
-      return this.instance(originalRequest);
+      await ensureRefreshed();
+      return api(originalRequest);
     } catch {
+      clearClientCsrfToken();
       useAuthStore.getState().clearSession();
       return Promise.reject(error);
     }
-  }
+  },
+);
 
+class ApiClient {
   async get<T>(
     url: string,
     params?: Record<string, unknown>,
     config?: { headers?: Record<string, string> },
   ): Promise<ApiResponse<T>> {
-    const res = await this.instance.get<ApiResponse<T>>(url, { params, ...config });
+    const res = await api.get<ApiResponse<T>>(url, { params, ...config });
     return res.data;
   }
 
@@ -144,22 +160,22 @@ class ApiClient {
     body?: B,
     config?: { headers?: Record<string, string> },
   ): Promise<ApiResponse<T>> {
-    const res = await this.instance.post<ApiResponse<T>>(url, body, config);
+    const res = await api.post<ApiResponse<T>>(url, body, config);
     return res.data;
   }
 
   async put<T, B = unknown>(url: string, body?: B): Promise<ApiResponse<T>> {
-    const res = await this.instance.put<ApiResponse<T>>(url, body);
+    const res = await api.put<ApiResponse<T>>(url, body);
     return res.data;
   }
 
   async patch<T, B = unknown>(url: string, body?: B): Promise<ApiResponse<T>> {
-    const res = await this.instance.patch<ApiResponse<T>>(url, body);
+    const res = await api.patch<ApiResponse<T>>(url, body);
     return res.data;
   }
 
   async del<T>(url: string): Promise<ApiResponse<T>> {
-    const res = await this.instance.delete<ApiResponse<T>>(url);
+    const res = await api.delete<ApiResponse<T>>(url);
     return res.data;
   }
 
