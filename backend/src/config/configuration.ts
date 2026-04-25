@@ -21,10 +21,13 @@ export default registerAs('config', () => ({
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
   },
   flutterwave: {
-    secretKey: process.env.FLW_SECRET_KEY,
-    publicKey: process.env.FLW_PUBLIC_KEY,
-    webhookSecret: process.env.FLW_WEBHOOK_SECRET,
-    baseUrl: process.env.FLW_BASE_URL ?? 'https://api.flutterwave.com/v3',
+    secretKey: process.env.FLW_SECRET_KEY ?? process.env.FLUTTERWAVE_SECRET_KEY,
+    publicKey: process.env.FLW_PUBLIC_KEY ?? process.env.FLUTTERWAVE_PUBLIC_KEY,
+    webhookSecret: process.env.FLW_WEBHOOK_SECRET ?? process.env.FLUTTERWAVE_WEBHOOK_SECRET,
+    baseUrl:
+      process.env.FLW_BASE_URL ??
+      process.env.FLUTTERWAVE_BASE_URL ??
+      'https://api.flutterwave.com/v3',
   },
   appBaseUrl: process.env.APP_BASE_URL ?? 'http://localhost:3000',
   s3: {

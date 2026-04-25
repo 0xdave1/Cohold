@@ -5,20 +5,23 @@ import { useLinkedBanks, useRemoveLinkedBank } from '@/lib/hooks/use-linked-bank
 import { useState } from 'react';
 import { Building2 } from 'lucide-react';
 import { EmptyState } from '@/components/dashboard/EmptyState';
+import { getApiErrorMessage } from '@/lib/api/errors';
 
 export default function LinkedBanksPage() {
   const { data: banks = [], isLoading } = useLinkedBanks();
   const removeBank = useRemoveLinkedBank();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState<{ id: string } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
+    setDeleteError(null);
     try {
       await removeBank.mutateAsync(id);
       setShowDeleteModal(null);
     } catch (e) {
-      // show error
+      setDeleteError(getApiErrorMessage(e, 'Failed to delete linked bank'));
     } finally {
       setDeletingId(null);
     }
@@ -61,6 +64,16 @@ export default function LinkedBanksPage() {
                     <div>
                       <p className="font-mono font-semibold text-dashboard-heading">{bank.accountNumber}</p>
                       <p className="text-xs text-dashboard-body">{bank.accountName} - {bank.bankName}</p>
+                      <div className="mt-1 flex items-center gap-2 text-[11px]">
+                        {bank.isVerified ? (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">Verified</span>
+                        ) : (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">Unverified</span>
+                        )}
+                        {bank.isDefault ? (
+                          <span className="rounded-full bg-dashboard-border px-2 py-0.5 text-dashboard-heading">Default</span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                   <button
@@ -80,9 +93,9 @@ export default function LinkedBanksPage() {
             <Link href="/dashboard/account/linked-banks/add" className="flex-1 rounded-xl border border-cohold-blue py-3 text-center text-sm font-medium text-cohold-blue">
               Add a bank
             </Link>
-            <button type="button" className="flex-1 rounded-xl bg-cohold-blue py-3 text-sm font-medium text-white">
-              Save changes
-            </button>
+            <Link href="/dashboard/account" className="flex-1 rounded-xl bg-cohold-blue py-3 text-center text-sm font-medium text-white">
+              Done
+            </Link>
           </div>
         )}
       </div>
@@ -92,6 +105,7 @@ export default function LinkedBanksPage() {
           <div className="w-full max-w-md rounded-2xl bg-dashboard-card p-6 shadow-xl">
             <h2 className="text-lg font-semibold text-dashboard-heading mb-2">Delete bank</h2>
             <p className="text-sm text-dashboard-body mb-6">By deleting this linked bank, you will not be able to make withdrawals into the account. Are you sure you want to delete this linked bank?</p>
+            {deleteError ? <p className="mb-3 text-xs text-red-600">{deleteError}</p> : null}
             <div className="flex flex-col gap-3">
               <button
                 type="button"

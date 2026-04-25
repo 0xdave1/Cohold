@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, Length, Matches } from 'class-validator';
 
 /** NGN-only linked bank for payouts (currency kept for future expansion). */
 export class AddLinkedBankDto {
@@ -10,19 +10,8 @@ export class AddLinkedBankDto {
   accountNumber!: string;
 
   @IsString()
-  @MinLength(2)
-  @MaxLength(120)
-  bankName!: string;
-
-  @IsString()
-  @MinLength(2)
-  @MaxLength(120)
-  accountName!: string;
-
-  @IsOptional()
-  @IsString()
   @Length(3, 12)
-  bankCode?: string;
+  bankCode!: string;
 
   @IsOptional()
   @IsBoolean()

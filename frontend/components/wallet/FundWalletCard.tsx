@@ -37,7 +37,7 @@ export function FundWalletCard() {
         disabled={initPayment.isPending || !amount.replace(/,/g, '').trim()}
         className="w-full rounded-xl bg-cohold-blue py-3 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {initPayment.isPending ? 'Redirecting…' : 'Fund Wallet with Flutterwave'}
+        {initPayment.isPending ? 'Redirecting…' : 'Fund Wallet'}
       </button>
       {initPayment.isError && (
         

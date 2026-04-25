@@ -1,8 +1,9 @@
 import { Test } from '@nestjs/testing';
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { PAYOUT_PROVIDER } from '../payout/payout-provider.interface';
 describe('UsersService linked banks', () => {
   let service: UsersService;
 
@@ -28,11 +29,23 @@ describe('UsersService linked banks', () => {
     const storageMock = {
       createSignedReadUrl: jest.fn().mockResolvedValue('https://signed.example'),
     };
+    const payoutProviderMock = {
+      resolveBankAccount: jest.fn().mockResolvedValue({
+        accountNumber: '0123456789',
+        accountName: 'John Doe',
+        bankCode: '058',
+        bankName: 'GTBank',
+        currency: 'NGN',
+        isVerified: true,
+      }),
+      listSupportedBanks: jest.fn().mockResolvedValue([{ code: '058', name: 'GTBank' }]),
+    };
     const moduleRef = await Test.createTestingModule({
       providers: [
         UsersService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: StorageService, useValue: storageMock },
+        { provide: PAYOUT_PROVIDER, useValue: payoutProviderMock },
       ],
     }).compile();
     service = moduleRef.get(UsersService);
@@ -55,8 +68,7 @@ describe('UsersService linked banks', () => {
       service.addLinkedBank('u1', {
         currency: 'NGN',
         accountNumber: '0123456789',
-        bankName: 'GTBank',
-        accountName: 'John Doe',
+        bankCode: '058',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
@@ -85,5 +97,20 @@ describe('UsersService linked banks', () => {
       where: { id: 'b2' },
       data: { isDefault: true },
     });
+  });
+
+  it('rejects linked bank when provider account resolution fails', async () => {
+    const payoutProvider = (service as any).payoutProvider;
+    payoutProvider.resolveBankAccount.mockRejectedValueOnce(
+      new BadRequestException('Failed to verify bank account'),
+    );
+
+    await expect(
+      service.addLinkedBank('u1', {
+        currency: 'NGN',
+        accountNumber: '0123456789',
+        bankCode: '058',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

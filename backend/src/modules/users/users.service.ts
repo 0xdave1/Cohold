@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { PersonalDetailsDto } from './dto/personal-details.dto';
@@ -7,12 +13,14 @@ import { AddLinkedBankDto } from './dto/add-linked-bank.dto';
 import { assertValidUsername, normalizeUsername, validateUsername } from '../../common/username/username.util';
 import { Currency, Prisma } from '@prisma/client';
 import { StorageService } from '../storage/storage.service';
+import { PAYOUT_PROVIDER, PayoutProvider } from '../payout/payout-provider.interface';
 
 @Injectable()
 export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    @Inject(PAYOUT_PROVIDER) private readonly payoutProvider: PayoutProvider,
   ) {}
 
   async getMe(userId: string) {
@@ -242,11 +250,12 @@ export class UsersService {
       throw new BadRequestException('Invalid account number');
     }
 
-    const bankName = dto.bankName.trim().replace(/\s+/g, ' ');
-    const accountName = dto.accountName.trim().replace(/\s+/g, ' ');
-    if (bankName.length < 2 || accountName.length < 2) {
-      throw new BadRequestException('Bank name and account name are required');
-    }
+    const bankCode = dto.bankCode.trim();
+    const resolved = await this.payoutProvider.resolveBankAccount({
+      accountNumber,
+      bankCode,
+      currency: 'NGN',
+    });
 
     try {
       const created = await this.prisma.$transaction(async (tx) => {
@@ -280,12 +289,12 @@ export class UsersService {
           data: {
             userId,
             currency: Currency.NGN,
-            accountNumber,
-            bankName,
-            accountName,
-            bankCode: dto.bankCode?.trim() || null,
+            accountNumber: resolved.accountNumber,
+            bankName: resolved.bankName,
+            accountName: resolved.accountName,
+            bankCode: resolved.bankCode,
             isDefault: makeDefault,
-            isVerified: false,
+            isVerified: resolved.isVerified,
           },
           select: {
             id: true,
@@ -309,6 +318,11 @@ export class UsersService {
       }
       throw e;
     }
+  }
+
+  async getSupportedBanks() {
+    const items = await this.payoutProvider.listSupportedBanks('NGN');
+    return { items };
   }
 
   async removeLinkedBank(userId: string, id: string) {

@@ -5,29 +5,32 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useAddLinkedBank } from '@/lib/hooks/use-linked-banks';
+import { useAddLinkedBank, useSupportedBanks } from '@/lib/hooks/use-linked-banks';
 import { getApiErrorMessage } from '@/lib/api/errors';
 import { Building2 } from 'lucide-react';
 
 const schema = z.object({
-  currency: z.enum(['NGN', 'USD', 'GBP', 'EUR']),
-  accountNumber: z.string().min(10, 'Valid account number required').max(12),
-  bankName: z.string().min(2, 'Bank name required'),
-  accountName: z.string().min(2, 'Account name required'),
+  currency: z.literal('NGN'),
+  accountNumber: z.string().regex(/^\d{10,16}$/, 'Account number must be 10–16 digits'),
+  bankCode: z.string().min(3, 'Select a bank'),
 });
 
 type FormValues = z.infer<typeof schema>;
 
-const CURRENCIES = ['NGN', 'USD', 'GBP', 'EUR'] as const;
-
 export default function AddLinkedBankPage() {
   const addBank = useAddLinkedBank();
+  const { data: banks = [], isLoading: banksLoading, isError: banksError } = useSupportedBanks();
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { currency: 'NGN', accountNumber: '', bankName: '', accountName: '' },
+    defaultValues: { currency: 'NGN', accountNumber: '', bankCode: '' },
   });
+
+  const filteredBanks = banks.filter((bank) =>
+    bank.name.toLowerCase().includes(query.toLowerCase()) || bank.code.includes(query),
+  );
 
   const onSubmit = async (values: FormValues) => {
     setError(null);
@@ -35,8 +38,7 @@ export default function AddLinkedBankPage() {
       await addBank.mutateAsync({
         currency: values.currency,
         accountNumber: values.accountNumber.trim(),
-        bankName: values.bankName.trim(),
-        accountName: values.accountName.trim(),
+        bankCode: values.bankCode.trim(),
       });
       form.reset();
       window.location.href = '/dashboard/account/linked-banks';
@@ -59,27 +61,58 @@ export default function AddLinkedBankPage() {
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div>
             <label className="text-sm font-medium text-dashboard-heading block mb-1">Currency</label>
-            <select {...form.register('currency')} className="w-full rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-2.5 text-dashboard-heading">
-              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <input
+              value="NGN"
+              readOnly
+              className="w-full rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-2.5 text-dashboard-heading"
+            />
           </div>
           <div>
-            <label className="text-sm font-medium text-dashboard-heading block mb-1">Bank name</label>
-            <input {...form.register('bankName')} placeholder="e.g. First Bank" className="w-full rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-2.5 text-dashboard-heading placeholder:text-dashboard-muted" />
-            {form.formState.errors.bankName && <p className="text-xs text-red-600 mt-1">{form.formState.errors.bankName.message}</p>}
+            <label className="text-sm font-medium text-dashboard-heading block mb-1">Select bank</label>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search bank name or code"
+              className="mb-2 w-full rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-2.5 text-dashboard-heading placeholder:text-dashboard-muted"
+            />
+            <select
+              {...form.register('bankCode')}
+              className="w-full rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-2.5 text-dashboard-heading"
+              disabled={banksLoading || banksError}
+            >
+              <option value="">{banksLoading ? 'Loading banks...' : 'Select a bank'}</option>
+              {filteredBanks.map((bank) => (
+                <option key={bank.code} value={bank.code}>
+                  {bank.name} ({bank.code})
+                </option>
+              ))}
+            </select>
+            {banksError ? <p className="text-xs text-red-600 mt-1">Could not load banks. Please retry.</p> : null}
+            {form.formState.errors.bankCode && (
+              <p className="text-xs text-red-600 mt-1">{form.formState.errors.bankCode.message}</p>
+            )}
           </div>
           <div>
             <label className="text-sm font-medium text-dashboard-heading block mb-1">Account number</label>
-            <input {...form.register('accountNumber')} type="text" inputMode="numeric" placeholder="10 digits" className="w-full rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-2.5 text-dashboard-heading placeholder:text-dashboard-muted" />
+            <input
+              {...form.register('accountNumber')}
+              type="text"
+              inputMode="numeric"
+              placeholder="10–16 digits"
+              className="w-full rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-2.5 text-dashboard-heading placeholder:text-dashboard-muted"
+            />
             {form.formState.errors.accountNumber && <p className="text-xs text-red-600 mt-1">{form.formState.errors.accountNumber.message}</p>}
           </div>
-          <div>
-            <label className="text-sm font-medium text-dashboard-heading block mb-1">Account name</label>
-            <input {...form.register('accountName')} placeholder="Name on account" className="w-full rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-2.5 text-dashboard-heading placeholder:text-dashboard-muted" />
-            {form.formState.errors.accountName && <p className="text-xs text-red-600 mt-1">{form.formState.errors.accountName.message}</p>}
-          </div>
+          <p className="text-xs text-dashboard-body">
+            Account name is verified server-side from your selected bank and account number.
+          </p>
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <button type="submit" disabled={addBank.isPending} className="w-full rounded-xl bg-cohold-blue py-3 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2">
+          <button
+            type="submit"
+            disabled={addBank.isPending || banksLoading || banks.length === 0}
+            className="w-full rounded-xl bg-cohold-blue py-3 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
+          >
             <Building2 className="h-4 w-4" /> {addBank.isPending ? 'Adding...' : 'Add bank'}
           </button>
         </form>

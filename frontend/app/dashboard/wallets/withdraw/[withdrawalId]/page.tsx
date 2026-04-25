@@ -11,12 +11,12 @@ function statusCopy(status: WithdrawalStatusUi): { title: string; subtitle: stri
     case 'PENDING':
       return {
         title: 'Withdrawal request received',
-        subtitle: 'Your withdrawal is being processed.',
+        subtitle: 'Your payout request has been accepted and is queued for provider processing.',
       };
     case 'PROCESSING':
       return {
         title: 'Withdrawal in progress',
-        subtitle: 'Your withdrawal is currently being processed.',
+        subtitle: 'Payout has been initiated and is currently being processed by the provider.',
       };
     case 'COMPLETED':
       return {
@@ -168,6 +168,15 @@ export default function WithdrawalResultPage() {
           Go back Home
         </button>
       </div>
+      {(w.status === 'PENDING' || w.status === 'PROCESSING') && (
+        <button
+          type="button"
+          onClick={() => refetch()}
+          className="mt-3 w-full rounded-full border border-dashboard-border bg-white py-2.5 text-sm font-semibold text-dashboard-heading hover:bg-dashboard-border/20"
+        >
+          Refresh status
+        </button>
+      )}
     </div>
   );
 }

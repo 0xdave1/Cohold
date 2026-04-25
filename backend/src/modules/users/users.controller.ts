@@ -72,6 +72,11 @@ export class UsersController {
     return this.usersService.getLinkedBanks(user.id);
   }
 
+  @Get('me/linked-banks/banks')
+  async getSupportedBanks() {
+    return this.usersService.getSupportedBanks();
+  }
+
   @Post('me/linked-banks')
   async addLinkedBank(@CurrentUser() user: { id: string }, @Body() body: AddLinkedBankDto) {
     return this.usersService.addLinkedBank(user.id, body);

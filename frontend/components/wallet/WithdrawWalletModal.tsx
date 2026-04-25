@@ -297,6 +297,9 @@ export function WithdrawWalletModal({
                     <div className="min-w-0 flex-1">
                       <p className="font-mono text-sm font-medium text-dashboard-heading">{b.accountNumber}</p>
                       <p className="truncate text-xs text-dashboard-body">{subtitle}</p>
+                      {b.isVerified === false ? (
+                        <p className="mt-1 text-[11px] text-amber-700">Unverified account (not eligible for withdrawal)</p>
+                      ) : null}
                     </div>
                     <span
                       className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
@@ -339,7 +342,12 @@ export function WithdrawWalletModal({
         <button
           type="button"
           onClick={goToOtp}
-          disabled={otpSending || banks.length === 0 || !amountRaw}
+          disabled={
+            otpSending ||
+            banks.length === 0 ||
+            !amountRaw ||
+            !banks.find((bank) => bank.id === selectedBankId)?.isVerified
+          }
           className="w-full rounded-xl bg-cohold-blue py-3 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {otpSending ? 'Sending code…' : 'Withdraw'}

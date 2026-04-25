@@ -24,10 +24,14 @@ export const validationSchema = Joi.object({
   JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
 
-  FLW_SECRET_KEY: Joi.string().required(),
-  FLW_PUBLIC_KEY: Joi.string().required(),
-  FLW_WEBHOOK_SECRET: Joi.string().required(),
-  FLW_BASE_URL: Joi.string().uri().default('https://api.flutterwave.com/v3'),
+  FLW_SECRET_KEY: Joi.string().optional(),
+  FLW_PUBLIC_KEY: Joi.string().optional(),
+  FLW_WEBHOOK_SECRET: Joi.string().optional(),
+  FLW_BASE_URL: Joi.string().uri().optional(),
+  FLUTTERWAVE_SECRET_KEY: Joi.string().optional(),
+  FLUTTERWAVE_PUBLIC_KEY: Joi.string().optional(),
+  FLUTTERWAVE_WEBHOOK_SECRET: Joi.string().optional(),
+  FLUTTERWAVE_BASE_URL: Joi.string().uri().optional(),
   APP_BASE_URL: Joi.string().uri().default('http://localhost:3000'),
 
   S3_ACCESS_KEY_ID: Joi.string().required(),
@@ -41,5 +45,8 @@ export const validationSchema = Joi.object({
   EMAIL_FROM: Joi.string().email().required(),
 
   ELASTICSEARCH_NODE: Joi.string().uri().optional(),
-});
+})
+  .or('FLW_SECRET_KEY', 'FLUTTERWAVE_SECRET_KEY')
+  .or('FLW_PUBLIC_KEY', 'FLUTTERWAVE_PUBLIC_KEY')
+  .or('FLW_WEBHOOK_SECRET', 'FLUTTERWAVE_WEBHOOK_SECRET');
 

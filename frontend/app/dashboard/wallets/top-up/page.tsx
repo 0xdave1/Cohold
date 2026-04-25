@@ -22,7 +22,7 @@ export default function TopUpPage() {
           href="/dashboard/wallet"
           className="inline-flex w-full items-center justify-center rounded-lg bg-blue-500 py-3 font-medium text-white"
         >
-          Fund Wallet with Flutterwave
+          Fund Wallet 
         </Link>
       </div>
     </div>

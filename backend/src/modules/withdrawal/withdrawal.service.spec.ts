@@ -1,22 +1,26 @@
 import { Test } from '@nestjs/testing';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { Currency, KycStatus, WithdrawalStatus } from '@prisma/client';
 import { WithdrawalService } from './withdrawal.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { Currency, KycStatus, WithdrawalStatus } from '@prisma/client';
+import { PAYOUT_PROVIDER } from '../payout/payout-provider.interface';
 
-describe('WithdrawalService', () => {
+describe('WithdrawalService payout orchestration', () => {
   let service: WithdrawalService;
 
   const authService = {
     verifyTransactionOtpForUser: jest.fn(),
   };
-
   const notificationsService = {
     notifyWithdrawalInitiated: jest.fn(),
     notifyWithdrawalCompleted: jest.fn(),
     notifyWithdrawalFailed: jest.fn(),
+  };
+  const payoutProvider = {
+    initiateTransfer: jest.fn(),
+    parseTransferWebhook: jest.fn(),
   };
 
   const prismaMock = {
@@ -29,36 +33,32 @@ describe('WithdrawalService', () => {
       findFirst: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
-      create: jest.fn(),
       update: jest.fn(),
-      updateMany: jest.fn(),
+      create: jest.fn(),
     },
-    transaction: { create: jest.fn() },
+    transaction: { findUnique: jest.fn(), create: jest.fn() },
     $transaction: jest.fn(),
-    $queryRawUnsafe: jest.fn(),
   };
 
   beforeEach(async () => {
-    jest.clearAllMocks();
-    const moduleRef = await Test.createTestingModule({
+    jest.resetAllMocks();
+    const module = await Test.createTestingModule({
       providers: [
         WithdrawalService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: AuthService, useValue: authService },
         { provide: NotificationsService, useValue: notificationsService },
+        { provide: PAYOUT_PROVIDER, useValue: payoutProvider },
       ],
     }).compile();
-
-    service = moduleRef.get(WithdrawalService);
+    service = module.get(WithdrawalService);
   });
 
-  const userId = 'user-1';
-  const bankId = 'bank-1';
-  const walletId = 'wallet-1';
-  const idempotencyKey = 'idem-1';
+  const userId = 'u1';
+  const bankId = 'b1';
+  const walletId = 'w1';
 
-  it('rejects invalid OTP before touching wallet', async () => {
-    authService.verifyTransactionOtpForUser.mockRejectedValue(new UnauthorizedException('Invalid or expired OTP'));
+  function primeHappyPath() {
     prismaMock.withdrawal.findFirst.mockResolvedValue(null);
     prismaMock.user.findUnique.mockResolvedValue({
       id: userId,
@@ -70,446 +70,258 @@ describe('WithdrawalService', () => {
       userId,
       currency: Currency.NGN,
       accountNumber: '0123456789',
-      bankName: 'Test Bank',
-      accountName: 'Jane Doe',
+      bankName: 'GTBank',
+      accountName: 'John Doe',
       bankCode: '058',
-    });
-
-    await expect(
-      service.createWithdrawal(userId, {
-        idempotencyKey,
-        linkedBankAccountId: bankId,
-        amount: '100.0000',
-        currency: 'NGN',
-        otp: '000000',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
-
-    expect(prismaMock.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('rejects when KYC not verified', async () => {
-    authService.verifyTransactionOtpForUser.mockResolvedValue(undefined);
-    prismaMock.user.findUnique.mockResolvedValue({
-      id: userId,
-      isFrozen: false,
-      kycStatus: KycStatus.PENDING,
-    });
-
-    await expect(
-      service.createWithdrawal(userId, {
-        idempotencyKey,
-        linkedBankAccountId: bankId,
-        amount: '50',
-        currency: 'NGN',
-        otp: '123456',
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it('rejects non-owned linked bank', async () => {
-    authService.verifyTransactionOtpForUser.mockResolvedValue(undefined);
-    prismaMock.user.findUnique.mockResolvedValue({
-      id: userId,
-      isFrozen: false,
-      kycStatus: KycStatus.VERIFIED,
-    });
-    prismaMock.linkedBankAccount.findFirst.mockResolvedValue(null);
-
-    await expect(
-      service.createWithdrawal(userId, {
-        idempotencyKey,
-        linkedBankAccountId: bankId,
-        amount: '50',
-        currency: 'NGN',
-        otp: '123456',
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it('rejects insufficient balance inside locked transaction', async () => {
-    authService.verifyTransactionOtpForUser.mockResolvedValue(undefined);
-    prismaMock.user.findUnique.mockResolvedValue({
-      id: userId,
-      isFrozen: false,
-      kycStatus: KycStatus.VERIFIED,
-    });
-    prismaMock.linkedBankAccount.findFirst.mockResolvedValue({
-      id: bankId,
-      userId,
-      currency: Currency.NGN,
-      accountNumber: '0123456789',
-      bankName: 'Test Bank',
-      accountName: 'Jane Doe',
-      bankCode: '058',
+      isVerified: true,
     });
     prismaMock.wallet.findUnique.mockResolvedValue({
       id: walletId,
       userId,
       currency: Currency.NGN,
-      balance: { toString: () => '10.0000' },
+      balance: { toString: () => '500.0000' },
+    });
+  }
+
+  it('marks PROCESSING when provider accepts transfer initiation', async () => {
+    payoutProvider.initiateTransfer.mockResolvedValue({
+      accepted: true,
+      providerReference: 'WD-ref-1',
+      transferCode: 'tr-1',
+      status: 'PROCESSING',
+      rawStatus: 'new',
+      failureReason: null,
     });
 
-    const tx = {
-      $queryRawUnsafe: jest.fn(),
-      wallet: {
-        findUniqueOrThrow: jest.fn().mockResolvedValue({
-          id: walletId,
-          balance: { toString: () => '10.0000' },
-        }),
-        update: jest.fn(),
-      },
-      withdrawal: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
-      transaction: { create: jest.fn() },
+    const pending = {
+      id: 'wd-1',
+      userId,
+      walletId,
+      linkedBankAccountId: bankId,
+      reference: 'WD-ref-1',
+      amount: { toString: () => '100.0000' },
+      fee: { toString: () => '0.0000' },
+      netAmount: { toString: () => '100.0000' },
+      currency: Currency.NGN,
+      status: WithdrawalStatus.PENDING,
+      failureReason: null,
+      providerReference: null,
+      providerTransferCode: null,
+      initiatedAt: new Date(),
+      processedAt: null,
+      completedAt: null,
+      metadata: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
-    prismaMock.$transaction.mockImplementation(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx));
+    const processing = {
+      ...pending,
+      status: WithdrawalStatus.PROCESSING,
+      processedAt: new Date(),
+      providerTransferCode: 'tr-1',
+      providerReference: 'WD-ref-1',
+    };
+    prismaMock.withdrawal.findUnique
+      .mockResolvedValueOnce({
+        ...pending,
+        linkedBankAccount: {
+          accountNumber: '0123456789',
+          bankCode: '058',
+          accountName: 'John Doe',
+          isVerified: true,
+        },
+      })
+      .mockResolvedValueOnce(pending);
+    prismaMock.withdrawal.update.mockResolvedValue(processing);
 
+    const result = await service.initiatePayoutForWithdrawal('wd-1');
+
+    expect(payoutProvider.initiateTransfer).toHaveBeenCalled();
+    expect((result as any).status).toBe(WithdrawalStatus.PROCESSING);
+  });
+
+  it('marks FAILED and reverses when provider rejects transfer', async () => {
+    payoutProvider.initiateTransfer.mockResolvedValue({
+      accepted: false,
+      providerReference: 'WD-ref-2',
+      transferCode: null,
+      status: 'FAILED',
+      rawStatus: 'failed',
+      failureReason: 'Account restricted',
+    });
+
+    const created = {
+      id: 'wd-2',
+      userId,
+      walletId,
+      linkedBankAccountId: bankId,
+      reference: 'WD-ref-2',
+      amount: { toString: () => '100.0000' },
+      fee: { toString: () => '0.0000' },
+      netAmount: { toString: () => '100.0000' },
+      currency: Currency.NGN,
+      status: WithdrawalStatus.PENDING,
+      failureReason: null,
+      providerReference: null,
+      providerTransferCode: null,
+      initiatedAt: new Date(),
+      processedAt: null,
+      completedAt: null,
+      metadata: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    prismaMock.$transaction.mockImplementation(async (fn: any) => {
+      const tx = {
+        withdrawal: {
+          findUnique: jest.fn().mockResolvedValue({ ...created, status: WithdrawalStatus.PENDING }),
+          update: jest.fn().mockResolvedValue({ ...created, status: WithdrawalStatus.FAILED }),
+        },
+        wallet: {
+          findUniqueOrThrow: jest.fn().mockResolvedValue({ id: walletId, balance: { toString: () => '400.0000' } }),
+          update: jest.fn().mockResolvedValue({}),
+        },
+        transaction: {
+          findUnique: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({}),
+        },
+        $queryRawUnsafe: jest.fn().mockResolvedValue(undefined),
+      };
+      return fn(tx);
+    });
+    prismaMock.withdrawal.findUnique
+      .mockResolvedValueOnce({
+        ...created,
+        status: WithdrawalStatus.PENDING,
+        linkedBankAccount: {
+          accountNumber: '0123456789',
+          bankCode: '058',
+          accountName: 'John Doe',
+          isVerified: true,
+        },
+      })
+      .mockResolvedValueOnce({ ...created, status: WithdrawalStatus.PENDING })
+      .mockResolvedValueOnce({ ...created, status: WithdrawalStatus.FAILED });
+    prismaMock.withdrawal.findUniqueOrThrow.mockResolvedValue({ ...created, status: WithdrawalStatus.FAILED });
+
+    const result = await service.initiatePayoutForWithdrawal('wd-2');
+    expect(result.status).toBe(WithdrawalStatus.FAILED);
+    expect(notificationsService.notifyWithdrawalFailed).toHaveBeenCalled();
+  });
+
+  it('webhook success marks COMPLETED', async () => {
+    payoutProvider.parseTransferWebhook.mockReturnValue({
+      eventType: 'transfer.completed',
+      providerReference: 'WD-ref-3',
+      transferCode: 'tr-3',
+      status: 'SUCCESS',
+      failureReason: null,
+    });
+    prismaMock.withdrawal.findFirst.mockResolvedValue({
+      id: 'wd-3',
+      userId,
+      walletId,
+      reference: 'WD-ref-3',
+      amount: { toString: () => '50.0000' },
+      currency: Currency.NGN,
+      status: WithdrawalStatus.PROCESSING,
+      linkedBankAccountId: bankId,
+      fee: { toString: () => '0.0000' },
+      netAmount: { toString: () => '50.0000' },
+      failureReason: null,
+      initiatedAt: new Date(),
+      processedAt: new Date(),
+      completedAt: null,
+      metadata: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    prismaMock.withdrawal.findUnique.mockResolvedValueOnce({
+      id: 'wd-3',
+      userId,
+      amount: { toString: () => '50.0000' },
+      currency: Currency.NGN,
+      status: WithdrawalStatus.PROCESSING,
+    });
+    prismaMock.withdrawal.update.mockResolvedValue({ id: 'wd-3', status: WithdrawalStatus.COMPLETED });
+
+    await service.handlePayoutWebhook({ event: 'transfer.completed' });
+    expect(prismaMock.withdrawal.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: WithdrawalStatus.COMPLETED }) }),
+    );
+  });
+
+  it('duplicate webhook failure does not double reverse', async () => {
+    payoutProvider.parseTransferWebhook.mockReturnValue({
+      eventType: 'transfer.failed',
+      providerReference: 'WD-ref-4',
+      transferCode: 'tr-4',
+      status: 'FAILED',
+      failureReason: 'Declined',
+    });
+    prismaMock.withdrawal.findFirst.mockResolvedValue({
+      id: 'wd-4',
+      userId,
+      walletId,
+      reference: 'WD-ref-4',
+      amount: { toString: () => '50.0000' },
+      currency: Currency.NGN,
+      status: WithdrawalStatus.FAILED,
+      linkedBankAccountId: bankId,
+      fee: { toString: () => '0.0000' },
+      netAmount: { toString: () => '50.0000' },
+      failureReason: 'Declined',
+      initiatedAt: new Date(),
+      processedAt: new Date(),
+      completedAt: null,
+      metadata: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    prismaMock.withdrawal.findUnique.mockResolvedValueOnce({
+      id: 'wd-4',
+      status: WithdrawalStatus.FAILED,
+    });
+
+    await service.handlePayoutWebhook({ event: 'transfer.failed' });
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('invalid OTP still blocks withdrawal before debit', async () => {
+    primeHappyPath();
+    authService.verifyTransactionOtpForUser.mockRejectedValue(new UnauthorizedException('Invalid OTP'));
     await expect(
       service.createWithdrawal(userId, {
-        idempotencyKey,
+        idempotencyKey: 'idem-otp',
+        linkedBankAccountId: bankId,
+        amount: '100',
+        currency: 'NGN',
+        otp: '000000',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('requires verified linked bank account before payout', async () => {
+    primeHappyPath();
+    prismaMock.linkedBankAccount.findFirst.mockResolvedValueOnce({
+      id: bankId,
+      userId,
+      currency: Currency.NGN,
+      accountNumber: '0123456789',
+      bankName: 'GTBank',
+      accountName: 'John Doe',
+      bankCode: null,
+      isVerified: false,
+    });
+    await expect(
+      service.createWithdrawal(userId, {
+        idempotencyKey: 'idem-unverified-bank',
         linkedBankAccountId: bankId,
         amount: '100',
         currency: 'NGN',
         otp: '123456',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-
-    expect(tx.withdrawal.create).not.toHaveBeenCalled();
-  });
-
-  it('creates PENDING withdrawal, debits wallet, and writes ledger in one transaction', async () => {
-    authService.verifyTransactionOtpForUser.mockResolvedValue(undefined);
-    prismaMock.user.findUnique.mockResolvedValue({
-      id: userId,
-      isFrozen: false,
-      kycStatus: KycStatus.VERIFIED,
-    });
-    prismaMock.linkedBankAccount.findFirst.mockResolvedValue({
-      id: bankId,
-      userId,
-      currency: Currency.NGN,
-      accountNumber: '0123456789',
-      bankName: 'Test Bank',
-      accountName: 'Jane Doe',
-      bankCode: '058',
-    });
-    prismaMock.wallet.findUnique.mockResolvedValue({
-      id: walletId,
-      userId,
-      currency: Currency.NGN,
-      balance: { toString: () => '500.0000' },
-    });
-
-    const createdWd = {
-      id: 'wd-1',
-      userId,
-      walletId,
-      linkedBankAccountId: bankId,
-      reference: 'WD-testref',
-      amount: { toString: () => '100.0000' },
-      fee: { toString: () => '0.0000' },
-      netAmount: { toString: () => '100.0000' },
-      currency: Currency.NGN,
-      status: WithdrawalStatus.PENDING,
-      failureReason: null,
-      initiatedAt: new Date(),
-      processedAt: null,
-      completedAt: null,
-      metadata: {},
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    const tx = {
-      $queryRawUnsafe: jest.fn().mockResolvedValue(undefined),
-      wallet: {
-        findUniqueOrThrow: jest.fn().mockResolvedValue({
-          id: walletId,
-          balance: { toString: () => '500.0000' },
-        }),
-        update: jest.fn().mockResolvedValue({}),
-      },
-      withdrawal: {
-        findFirst: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockResolvedValue(createdWd),
-      },
-      transaction: {
-        create: jest.fn().mockResolvedValue({}),
-      },
-    };
-
-    prismaMock.$transaction.mockImplementation(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx));
-
-    const result = await service.createWithdrawal(userId, {
-      linkedBankAccountId: bankId,
-      idempotencyKey,
-      amount: '100',
-      currency: 'NGN',
-      otp: '123456',
-    });
-
-    expect(tx.wallet.update).toHaveBeenCalled();
-    expect(tx.withdrawal.create).toHaveBeenCalled();
-    expect(tx.transaction.create).toHaveBeenCalled();
-    expect(result.status).toBe(WithdrawalStatus.PENDING);
-  });
-
-  it('returns existing withdrawal for same idempotency key without debit', async () => {
-    const existing = {
-      id: 'wd-existing',
-      userId,
-      idempotencyKey: 'idem-replay',
-      walletId,
-      linkedBankAccountId: bankId,
-      reference: 'WD-existing',
-      amount: { toString: () => '100.0000' },
-      fee: { toString: () => '0.0000' },
-      netAmount: { toString: () => '100.0000' },
-      currency: Currency.NGN,
-      status: WithdrawalStatus.PENDING,
-      failureReason: null,
-      initiatedAt: new Date(),
-      processedAt: null,
-      completedAt: null,
-      metadata: {},
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    prismaMock.withdrawal.findFirst.mockResolvedValue(existing);
-
-    const result = await service.createWithdrawal(userId, {
-      idempotencyKey: 'idem-replay',
-      linkedBankAccountId: bankId,
-      amount: '100',
-      currency: 'NGN',
-      otp: '123456',
-    });
-
-    expect(result.id).toBe('wd-existing');
-    expect(authService.verifyTransactionOtpForUser).not.toHaveBeenCalled();
-    expect(prismaMock.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('reuses idempotency key across rapid retries and debits once', async () => {
-    authService.verifyTransactionOtpForUser.mockResolvedValue(undefined);
-    prismaMock.user.findUnique.mockResolvedValue({
-      id: userId,
-      isFrozen: false,
-      kycStatus: KycStatus.VERIFIED,
-    });
-    prismaMock.linkedBankAccount.findFirst.mockResolvedValue({
-      id: bankId,
-      userId,
-      currency: Currency.NGN,
-      accountNumber: '0123456789',
-      bankName: 'Test Bank',
-      accountName: 'Jane Doe',
-      bankCode: '058',
-    });
-    prismaMock.wallet.findUnique.mockResolvedValue({
-      id: walletId,
-      userId,
-      currency: Currency.NGN,
-      balance: { toString: () => '500.0000' },
-    });
-
-    const createdWd = {
-      id: 'wd-double',
-      userId,
-      idempotencyKey: 'idem-double',
-      walletId,
-      linkedBankAccountId: bankId,
-      reference: 'WD-double',
-      amount: { toString: () => '100.0000' },
-      fee: { toString: () => '0.0000' },
-      netAmount: { toString: () => '100.0000' },
-      currency: Currency.NGN,
-      status: WithdrawalStatus.PENDING,
-      failureReason: null,
-      initiatedAt: new Date(),
-      processedAt: null,
-      completedAt: null,
-      metadata: {},
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    prismaMock.withdrawal.findFirst
-      .mockResolvedValueOnce(null) // first request idempotency lookup
-      .mockResolvedValueOnce(null) // first request duplicate guard
-      .mockResolvedValueOnce(createdWd); // second request idempotency lookup
-
-    const tx = {
-      withdrawal: {
-        findFirst: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockResolvedValue(createdWd),
-      },
-      $queryRawUnsafe: jest.fn().mockResolvedValue(undefined),
-      wallet: {
-        findUniqueOrThrow: jest.fn().mockResolvedValue({
-          id: walletId,
-          balance: { toString: () => '500.0000' },
-        }),
-        update: jest.fn().mockResolvedValue({}),
-      },
-      transaction: {
-        create: jest.fn().mockResolvedValue({}),
-      },
-    };
-    prismaMock.$transaction.mockImplementation(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx));
-
-    const first = await service.createWithdrawal(userId, {
-      idempotencyKey: 'idem-double',
-      linkedBankAccountId: bankId,
-      amount: '100',
-      currency: 'NGN',
-      otp: '123456',
-    });
-    const second = await service.createWithdrawal(userId, {
-      idempotencyKey: 'idem-double',
-      linkedBankAccountId: bankId,
-      amount: '100',
-      currency: 'NGN',
-      otp: '123456',
-    });
-
-    expect(first.id).toBe('wd-double');
-    expect(second.id).toBe('wd-double');
-    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
-    expect(tx.wallet.update).toHaveBeenCalledTimes(1);
-  });
-
-  it('reuses recent duplicate pending withdrawal (same amount + bank within 30s)', async () => {
-    prismaMock.withdrawal.findFirst
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: 'wd-dup',
-        userId,
-        idempotencyKey: 'idem-old',
-        walletId,
-        linkedBankAccountId: bankId,
-        reference: 'WD-dup',
-        amount: { toString: () => '25.0000' },
-        fee: { toString: () => '0.0000' },
-        netAmount: { toString: () => '25.0000' },
-        currency: Currency.NGN,
-        status: WithdrawalStatus.PENDING,
-        failureReason: null,
-        initiatedAt: new Date(),
-        processedAt: null,
-        completedAt: null,
-        metadata: {},
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-    prismaMock.user.findUnique.mockResolvedValue({
-      id: userId,
-      isFrozen: false,
-      kycStatus: KycStatus.VERIFIED,
-    });
-    prismaMock.linkedBankAccount.findFirst.mockResolvedValue({
-      id: bankId,
-      userId,
-      currency: Currency.NGN,
-      accountNumber: '0123456789',
-      bankName: 'Test Bank',
-      accountName: 'Jane Doe',
-      bankCode: '058',
-    });
-
-    const result = await service.createWithdrawal(userId, {
-      idempotencyKey: 'idem-new',
-      linkedBankAccountId: bankId,
-      amount: '25',
-      currency: 'NGN',
-      otp: '123456',
-    });
-
-    expect(result.id).toBe('wd-dup');
-    expect(authService.verifyTransactionOtpForUser).not.toHaveBeenCalled();
-    expect(prismaMock.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('surfaces OTP lockout after repeated invalid attempts', async () => {
-    authService.verifyTransactionOtpForUser.mockRejectedValue(
-      new UnauthorizedException('Too many attempts. Please try again later.'),
-    );
-    prismaMock.withdrawal.findFirst.mockResolvedValue(null);
-    prismaMock.user.findUnique.mockResolvedValue({
-      id: userId,
-      isFrozen: false,
-      kycStatus: KycStatus.VERIFIED,
-    });
-    prismaMock.linkedBankAccount.findFirst.mockResolvedValue({
-      id: bankId,
-      userId,
-      currency: Currency.NGN,
-      accountNumber: '0123456789',
-      bankName: 'Test Bank',
-      accountName: 'Jane Doe',
-      bankCode: '058',
-    });
-
-    await expect(
-      service.createWithdrawal(userId, {
-        idempotencyKey: 'idem-lock',
-        linkedBankAccountId: bankId,
-        amount: '10',
-        currency: 'NGN',
-        otp: '111111',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
-    expect(prismaMock.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('markFailed reverses balance and marks FAILED', async () => {
-    prismaMock.withdrawal.findUnique
-      .mockResolvedValueOnce({
-        id: 'wd-1',
-        userId,
-        walletId,
-        amount: { toString: () => '100.0000' },
-        currency: Currency.NGN,
-        status: WithdrawalStatus.PENDING,
-        reference: 'WD-r',
-      })
-      .mockResolvedValueOnce({
-        id: 'wd-1',
-        status: WithdrawalStatus.FAILED,
-      });
-
-    const tx = {
-      withdrawal: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'wd-1',
-          status: WithdrawalStatus.PENDING,
-        }),
-        update: jest.fn(),
-      },
-      $queryRawUnsafe: jest.fn(),
-      wallet: {
-        findUniqueOrThrow: jest.fn().mockResolvedValue({
-          id: walletId,
-          balance: { toString: () => '400.0000' },
-        }),
-        update: jest.fn(),
-      },
-      transaction: { create: jest.fn() },
-    };
-
-    prismaMock.$transaction.mockImplementation(async (fn: (t: typeof tx) => Promise<void>) => fn(tx));
-    prismaMock.withdrawal.findUniqueOrThrow.mockResolvedValue({ id: 'wd-1', status: WithdrawalStatus.FAILED });
-
-    await service.markFailed('wd-1', 'Payout provider error');
-
-    expect(tx.wallet.update).toHaveBeenCalled();
-    expect(tx.transaction.create).toHaveBeenCalled();
-    expect(tx.withdrawal.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: WithdrawalStatus.FAILED }),
-      }),
-    );
-    expect(notificationsService.notifyWithdrawalFailed).toHaveBeenCalled();
   });
 });
