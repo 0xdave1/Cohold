@@ -7,7 +7,6 @@ import Decimal from 'decimal.js';
 type InitializePaymentInput = {
   amount: number;
   email: string;
-  userId: string;
   reference: string;
 };
 
@@ -65,10 +64,7 @@ export class FlutterwaveService {
         customer: {
           email: dto.email,
         },
-        meta: {
-          userId: dto.userId,
-          type: 'wallet_funding',
-        },
+        meta: { type: 'wallet_funding' },
       });
 
       const checkoutUrl = response.data?.data?.link;

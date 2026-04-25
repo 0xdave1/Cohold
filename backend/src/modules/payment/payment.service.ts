@@ -5,7 +5,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Currency, TransactionDirection, TransactionStatus, TransactionType } from '@prisma/client';
 import { toDecimal } from '../../common/money/decimal.util';
 import Decimal from 'decimal.js';
-import { InitializePaymentDto } from './dto/initialize-payment.dto';
 import { FlutterwaveService } from './flutterwave.service';
 
 @Injectable()
@@ -17,29 +16,26 @@ export class PaymentService {
     private readonly flutterwaveService: FlutterwaveService,
   ) {}
 
-  async initializeWalletFunding(userId: string, dto: InitializePaymentDto) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+  async initializeFlutterwavePayment(data: { amount: number; userId: string; email: string }) {
+    const user = await this.prisma.user.findUnique({ where: { id: data.userId } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    if (dto.currency !== Currency.NGN) {
-      throw new BadRequestException('Card funding is only supported for NGN');
-    }
-    const amount = toDecimal(dto.amount);
+    const amount = toDecimal(data.amount);
     if (amount.lte(0)) {
       throw new BadRequestException('Amount must be positive');
     }
 
     const reference = `flw_wallet_${randomUUID()}`;
     const wallet = await this.prisma.wallet.findFirst({
-      where: { userId, currency: Currency.NGN },
+      where: { userId: data.userId, currency: Currency.NGN },
       select: { id: true },
     });
 
     await this.prisma.transaction.create({
       data: {
         walletId: wallet?.id ?? null,
-        userId,
+        userId: data.userId,
         reference,
         groupId: reference,
         externalReference: null,
@@ -54,8 +50,7 @@ export class PaymentService {
 
     const init = await this.flutterwaveService.initializePayment({
       amount: amount.toNumber(),
-      email: user.email,
-      userId,
+      email: data.email ?? user.email,
       reference,
     });
 

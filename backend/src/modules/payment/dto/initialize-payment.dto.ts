@@ -1,12 +1,9 @@
-import { IsEnum, IsIn, IsNumberString } from 'class-validator';
-import { Currency } from '@prisma/client';
-import { SUPPORTED_CURRENCIES } from '../../../common/constants/currency.constants';
+import { IsNumber, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class InitializePaymentDto {
-  @IsNumberString()
-  amount!: string;
-
-  @IsEnum(Currency)
-  @IsIn(SUPPORTED_CURRENCIES)
-  currency!: Currency;
+  @Type(() => Number)
+  @IsNumber()
+  @Min(100)
+  amount!: number;
 }
