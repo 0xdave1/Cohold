@@ -25,6 +25,7 @@ import { fixMoney, moneyStr } from '../../common/money/precision.constants';
 import { toDecimal } from '../../common/money/decimal.util';
 
 const WD_PREFIX = 'WD';
+const DUPLICATE_WINDOW_MS = 30_000;
 
 @Injectable()
 export class WithdrawalService {
@@ -41,7 +42,17 @@ export class WithdrawalService {
   }
 
   async createWithdrawal(userId: string, dto: CreateWithdrawalDto) {
-    await this.authService.verifyTransactionOtpForUser(userId, dto.otp);
+    const normalizedIdempotencyKey = dto.idempotencyKey.trim();
+
+    const existingByIdempotency = await this.prisma.withdrawal.findFirst({
+      where: {
+        userId,
+        idempotencyKey: normalizedIdempotencyKey,
+      },
+    });
+    if (existingByIdempotency) {
+      return this.serializeWithdrawal(existingByIdempotency);
+    }
 
     if (dto.currency !== 'NGN') {
       throw new BadRequestException('Only NGN withdrawals are supported');
@@ -72,6 +83,23 @@ export class WithdrawalService {
       throw new BadRequestException('Linked bank not found or does not belong to you');
     }
 
+    const duplicateCutoff = new Date(Date.now() - DUPLICATE_WINDOW_MS);
+    const existingDuplicate = await this.prisma.withdrawal.findFirst({
+      where: {
+        userId,
+        amount: moneyStr(amount),
+        linkedBankAccountId: linkedBank.id,
+        status: { in: [WithdrawalStatus.PENDING, WithdrawalStatus.PROCESSING] },
+        createdAt: { gte: duplicateCutoff },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existingDuplicate) {
+      return this.serializeWithdrawal(existingDuplicate);
+    }
+
+    await this.authService.verifyTransactionOtpForUser(userId, dto.otp);
+
     const wallet = await this.prisma.wallet.findUnique({
       where: { userId_currency: { userId, currency: Currency.NGN } },
     });
@@ -98,6 +126,27 @@ export class WithdrawalService {
 
     try {
       const withdrawal = await this.prisma.$transaction(async (tx) => {
+        const inTxExistingByIdempotency = await tx.withdrawal.findFirst({
+          where: { userId, idempotencyKey: normalizedIdempotencyKey },
+        });
+        if (inTxExistingByIdempotency) {
+          return inTxExistingByIdempotency;
+        }
+
+        const inTxExistingDuplicate = await tx.withdrawal.findFirst({
+          where: {
+            userId,
+            amount: moneyStr(amount),
+            linkedBankAccountId: linkedBank.id,
+            status: { in: [WithdrawalStatus.PENDING, WithdrawalStatus.PROCESSING] },
+            createdAt: { gte: duplicateCutoff },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (inTxExistingDuplicate) {
+          return inTxExistingDuplicate;
+        }
+
         await tx.$queryRawUnsafe(`SELECT id FROM "Wallet" WHERE id = $1 FOR UPDATE`, wallet.id);
 
         const locked = await tx.wallet.findUniqueOrThrow({ where: { id: wallet.id } });
@@ -115,6 +164,7 @@ export class WithdrawalService {
         const wd = await tx.withdrawal.create({
           data: {
             userId,
+            idempotencyKey: normalizedIdempotencyKey,
             walletId: wallet.id,
             linkedBankAccountId: linkedBank.id,
             reference,
@@ -156,19 +206,27 @@ export class WithdrawalService {
         return wd;
       });
 
-      try {
-        await this.notificationsService.notifyWithdrawalInitiated(
-          userId,
-          moneyStr(amount),
-          dto.currency,
-          withdrawal.id,
-        );
-      } catch (e) {
-        this.logger.warn(`withdrawal notify initiated failed: ${e}`);
+      if (withdrawal.reference === reference) {
+        try {
+          await this.notificationsService.notifyWithdrawalInitiated(
+            userId,
+            moneyStr(amount),
+            dto.currency,
+            withdrawal.id,
+          );
+        } catch (e) {
+          this.logger.warn(`withdrawal notify initiated failed: ${e}`);
+        }
       }
 
       return this.serializeWithdrawal(withdrawal, bankSnapshot);
     } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const raced = await this.prisma.withdrawal.findFirst({
+          where: { userId, idempotencyKey: normalizedIdempotencyKey },
+        });
+        if (raced) return this.serializeWithdrawal(raced);
+      }
       if (e instanceof BadRequestException) throw e;
       this.logger.error(`createWithdrawal failed userId=${userId}`, e instanceof Error ? e.stack : e);
       throw e;

@@ -31,6 +31,7 @@ model User {
   isFrozen              Boolean               @default(false)
   lastLoginAt           DateTime?
   profilePhotoKey       String?
+  profileImageUrl       String?
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
   investments           Investment[]
@@ -228,6 +229,7 @@ model LinkedBankAccount {
 model Withdrawal {
   id                    String            @id @default(uuid())
   userId                String
+  idempotencyKey        String
   walletId              String
   linkedBankAccountId   String
   reference             String            @unique
@@ -252,6 +254,7 @@ model Withdrawal {
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@unique([userId, idempotencyKey])
 }
 
 /// Explicit P2P transfer record (idempotency, receipts, history).

@@ -37,6 +37,7 @@ export default function HomeDashboardPage() {
   const displayName = me?.firstName || userFromStore?.firstName || 'User';
   const userEmail = me?.email ?? userFromStore?.email ?? '';
   const initials = [me?.firstName?.[0], me?.lastName?.[0]].filter(Boolean).join('').toUpperCase() || (userFromStore?.email?.[0] ?? 'U').toUpperCase();
+  const profileImage = me?.profilePhotoUrl ?? me?.profileImageUrl ?? null;
   const meIsVerified = me?.kycStatus === 'VERIFIED' && !!me?.onboardingCompletedAt;
   const storeIsVerified =
     userFromStore?.kycStatus === 'VERIFIED' && !!userFromStore?.onboardingCompletedAt;
@@ -99,8 +100,19 @@ export default function HomeDashboardPage() {
       {/* Header: avatar, greeting, tagline, notification */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="h-10 w-10 shrink-0 rounded-full bg-amber-100 flex items-center justify-center text-dashboard-heading font-semibold text-sm">
-            {initials}
+          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-amber-100 flex items-center justify-center text-dashboard-heading font-semibold text-sm">
+            {profileImage ? (
+              <Image
+                src={profileImage}
+                alt={displayName}
+                fill
+                sizes="40px"
+                className="h-full w-full object-cover"
+                unoptimized
+              />
+            ) : (
+              initials
+            )}
           </div>
           <div className="min-w-0">
             <h1 className="text-xl font-bold text-dashboard-heading truncate">Hi {displayName} 👋</h1>
@@ -311,7 +323,7 @@ export default function HomeDashboardPage() {
                 href={`/dashboard/portfolio/${inv.id}`}
                 className="flex-shrink-0 w-[280px] snap-start rounded-xl border border-dashboard-border bg-dashboard-card overflow-hidden shadow-sm hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-shadow"
               >
-                <div className="h-36 bg-dashboard-border/50 flex items-center justify-center rounded-t-xl">
+                <div className="relative h-36 bg-dashboard-border/50 flex items-center justify-center rounded-t-xl">
                   {cover ? (
                     <Image
                       src={cover}

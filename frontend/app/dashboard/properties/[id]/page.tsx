@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useMemo } from 'react';
-import Image from 'next/image';
 import { usePropertyDetails } from '@/lib/hooks/use-properties';
 import { useMyInvestments } from '@/lib/hooks/use-investments';
 import { formatMoney } from '@/lib/hooks/use-wallet';
@@ -118,7 +117,12 @@ export default function PropertyDetailPage() {
         <BackIconButton href="/dashboard/properties" />
       </div>
 
-      <ListingHero title={property.title} imageUrl={heroImage} imageCount={galleryImages.length} />
+      <ListingHero
+        title={property.title}
+        images={galleryImages.map((img) => ({ id: img.id, url: img.url, altText: img.altText ?? null }))}
+        imageUrl={heroImage}
+        imageCount={galleryImages.length}
+      />
 
       <div className="space-y-2">
         <h1 className="text-[28px] leading-8 font-semibold text-dashboard-heading">{property.title}</h1>
@@ -341,33 +345,6 @@ export default function PropertyDetailPage() {
             </span>
           ))}
         </div>
-      </SectionCard>
-
-      <SectionCard title={isLand ? 'Land gallery' : 'Property gallery'}>
-        {galleryImages.length > 0 ? (
-          <div className="grid grid-cols-2 gap-2">
-            {galleryImages.map((img) => (
-              <a
-                key={img.id}
-                href={img.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="relative block h-24 overflow-hidden rounded-lg border border-dashboard-border"
-              >
-                <Image
-                  src={img.url}
-                  alt={img.altText ?? property.title}
-                  fill
-                  sizes="200px"
-                  className="h-full w-full object-cover"
-                  unoptimized
-                />
-              </a>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-dashboard-body">No property images uploaded yet.</p>
-        )}
       </SectionCard>
 
       <SectionCard title={isLand ? 'Land documents' : 'Property documents'}>

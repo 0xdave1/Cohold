@@ -35,6 +35,7 @@ export class UsersService {
         kycStatus: true,
         onboardingCompletedAt: true,
         profilePhotoKey: true,
+        profileImageUrl: true,
         createdAt: true,
       },
     });
@@ -43,12 +44,15 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
+    const signedProfileImageUrl = user.profilePhotoKey
+      ? await this.storage.createSignedReadUrl(user.profilePhotoKey, 300).catch(() => null)
+      : null;
+
     return {
       ...user,
       requiresUsernameSetup: user.username == null,
-      profilePhotoUrl: user.profilePhotoKey
-        ? await this.storage.createSignedReadUrl(user.profilePhotoKey, 300).catch(() => null)
-        : null,
+      profilePhotoUrl: signedProfileImageUrl ?? user.profileImageUrl ?? null,
+      profileImageUrl: signedProfileImageUrl ?? user.profileImageUrl ?? null,
     };
   }
 
@@ -57,9 +61,14 @@ export class UsersService {
     if (!key.startsWith(`users/${userId}/profile/`)) {
       throw new BadRequestException('Invalid upload key');
     }
+    const signedUrl = await this.storage.createSignedReadUrl(key, 300).catch(() => null);
+
     await this.prisma.user.update({
       where: { id: userId },
-      data: { profilePhotoKey: key },
+      data: {
+        profilePhotoKey: key,
+        profileImageUrl: signedUrl,
+      },
     });
     return this.getMe(userId);
   }

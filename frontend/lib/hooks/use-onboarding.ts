@@ -23,6 +23,8 @@ export interface UserProfile {
   profilePhotoKey?: string | null;
   /** Short-lived signed URL for display; derived from `profilePhotoKey`. */
   profilePhotoUrl?: string | null;
+  /** Compatibility alias from backend `/users/me`. */
+  profileImageUrl?: string | null;
 }
 
 /** Initials for avatar fallback (first + last letter, or "U"). */

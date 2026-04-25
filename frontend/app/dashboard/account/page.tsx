@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import {
   Lock,
   Wallet,
@@ -42,6 +43,7 @@ export default function AccountPage() {
   const displayName = me?.firstName ?? user?.firstName ?? 'User';
   const initials = getInitials(me?.firstName, me?.lastName, user?.email ?? me?.email ?? '');
   const userEmail = me?.email ?? user?.email ?? '';
+  const profileImage = me?.profilePhotoUrl ?? me?.profileImageUrl ?? null;
 
   const kycTag = kycData?.status === 'PENDING' ? 'Pending' : undefined;
 
@@ -52,8 +54,19 @@ export default function AccountPage() {
 
         {/* Profile block */}
         <div className="flex items-center gap-4 rounded-xl border border-dashboard-border bg-dashboard-card px-4 py-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-cohold-icon-bg text-lg font-semibold text-dashboard-heading">
-            {initials}
+          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-cohold-icon-bg text-lg font-semibold text-dashboard-heading">
+            {profileImage ? (
+              <Image
+                src={profileImage}
+                alt={displayName}
+                fill
+                sizes="56px"
+                className="h-full w-full object-cover"
+                unoptimized
+              />
+            ) : (
+              initials
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <p className="font-medium text-dashboard-heading">{displayName}</p>
