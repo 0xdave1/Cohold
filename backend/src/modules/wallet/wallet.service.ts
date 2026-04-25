@@ -220,7 +220,7 @@ export class WalletService {
       const reference = dto.clientReference ?? `TOPUP-${Date.now()}-${wallet.id}`;
       const amt = fixMoney(amount);
 
-      // Idempotency (Paystack retries): if a transaction already exists for the reference,
+      // Idempotency: if a transaction already exists for the reference,
       // do NOT credit the wallet again.
       if (dto.clientReference) {
         const existingTx = await tx.transaction.findUnique({ where: { reference } });
@@ -276,8 +276,8 @@ export class WalletService {
 
     if (result.didCredit) {
       const meta = (result.transaction.metadata ?? {}) as { reason?: string };
-      // Investment card flow pre-credits the wallet before createFractional; avoid duplicate WALLET_FUNDED.
-      if (meta.reason !== 'paystack_investment_charge_success') {
+      // Investment checkout flow pre-credits the wallet before createFractional; avoid duplicate WALLET_FUNDED.
+      if (meta.reason !== 'investment_checkout_success') {
         try {
           await this.notificationsService.notifyWalletFunded(
             userId,
@@ -304,7 +304,7 @@ export class WalletService {
 
   /**
    * Credit user wallet by reference (idempotent when reference matches existing transaction).
-   * Used by Paystack webhooks and dev tooling.
+   * Used by payment webhooks and dev tooling.
    */
   async credit(
     userId: string,

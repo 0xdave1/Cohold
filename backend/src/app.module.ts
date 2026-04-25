@@ -11,7 +11,6 @@ import { InvestmentModule } from './modules/investment/investment.module';
 import { PropertyModule } from './modules/property/property.module';
 import { KycModule } from './modules/kyc/kyc.module';
 import { VirtualAccountModule } from './modules/virtual-account/virtual-account.module';
-import { PaystackModule } from './modules/paystack/paystack.module';
 import { TransferModule } from './modules/transfer/transfer.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { DistributionModule } from './modules/distribution/distribution.module';
@@ -67,7 +66,6 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
     PropertyModule,
     KycModule,
     VirtualAccountModule,
-    PaystackModule,
     TransferModule,
     AdminModule,
     DistributionModule,

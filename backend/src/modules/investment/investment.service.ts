@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PLATFORM_USER_ID, WalletService } from '../wallet/wallet.service';
-import { PaystackService } from '../paystack/paystack.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateFractionalInvestmentDto } from './dto/create-fractional-investment.dto';
 import { toDecimal, formatMoney, formatHighPrecision } from '../../common/money/decimal.util';
@@ -41,7 +40,6 @@ export class InvestmentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
-    private readonly paystackService: PaystackService,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -992,7 +990,7 @@ export class InvestmentService {
   }
 
   async initializeInvestmentPayment(
-    userId: string,
+    _userId: string,
     propertyId: string,
     shares: string,
     email: string,
@@ -1015,24 +1013,11 @@ export class InvestmentService {
     const sharePrice = fixShare(toDecimal(property.sharePrice.toString()));
     const investmentAmount = fixMoney(sharePrice.mul(sharesDec));
     const investmentFee = fixMoney(investmentAmount.mul(INVESTMENT_FEE_RATE));
-    const totalCharge = fixMoney(investmentAmount.plus(investmentFee));
-/*
-    return this.paystackService.createPaymentIntent(totalCharge, email, property.currency, {
-      type: 'investment',
-      propertyId,
-      shares,
-      userId,
-    });
-  }*/
-  return this.paystackService.createPaymentIntent(
-    new Decimal(totalCharge), // Wrap if it's currently a number
-    email, 
-    property.currency, 
-    {
-      propertyId: property.id,
-      shares,
-      userId,
-    });
+    void fixMoney(investmentAmount.plus(investmentFee));
+    void email;
+    throw new BadRequestException(
+      'Investment checkout is temporarily unavailable while payment provider migration completes.',
+    );
   }
 
   async getInvestmentsByUser(userId: string, page = 1, limit = 20) {

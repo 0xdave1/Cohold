@@ -10,8 +10,7 @@ import * as cookieParser from 'cookie-parser';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
-import { json, raw, urlencoded } from 'express';
-import type { NextFunction, Request, Response } from 'express';
+import { json, urlencoded } from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -29,29 +28,13 @@ async function bootstrap() {
   app.setGlobalPrefix(apiPrefix);
 
   const basePath = `/${apiPrefix}`;
-  const paystackWebhookPaths = [
-    `${basePath}/webhooks/paystack`,
-    `${basePath}/webhook/paystack`,
-    `${basePath}/paystack/webhook`,
-  ];
+  void basePath;
 
   // Security & Parsing
   app.use(cookieParser());
   app.use(helmet());
 
-  // Paystack signs the exact raw JSON bytes — capture Buffer before express.json() parses.
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.method === 'POST' && paystackWebhookPaths.includes(req.path)) {
-      return raw({ type: 'application/json', limit: '10mb' })(req, res, next);
-    }
-    return next();
-  });
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.method === 'POST' && paystackWebhookPaths.includes(req.path)) {
-      return next();
-    }
-    return json({ limit: '10mb' })(req, res, next);
-  });
+  app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ extended: true, limit: '10mb' }));
 
   app.use(CorrelationIdMiddleware.generate);

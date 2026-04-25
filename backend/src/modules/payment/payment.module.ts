@@ -1,17 +1,16 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { PaymentService } from './payment.service';
-import { PaystackController } from './paystack.controller';
 import { PaymentsController } from './payments.controller';
 import { WalletModule } from '../wallet/wallet.module';
 import { InvestmentModule } from '../investment/investment.module';
-import { PaystackModule } from '../paystack/paystack.module';
 import { AuthModule } from '../auth/auth.module';
+import { FlutterwaveService } from './flutterwave.service';
 
 @Module({
-  imports: [WalletModule, PaystackModule, forwardRef(() => InvestmentModule), AuthModule],
-  controllers: [PaystackController, PaymentsController],
-  providers: [PaymentService],
-  exports: [PaymentService],
+  imports: [WalletModule, forwardRef(() => InvestmentModule), AuthModule],
+  controllers: [PaymentsController],
+  providers: [PaymentService, FlutterwaveService],
+  exports: [PaymentService, FlutterwaveService],
 })
 export class PaymentModule {}
 

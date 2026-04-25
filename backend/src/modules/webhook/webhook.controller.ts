@@ -1,51 +1,40 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Headers,
   HttpCode,
   HttpStatus,
   Post,
-  Req,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { PaymentService } from '../payment/payment.service';
-import { PaystackService } from '../paystack/paystack.service';
 
-@Controller('webhooks')
+@Controller('flutterwave')
 export class WebhookController {
   constructor(
     private readonly paymentService: PaymentService,
-    private readonly paystackService: PaystackService,
+    private readonly configService: ConfigService,
   ) {}
 
-  @Post('paystack')
+  @Post('webhook')
   @HttpCode(HttpStatus.OK)
-  async handlePaystackWebhook(
-    @Headers('x-paystack-signature') signature: string,
-    @Req() req: Request,
+  async handleFlutterwaveWebhook(
+    @Headers('verif-hash') signature: string,
+    @Body() payload: Record<string, unknown>,
   ): Promise<{ received: boolean }> {
-    if (!signature) {
-      throw new UnauthorizedException('No signature provided');
-    }
+    const webhookSecret =
+      this.configService.get<string>('config.flutterwave.webhookSecret') ??
+      this.configService.get<string>('FLW_WEBHOOK_SECRET');
 
-    const rawBody = req.body;
-    if (!Buffer.isBuffer(rawBody) || !rawBody.length) {
-      throw new BadRequestException('Expected raw JSON body');
-    }
-
-    if (!this.paystackService.verifyWebhookSignature(signature, rawBody)) {
+    if (!signature || !webhookSecret || signature !== webhookSecret) {
       throw new UnauthorizedException('Invalid webhook signature');
     }
-
-    let payload: Record<string, unknown>;
-    try {
-      payload = JSON.parse(rawBody.toString('utf8')) as Record<string, unknown>;
-    } catch {
-      throw new BadRequestException('Invalid JSON body');
+    if (!payload || typeof payload !== 'object') {
+      throw new BadRequestException('Invalid webhook payload');
     }
 
-    await this.paymentService.handlePaystackEvent(payload);
-    return { received: true };
+    return this.paymentService.handleFlutterwaveWebhook(payload);
   }
 }

@@ -26,10 +26,7 @@ export default function WalletsPage() {
       )}
       <div className="flex gap-3 flex-wrap">
         <Link href="/dashboard/wallet" className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium">
-          Fund wallet
-        </Link>
-        <Link href="/dashboard/wallets/top-up" className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium">
-          Bank transfer
+          Fund Wallet with Flutterwave
         </Link>
         <Link href="/dashboard/wallets/swap" className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium">
           Swap

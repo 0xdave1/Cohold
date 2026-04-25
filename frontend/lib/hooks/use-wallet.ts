@@ -76,19 +76,37 @@ export function useWalletTopUp() {
 }
 
 export interface InitializePaymentResponse {
-  authorizationUrl: string;
+  checkoutUrl: string;
   reference: string;
 }
 
-/** Paystack card checkout to fund wallet */
 export function useInitializeWalletPayment() {
   return useMutation({
     mutationFn: async (body: { amount: string; currency: 'NGN' }) => {
-      const res = await apiClient.post<InitializePaymentResponse>('/payments/initialize', body);
-      if (!res.success || !res.data?.authorizationUrl) {
+      const res = await apiClient.post<InitializePaymentResponse>(
+        '/payments/flutterwave/initialize',
+        body,
+      );
+      if (!res.success || !res.data?.checkoutUrl) {
         throw new Error(res.error ?? 'Failed to initialize payment');
       }
       return res.data;
+    },
+  });
+}
+
+export function useVerifyWalletPayment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (reference: string) => {
+      const res = await apiClient.get(`/payments/verify/${encodeURIComponent(reference)}`);
+      if (!res.success) {
+        throw new Error(res.error ?? 'Failed to verify payment');
+      }
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['wallets'] });
     },
   });
 }

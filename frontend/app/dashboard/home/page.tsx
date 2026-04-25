@@ -6,12 +6,9 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { DashboardHeaderActions } from '@/components/dashboard/DashboardHeaderActions';
 import { AccountsModal } from '@/components/wallet/AccountsModal';
-import { AccountDetailsModal } from '@/components/wallet/AccountDetailsModal';
-import { TopUpModal } from '@/components/wallet/TopUpModal';
 import { WithdrawWalletModal } from '@/components/wallet/WithdrawWalletModal';
 import {
   useWalletBalances,
-  useVirtualAccounts,
   formatMoney,
 } from '@/lib/hooks/use-wallet';
 import { useMyInvestments } from '@/lib/hooks/use-investments';
@@ -30,7 +27,6 @@ export default function HomeDashboardPage() {
   const userFromStore = useAuthStore((s) => s.user);
   const { data: me } = useMe();
   const { data: balances = [], isLoading: balancesLoading } = useWalletBalances();
-  const { data: virtualAccounts = [] } = useVirtualAccounts();
   const { data: investmentsData } = useMyInvestments();
   const { data: propertiesData } = useProperties(1, 10);
 
@@ -46,18 +42,12 @@ export default function HomeDashboardPage() {
   const [selectedCurrency, setSelectedCurrency] = useState<'NGN'>('NGN');
   const [balanceVisible, setBalanceVisible] = useState(true);
   const [showAccountsModal, setShowAccountsModal] = useState(false);
-  const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
-  const [showAccountDetails, setShowAccountDetails] = useState(false);
   const [showUnverifiedModal, setShowUnverifiedModal] = useState<string | null>(null);
 
   const selectedWallet = balances.find((w) => w.currency === selectedCurrency);
   const rawBalance = selectedWallet ? formatMoney(selectedWallet.balance, selectedCurrency) : '₦0.00';
   const displayBalance = balanceVisible ? rawBalance : '•••••';
-  const ngnVirtualAccount = virtualAccounts.find((va) => va.currency === 'NGN');
-  const cardPreview = ngnVirtualAccount
-    ? `•••• ${ngnVirtualAccount.accountNumber.slice(-4)}`
-    : '•••• ----';
 
   const handleWalletAction = (action: 'top-up' | 'swap' | 'withdraw' | 'p2p' | 'account') => {
     if (!isVerified) {
@@ -74,11 +64,11 @@ export default function HomeDashboardPage() {
       );
       return;
     }
-    if (action === 'top-up') setShowTopUpModal(true);
+    if (action === 'top-up') router.push('/dashboard/wallet');
     else if (action === 'swap') router.push('/dashboard/wallets/swap');
     else if (action === 'withdraw') setShowWithdrawModal(true);
     else if (action === 'p2p') router.push('/dashboard/wallets/p2p');
-    else setShowAccountDetails(true);
+    else router.push('/dashboard/wallet');
   };
 
   const myInvestments = useMemo(
@@ -167,27 +157,6 @@ export default function HomeDashboardPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
               </svg>
             )}
-          </button>
-        </div>
-
-        <div className="mt-3 flex justify-center">
-          <button
-            type="button"
-            onClick={() => handleWalletAction('account')}
-            className="inline-flex items-center gap-3 rounded-full border border-dashboard-border bg-white px-4 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:bg-dashboard-border/20 transition-colors"
-          >
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-dashboard-bg">
-              <svg className="h-4 w-4 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-              </svg>
-            </span>
-            <span className="flex flex-col text-left">
-              <span className="text-sm font-medium text-dashboard-heading leading-5">Account details</span>
-              <span className="text-[11px] font-normal text-dashboard-body leading-4">{cardPreview}</span>
-            </span>
-            <svg className="h-5 w-5 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
           </button>
         </div>
 
@@ -417,13 +386,6 @@ export default function HomeDashboardPage() {
           onClose={() => setShowAccountsModal(false)}
         />
       )}
-      {showTopUpModal && (
-        <TopUpModal
-          virtualAccount={ngnVirtualAccount}
-          fallbackAccountName={displayName}
-          onClose={() => setShowTopUpModal(false)}
-        />
-      )}
       {showWithdrawModal && (
         <WithdrawWalletModal
           open={showWithdrawModal}
@@ -435,17 +397,6 @@ export default function HomeDashboardPage() {
             router.push(`/dashboard/wallets/withdraw/${id}`);
           }}
         />
-      )}
-      {showAccountDetails && (
-        isVerified ? (
-          <AccountDetailsModal
-            virtualAccount={ngnVirtualAccount}
-            fallbackAccountName={displayName}
-            onClose={() => setShowAccountDetails(false)}
-          />
-        ) : (
-          <UnverifiedAccountModal onClose={() => setShowAccountDetails(false)} />
-        )
       )}
       {showUnverifiedModal && (
         <UnverifiedActionModal action={showUnverifiedModal} onClose={() => setShowUnverifiedModal(null)} />
@@ -465,40 +416,6 @@ function WithdrawIcon({ className }: { className?: string }) {
 }
 function P2PIcon({ className }: { className?: string }) {
   return <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>;
-}
-
-function UnverifiedAccountModal({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-end z-50 sm:items-center sm:p-4">
-      <div className="bg-dashboard-card rounded-t-2xl sm:rounded-2xl w-full max-w-md mx-auto p-6 shadow-xl">
-        <div className="flex items-center justify-end mb-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-lg hover:bg-dashboard-border/50"
-            aria-label="Close"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        <EmptyState
-          variant="modal"
-          title="Account details"
-          message="Your account has not been verified. Complete KYC to see account details."
-          icon={
-            <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c1.657 0 3-1.343 3-3S13.657 5 12 5 9 6.343 9 8s1.343 3 3 3z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 21a7.5 7.5 0 00-15 0" />
-            </svg>
-          }
-          cta={{ label: 'Verify my account', href: '/dashboard/kyc' }}
-          className="mt-2"
-        />
-      </div>
-    </div>
-  );
 }
 
 function UnverifiedActionModal({ action, onClose }: { action: string; onClose: () => void }) {

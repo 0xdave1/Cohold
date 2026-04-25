@@ -20,13 +20,13 @@ export default registerAs('config', () => ({
     accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
   },
-  paystack: {
-    secretKey: process.env.PAYSTACK_SECRET_KEY,
-    webhookSecret: process.env.PAYSTACK_WEBHOOK_SECRET,
-    baseUrl: process.env.PAYSTACK_BASE_URL ?? 'https://api.paystack.co',
+  flutterwave: {
+    secretKey: process.env.FLW_SECRET_KEY,
+    publicKey: process.env.FLW_PUBLIC_KEY,
+    webhookSecret: process.env.FLW_WEBHOOK_SECRET,
+    baseUrl: process.env.FLW_BASE_URL ?? 'https://api.flutterwave.com/v3',
   },
-  /** Public app URL for Paystack redirect after card payment (e.g. http://localhost:3001) */
-  frontendUrl: process.env.FRONTEND_URL ?? 'http://cohold.vercel.app',
+  appBaseUrl: process.env.APP_BASE_URL ?? 'http://localhost:3000',
   s3: {
     accessKeyId: process.env.S3_ACCESS_KEY_ID,
     secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,

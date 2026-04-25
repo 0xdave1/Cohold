@@ -5,24 +5,36 @@ import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { FundWalletCard } from '@/components/wallet/FundWalletCard';
-import { useVirtualAccounts, useWalletBalances, formatMoney, useDevWalletCredit } from '@/lib/hooks/use-wallet';
+import { useWalletBalances, formatMoney, useDevWalletCredit, useVerifyWalletPayment } from '@/lib/hooks/use-wallet';
 
 function WalletPageInner() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const { data: balances, isLoading: balLoading, refetch: refetchBalances } = useWalletBalances();
-  const { data: accounts, isLoading: vaLoading } = useVirtualAccounts();
+  const verifyPayment = useVerifyWalletPayment();
   const devCredit = useDevWalletCredit();
 
   useEffect(() => {
     if (searchParams.get('status') === 'success') {
+      const refFromQuery = searchParams.get('tx_ref') ?? searchParams.get('reference');
+      const refFromSession =
+        typeof window !== 'undefined' ? window.sessionStorage.getItem('walletFundingReference') : null;
+      const reference = refFromQuery ?? refFromSession;
+      if (reference && !verifyPayment.isPending) {
+        verifyPayment.mutate(reference, {
+          onSettled: () => {
+            if (typeof window !== 'undefined') {
+              window.sessionStorage.removeItem('walletFundingReference');
+            }
+          },
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ['wallets'] });
       refetchBalances();
     }
-  }, [searchParams, queryClient, refetchBalances]);
+  }, [searchParams, queryClient, refetchBalances, verifyPayment]);
 
   const ngn = balances?.find((w) => w.currency === 'NGN');
-  const va = accounts?.find((a) => a.currency === 'NGN') ?? accounts?.[0];
 
   const isDev = process.env.NODE_ENV !== 'production';
 
@@ -53,30 +65,6 @@ function WalletPageInner() {
       </div>
 
       <FundWalletCard />
-
-      <div className="rounded-2xl border border-dashboard-border bg-dashboard-card p-4">
-        <h2 className="text-sm font-semibold text-dashboard-heading mb-3">Bank transfer</h2>
-        {vaLoading ? (
-          <div className="h-20 animate-pulse rounded-xl bg-dashboard-border/30" />
-        ) : va ? (
-          <dl className="space-y-2 text-sm">
-            <div className="flex justify-between gap-4">
-              <dt className="text-dashboard-body">Account number</dt>
-              <dd className="font-mono text-dashboard-heading">{va.accountNumber}</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-dashboard-body">Bank name</dt>
-              <dd className="text-dashboard-heading">{va.bankName}</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-dashboard-body">Account name</dt>
-              <dd className="text-dashboard-heading">{va.accountName}</dd>
-            </div>
-          </dl>
-        ) : (
-          <p className="text-sm text-dashboard-body">Account will appear after KYC approval</p>
-        )}
-      </div>
 
       {isDev && (
         <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 p-4">
