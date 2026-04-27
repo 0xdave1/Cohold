@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
@@ -20,6 +20,11 @@ export default function InvestSummaryPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const id = params.id as string;
+  // Stable idempotency reference — generated once when this page mounts.
+  // Reused on any retry so the backend de-dupes accidental double charges.
+  const clientReferenceRef = useRef<string>(
+    `INV-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  );
   const { data: property } = usePropertyDetails(id);
   const createInvestment = useCreateInvestment();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -45,7 +50,7 @@ export default function InvestSummaryPage() {
       await createInvestment.mutateAsync({
         propertyId: id,
         shares,
-        clientReference: `INV-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        clientReference: clientReferenceRef.current,
       });
       await invalidateInvestmentRelatedQueries(queryClient);
       router.push(
