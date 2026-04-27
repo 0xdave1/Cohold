@@ -5,6 +5,12 @@ import * as bcrypt from 'bcrypt';
 import { ConfigService } from '@nestjs/config';
 import { AdminLoginDto } from './dto/admin-login.dto';
 
+type AdminJwtPayload = {
+  sub: string;
+  role: string;
+  tokenType: 'access' | 'refresh';
+};
+
 @Injectable()
 export class AdminAuthService {
   constructor(
@@ -12,6 +18,44 @@ export class AdminAuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {}
+
+  private getJwtConfig() {
+    const accessSecret = this.configService.get<string>('config.jwt.accessSecret');
+    const refreshSecret = this.configService.get<string>('config.jwt.refreshSecret');
+    const accessExpiresIn = this.configService.get<string>('config.jwt.accessExpiresIn') ?? '15m';
+    const refreshExpiresIn = this.configService.get<string>('config.jwt.refreshExpiresIn') ?? '7d';
+    const issuer = this.configService.get<string>('config.jwt.issuer') ?? 'cohold-api';
+    const audience = this.configService.get<string>('config.jwt.audience') ?? 'cohold-client';
+
+    if (!accessSecret || !refreshSecret) {
+      throw new UnauthorizedException('JWT not configured');
+    }
+    return { accessSecret, refreshSecret, accessExpiresIn, refreshExpiresIn, issuer, audience };
+  }
+
+  private async issueAdminTokens(adminId: string, role: string) {
+    const { accessSecret, refreshSecret, accessExpiresIn, refreshExpiresIn, issuer, audience } =
+      this.getJwtConfig();
+    const accessPayload: AdminJwtPayload = { sub: adminId, role, tokenType: 'access' };
+    const refreshPayload: AdminJwtPayload = { sub: adminId, role, tokenType: 'refresh' };
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(accessPayload, {
+        secret: accessSecret,
+        expiresIn: accessExpiresIn,
+        algorithm: 'HS256',
+        issuer,
+        audience,
+      }),
+      this.jwtService.signAsync(refreshPayload, {
+        secret: refreshSecret,
+        expiresIn: refreshExpiresIn,
+        algorithm: 'HS256',
+        issuer,
+        audience,
+      }),
+    ]);
+    return { accessToken, refreshToken };
+  }
 
   async login(dto: AdminLoginDto) {
     const invalidCredentialsError = new UnauthorizedException('Invalid credentials');
@@ -44,25 +88,52 @@ export class AdminAuthService {
       data: { lastLoginAt: new Date() },
     });
 
-    const payload = { sub: admin.id, role: admin.role as string };
-    const accessSecret = this.configService.get<string>('config.jwt.accessSecret');
-    const refreshSecret = this.configService.get<string>('config.jwt.refreshSecret');
-    const accessExpiresIn = this.configService.get<string>('config.jwt.accessExpiresIn') ?? '15m';
-    const refreshExpiresIn = this.configService.get<string>('config.jwt.refreshExpiresIn') ?? '7d';
+    return this.issueAdminTokens(admin.id, admin.role);
+  }
 
-    if (!accessSecret || !refreshSecret) {
-      throw new UnauthorizedException('JWT not configured');
+  async refresh(refreshToken: string) {
+    const { refreshSecret, issuer, audience } = this.getJwtConfig();
+    let payload: AdminJwtPayload;
+    try {
+      payload = await this.jwtService.verifyAsync<AdminJwtPayload>(refreshToken, {
+        secret: refreshSecret,
+        algorithms: ['HS256'],
+        issuer,
+        audience,
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const accessToken = await this.jwtService.signAsync(payload, {
-      secret: accessSecret,
-      expiresIn: accessExpiresIn,
-    });
-    const refreshToken = await this.jwtService.signAsync(payload, {
-      secret: refreshSecret,
-      expiresIn: refreshExpiresIn,
-    });
+    if (payload.tokenType !== 'refresh') {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
 
-    return { accessToken, refreshToken };
+    const admin = await this.prisma.admin.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, role: true, accountStatus: true },
+    });
+    if (!admin || admin.accountStatus !== 'ACTIVE') {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    return this.issueAdminTokens(admin.id, admin.role);
+  }
+
+  async getSessionProfile(adminId: string) {
+    const admin = await this.prisma.admin.findUnique({
+      where: { id: adminId },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        accountStatus: true,
+      },
+    });
+    if (!admin || admin.accountStatus !== 'ACTIVE') {
+      throw new UnauthorizedException('Session is not active');
+    }
+    return admin;
   }
 }

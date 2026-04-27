@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Logger, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
@@ -14,7 +14,12 @@ import { randomBytes } from 'crypto';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
   constructor(private readonly authService: AuthService) {}
+
+  private debugEnabled(): boolean {
+    return process.env.AUTH_DEBUG === '1';
+  }
 
   /**
    * Production (Vercel → Render): SameSite=None + Secure so browsers attach cookies on XHR.
@@ -44,7 +49,7 @@ export class AuthController {
     if (tokens.refreshToken) {
       res.cookie('cohold_refresh_token', tokens.refreshToken, {
         ...httpOnlyBase,
-        path: '/api/v1/auth',
+        path: '/',
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
     }
@@ -66,7 +71,7 @@ export class AuthController {
       httpOnly: true,
       secure,
       sameSite,
-      path: '/api/v1/auth',
+      path: '/',
     });
     res.clearCookie('cohold_csrf_token', {
       httpOnly: false,
@@ -78,12 +83,18 @@ export class AuthController {
 
   @Post('login')
   async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    if (this.debugEnabled()) {
+      this.logger.debug(`login attempt email=${dto.email} ip=${req.ip ?? 'n/a'}`);
+    }
     const session = await this.authService.login(dto, {
       userAgent: req.headers['user-agent'] ?? null,
       ipAddress: req.ip ?? null,
       deviceLabel: null,
     });
     const csrfToken = this.setAuthCookies(res, session);
+    if (this.debugEnabled()) {
+      this.logger.debug(`login success email=${dto.email} cookies_set=access,refresh,csrf`);
+    }
     return { requiresUsernameSetup: session.requiresUsernameSetup, csrfToken };
   }
 
@@ -120,6 +131,9 @@ export class AuthController {
 
   @Post('refresh')
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    if (this.debugEnabled()) {
+      this.logger.debug(`refresh request hasCookie=${Boolean(req.cookies?.cohold_refresh_token)}`);
+    }
     const refreshToken = req.cookies?.cohold_refresh_token;
     if (!refreshToken) {
       this.clearAuthCookies(res);
@@ -131,7 +145,20 @@ export class AuthController {
       deviceLabel: null,
     });
     const csrfToken = this.setAuthCookies(res, session);
+    if (this.debugEnabled()) {
+      this.logger.debug('refresh success cookies_rotated=access,refresh,csrf');
+    }
     return { requiresUsernameSetup: session.requiresUsernameSetup, csrfToken };
+  }
+
+  @Get('session')
+  @UseGuards(JwtAuthGuard)
+  async session(@CurrentUser() user: { id: string }, @Req() req: Request) {
+    const profile = await this.authService.getSessionProfile(user.id);
+    return {
+      user: profile,
+      csrfToken: req.cookies?.cohold_csrf_token ?? null,
+    };
   }
 
   @Post('reset-password')

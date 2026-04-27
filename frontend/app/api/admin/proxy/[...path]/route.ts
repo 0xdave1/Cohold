@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const ADMIN_COOKIE_NAME = 'cohold_admin_access_token';
+const ACCESS_COOKIE = 'cohold_access_token';
+const REFRESH_COOKIE = 'cohold_refresh_token';
+const CSRF_COOKIE = 'cohold_csrf_token';
 
 export async function GET(
   request: NextRequest,
@@ -35,8 +37,10 @@ async function proxy(
   context: { params: Promise<{ path: string[] }> },
   method: string,
 ) {
-  const token = request.cookies.get(ADMIN_COOKIE_NAME)?.value;
-  if (!token) {
+  const accessToken = request.cookies.get(ACCESS_COOKIE)?.value;
+  const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
+  const csrfToken = request.cookies.get(CSRF_COOKIE)?.value;
+  if (!accessToken && !refreshToken) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -45,11 +49,20 @@ async function proxy(
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
   const url = `${apiUrl}/${pathStr}${request.nextUrl.search}`;
 
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-  };
+  const headers: Record<string, string> = {};
+  const forwardCookies = [
+    accessToken ? `${ACCESS_COOKIE}=${encodeURIComponent(accessToken)}` : null,
+    refreshToken ? `${REFRESH_COOKIE}=${encodeURIComponent(refreshToken)}` : null,
+    csrfToken ? `${CSRF_COOKIE}=${encodeURIComponent(csrfToken)}` : null,
+  ].filter(Boolean);
+  if (forwardCookies.length > 0) {
+    headers['Cookie'] = forwardCookies.join('; ');
+  }
   const contentType = request.headers.get('content-type');
   if (contentType) headers['Content-Type'] = contentType;
+  if (method !== 'GET' && csrfToken) {
+    headers['X-CSRF-Token'] = csrfToken;
+  }
 
   let body: string | undefined;
   if (method !== 'GET') {
@@ -60,11 +73,20 @@ async function proxy(
     }
   }
 
-  const backendRes = await fetch(url, {
-    method,
-    headers,
-    body: body || undefined,
-  });
+  const callBackend = async (targetUrl: string, targetMethod: string, targetBody?: string) =>
+    fetch(targetUrl, {
+      method: targetMethod,
+      headers,
+      body: targetBody || undefined,
+    });
+
+  let backendRes = await callBackend(url, method, body);
+  if (backendRes.status === 401 && refreshToken) {
+    const refreshRes = await callBackend(`${apiUrl}/admin-auth/refresh`, 'POST');
+    if (refreshRes.ok) {
+      backendRes = await callBackend(url, method, body);
+    }
+  }
 
   const data = await backendRes.json().catch(() => ({}));
   // Preserve backend payload but normalize message for frontend consumers.

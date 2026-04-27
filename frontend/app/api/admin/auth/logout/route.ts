@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 
-const ADMIN_COOKIE_NAME = 'cohold_admin_access_token';
-
 export async function POST() {
-  const res = NextResponse.json({ success: true });
-  res.cookies.set(ADMIN_COOKIE_NAME, '', { httpOnly: true, path: '/', maxAge: 0 });
-  return res;
+  return NextResponse.json({
+    success: false,
+    error: 'Deprecated admin auth proxy route. Use backend /admin-auth/logout with cookie auth.',
+  }, { status: 410 });
 }

@@ -488,6 +488,29 @@ export class AuthService {
     };
   }
 
+  async getSessionProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        firstName: true,
+        lastName: true,
+        kycStatus: true,
+        onboardingCompletedAt: true,
+        emailVerifiedAt: true,
+      },
+    });
+    if (!user) {
+      throw new UnauthorizedException('Session is not active');
+    }
+    return {
+      ...user,
+      requiresUsernameSetup: user.username == null,
+    };
+  }
+
   async resetPassword(dto: ResetPasswordDto) {
     try {
       await this.verifyOtp({ email: dto.email, otp: dto.otp } as VerifyOtpDto, 'reset');

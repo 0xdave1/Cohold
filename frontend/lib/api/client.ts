@@ -35,6 +35,16 @@ function isRefreshRequest(config: InternalAxiosRequestConfig | undefined): boole
   return url.includes('/auth/refresh');
 }
 
+function isAdminRefreshRequest(config: InternalAxiosRequestConfig | undefined): boolean {
+  const url = config?.url ?? '';
+  return url.includes('/admin-auth/refresh');
+}
+
+function isAdminRequest(config: InternalAxiosRequestConfig | undefined): boolean {
+  const url = config?.url ?? '';
+  return url.includes('/admin/') || url.includes('/admin-auth/');
+}
+
 function isAuthMutation401Allowed(config: InternalAxiosRequestConfig | undefined): boolean {
   const url = config?.url ?? '';
   return (
@@ -82,6 +92,7 @@ api.interceptors.request.use((config) => {
 });
 
 let refreshPromise: Promise<void> | null = null;
+let adminRefreshPromise: Promise<void> | null = null;
 
 function ensureRefreshed(): Promise<void> {
   if (!refreshPromise) {
@@ -104,6 +115,23 @@ async function refreshAccessToken(): Promise<void> {
   }
 }
 
+function ensureAdminRefreshed(): Promise<void> {
+  if (!adminRefreshPromise) {
+    adminRefreshPromise = refreshAdminAccessToken().finally(() => {
+      adminRefreshPromise = null;
+    });
+  }
+  return adminRefreshPromise;
+}
+
+async function refreshAdminAccessToken(): Promise<void> {
+  const res = await api.post<ApiResponse<{ csrfToken?: string }>>('/admin-auth/refresh', {});
+  captureCsrfFromResponseBody(res.data);
+  if (!res.data.success) {
+    throw new Error(res.data.error ?? 'Admin refresh failed');
+  }
+}
+
 api.interceptors.response.use(
   (response) => {
     captureCsrfFromResponseBody(response.data);
@@ -116,7 +144,7 @@ api.interceptors.response.use(
 
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    if (isRefreshRequest(originalRequest)) {
+    if (isRefreshRequest(originalRequest) || isAdminRefreshRequest(originalRequest)) {
       clearClientCsrfToken();
       useAuthStore.getState().clearSession();
       return Promise.reject(error);
@@ -135,9 +163,16 @@ api.interceptors.response.use(
     originalRequest._retry = true;
 
     try {
+      if (isAdminRequest(originalRequest)) {
+        await ensureAdminRefreshed();
+        return api(originalRequest);
+      }
       await ensureRefreshed();
       return api(originalRequest);
     } catch {
+      if (isAdminRequest(originalRequest)) {
+        return Promise.reject(error);
+      }
       clearClientCsrfToken();
       useAuthStore.getState().clearSession();
       return Promise.reject(error);

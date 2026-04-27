@@ -2,6 +2,7 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -18,6 +19,7 @@ export interface JwtPayload {
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
+  private readonly logger = new Logger(JwtAuthGuard.name);
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
@@ -33,6 +35,9 @@ export class JwtAuthGuard implements CanActivate {
 
     const token = request.cookies?.cohold_access_token as string | undefined;
     if (!token) {
+      if (process.env.AUTH_DEBUG === '1') {
+        this.logger.debug(`missing access cookie path=${String(request.originalUrl ?? request.url ?? '')}`);
+      }
       throw new UnauthorizedException('Missing access token cookie');
     }
     const secret = this.configService.get<string>('config.jwt.accessSecret');

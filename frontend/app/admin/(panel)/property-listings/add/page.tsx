@@ -9,6 +9,7 @@ import {
   adminUploadPropertyImage,
   type PropertyDocType,
 } from '@/lib/uploads/admin-presigned-upload';
+import { adminApi } from '@/lib/admin/api';
 import { clientUploadHint } from '@/lib/uploads/upload-validation-client';
 import {
   ArrowLeft,
@@ -148,24 +149,8 @@ export default function AddListingPage() {
           : undefined,
       };
 
-      const res = await fetch('/api/admin/proxy/admin/properties', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(
-          typeof data?.message === 'string'
-            ? data.message
-            : typeof data?.error === 'string'
-              ? data.error
-              : 'Failed to create property',
-        );
-      }
-
-      const propertyId: string | undefined = data?.data?.id ?? data?.id;
+      const data = await adminApi.createProperty(body);
+      const propertyId: string | undefined = data?.id;
       if (!propertyId) {
         throw new Error('Property was created but no id was returned.');
       }
