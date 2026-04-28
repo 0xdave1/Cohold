@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationType, Prisma } from '@prisma/client';
+import { EmailService } from '../email/email.service';
 
 export interface CreateNotificationPayload {
   userId: string;
@@ -49,7 +50,27 @@ export interface PaginatedNotificationsResponse {
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emailService: EmailService,
+  ) {}
+
+  private async trySendEmail(
+    userId: string,
+    send: (email: string) => Promise<void>,
+    context: string,
+  ): Promise<void> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true },
+      });
+      if (!user?.email) return;
+      await send(user.email);
+    } catch (err) {
+      this.logger.warn(`Failed email side-effect context=${context} user=${userId}: ${err}`);
+    }
+  }
 
   /**
    * List notifications for a user with pagination and optional unread filter.
@@ -258,7 +279,7 @@ export class NotificationsService {
     currency: string,
     investmentId: string,
   ): Promise<NotificationResponse> {
-    return this.createNotification({
+    const notification = await this.createNotification({
       userId,
       type: NotificationType.INVESTMENT_SUCCESS,
       title: 'Investment Successful',
@@ -266,6 +287,16 @@ export class NotificationsService {
       link: `/dashboard/investments/${investmentId}`,
       metadata: { investmentId, propertyTitle, amount, currency },
     });
+    await this.trySendEmail(
+      userId,
+      (email) =>
+        this.emailService.sendTransactionEmail(email, 'investment_success', amount, currency, {
+          reference: investmentId,
+          propertyTitle,
+        }),
+      'investment_success',
+    );
+    return notification;
   }
 
   /**
@@ -278,7 +309,7 @@ export class NotificationsService {
     currency: string,
     investmentId: string,
   ): Promise<NotificationResponse> {
-    return this.createNotification({
+    const notification = await this.createNotification({
       userId,
       type: NotificationType.INVESTMENT_SOLD,
       title: 'Investment Sold',
@@ -286,6 +317,16 @@ export class NotificationsService {
       link: `/dashboard/investments/${investmentId}`,
       metadata: { investmentId, propertyTitle, amount, currency },
     });
+    await this.trySendEmail(
+      userId,
+      (email) =>
+        this.emailService.sendTransactionEmail(email, 'investment_sale', amount, currency, {
+          reference: investmentId,
+          propertyTitle,
+        }),
+      'investment_sale',
+    );
+    return notification;
   }
 
   /**
@@ -297,7 +338,7 @@ export class NotificationsService {
     currency: string,
     transactionId?: string,
   ): Promise<NotificationResponse> {
-    return this.createNotification({
+    const notification = await this.createNotification({
       userId,
       type: NotificationType.WALLET_FUNDED,
       title: 'Wallet Funded',
@@ -305,6 +346,15 @@ export class NotificationsService {
       link: '/dashboard/wallet',
       metadata: { amount, currency, transactionId },
     });
+    await this.trySendEmail(
+      userId,
+      (email) =>
+        this.emailService.sendTransactionEmail(email, 'deposit', amount, currency, {
+          reference: transactionId,
+        }),
+      'wallet_funded',
+    );
+    return notification;
   }
 
   /**
@@ -316,7 +366,7 @@ export class NotificationsService {
     currency: string,
     transactionId?: string,
   ): Promise<NotificationResponse> {
-    return this.createNotification({
+    const notification = await this.createNotification({
       userId,
       type: NotificationType.WITHDRAWAL_INITIATED,
       title: 'Withdrawal Initiated',
@@ -324,6 +374,15 @@ export class NotificationsService {
       link: '/dashboard/wallet',
       metadata: { amount, currency, transactionId },
     });
+    await this.trySendEmail(
+      userId,
+      (email) =>
+        this.emailService.sendTransactionEmail(email, 'withdrawal_request', amount, currency, {
+          reference: transactionId,
+        }),
+      'withdrawal_initiated',
+    );
+    return notification;
   }
 
   /**
@@ -335,7 +394,7 @@ export class NotificationsService {
     currency: string,
     transactionId?: string,
   ): Promise<NotificationResponse> {
-    return this.createNotification({
+    const notification = await this.createNotification({
       userId,
       type: NotificationType.WITHDRAWAL_COMPLETED,
       title: 'Withdrawal Completed',
@@ -343,6 +402,15 @@ export class NotificationsService {
       link: '/dashboard/wallet',
       metadata: { amount, currency, transactionId },
     });
+    await this.trySendEmail(
+      userId,
+      (email) =>
+        this.emailService.sendTransactionEmail(email, 'withdrawal_success', amount, currency, {
+          reference: transactionId,
+        }),
+      'withdrawal_completed',
+    );
+    return notification;
   }
 
   /**
@@ -355,7 +423,7 @@ export class NotificationsService {
     reason?: string,
     transactionId?: string,
   ): Promise<NotificationResponse> {
-    return this.createNotification({
+    const notification = await this.createNotification({
       userId,
       type: NotificationType.WITHDRAWAL_FAILED,
       title: 'Withdrawal Failed',
@@ -365,26 +433,42 @@ export class NotificationsService {
       link: '/dashboard/wallet',
       metadata: { amount, currency, transactionId, reason },
     });
+    await this.trySendEmail(
+      userId,
+      (email) =>
+        this.emailService.sendTransactionEmail(email, 'withdrawal_failure', amount, currency, {
+          reference: transactionId,
+          reason: reason ?? null,
+        }),
+      'withdrawal_failed',
+    );
+    return notification;
   }
 
   /**
    * Notify user of KYC approval.
    */
   async notifyKycApproved(userId: string): Promise<NotificationResponse> {
-    return this.createNotification({
+    const notification = await this.createNotification({
       userId,
       type: NotificationType.KYC_APPROVED,
       title: 'KYC Approved',
       message: 'Your identity verification has been approved. You can now access all features.',
       link: '/dashboard/account',
     });
+    await this.trySendEmail(
+      userId,
+      (email) => this.emailService.sendKycStatusEmail(email, 'approved'),
+      'kyc_approved',
+    );
+    return notification;
   }
 
   /**
    * Notify user of KYC rejection.
    */
   async notifyKycRejected(userId: string, reason?: string): Promise<NotificationResponse> {
-    return this.createNotification({
+    const notification = await this.createNotification({
       userId,
       type: NotificationType.KYC_REJECTED,
       title: 'KYC Verification Failed',
@@ -394,6 +478,12 @@ export class NotificationsService {
       link: '/dashboard/account/kyc',
       metadata: { reason },
     });
+    await this.trySendEmail(
+      userId,
+      (email) => this.emailService.sendKycStatusEmail(email, 'rejected', reason),
+      'kyc_rejected',
+    );
+    return notification;
   }
 
   /**
@@ -419,7 +509,7 @@ export class NotificationsService {
     currency: string,
     period: string,
   ): Promise<NotificationResponse> {
-    return this.createNotification({
+    const notification = await this.createNotification({
       userId,
       type: NotificationType.ROI_CREDITED,
       title: 'Returns Credited',
@@ -427,6 +517,16 @@ export class NotificationsService {
       link: '/dashboard/investments',
       metadata: { propertyTitle, amount, currency, period },
     });
+    await this.trySendEmail(
+      userId,
+      (email) =>
+        this.emailService.sendTransactionEmail(email, 'roi_payout', amount, currency, {
+          reference: period,
+          propertyTitle,
+        }),
+      'roi_credited',
+    );
+    return notification;
   }
 
   /**
@@ -473,13 +573,19 @@ export class NotificationsService {
    */
   async notifyWelcome(userId: string, firstName?: string): Promise<NotificationResponse> {
     const name = firstName ? `, ${firstName}` : '';
-    return this.createNotification({
+    const notification = await this.createNotification({
       userId,
       type: NotificationType.WELCOME,
       title: 'Welcome to Cohold!',
       message: `Welcome${name}! Complete your profile and start investing in premium real estate.`,
       link: '/dashboard',
     });
+    await this.trySendEmail(
+      userId,
+      (email) => this.emailService.sendWelcomeEmail(email, firstName),
+      'welcome',
+    );
+    return notification;
   }
 
   /**
@@ -492,7 +598,7 @@ export class NotificationsService {
     senderUsername: string,
     transferId: string,
   ): Promise<NotificationResponse> {
-    return this.createNotification({
+    const notification = await this.createNotification({
       userId,
       type: NotificationType.SYSTEM_MESSAGE,
       title: 'Money Received',
@@ -506,6 +612,49 @@ export class NotificationsService {
         event: 'P2P_INCOMING',
       },
     });
+    await this.trySendEmail(
+      userId,
+      (email) =>
+        this.emailService.sendTransactionEmail(email, 'transfer_incoming', amount, currency, {
+          reference: transferId,
+          senderUsername,
+        }),
+      'p2p_incoming',
+    );
+    return notification;
+  }
+
+  async notifyOutgoingP2PSent(
+    userId: string,
+    amount: string,
+    currency: string,
+    recipientUsername: string,
+    transferId: string,
+  ): Promise<NotificationResponse> {
+    const notification = await this.createNotification({
+      userId,
+      type: NotificationType.SYSTEM_MESSAGE,
+      title: 'Transfer Sent',
+      message: `You sent ${currency} ${amount} to @${recipientUsername}.`,
+      link: `/dashboard/wallets/p2p/success?id=${transferId}`,
+      metadata: {
+        transferId,
+        amount,
+        currency,
+        recipientUsername,
+        event: 'P2P_OUTGOING',
+      },
+    });
+    await this.trySendEmail(
+      userId,
+      (email) =>
+        this.emailService.sendTransactionEmail(email, 'transfer_outgoing', amount, currency, {
+          reference: transferId,
+          recipientUsername,
+        }),
+      'p2p_outgoing',
+    );
+    return notification;
   }
 
   /**
@@ -519,7 +668,7 @@ export class NotificationsService {
     referenceId?: string,
     link = '/dashboard/wallet',
   ): Promise<NotificationResponse> {
-    return this.createNotification({
+    const notification = await this.createNotification({
       userId,
       type: NotificationType.SYSTEM_MESSAGE,
       title: 'Wallet Credited',
@@ -533,6 +682,16 @@ export class NotificationsService {
         event: 'WALLET_CREDIT',
       },
     });
+    await this.trySendEmail(
+      userId,
+      (email) =>
+        this.emailService.sendTransactionEmail(email, 'deposit', amount, currency, {
+          reference: referenceId,
+          reason,
+        }),
+      'wallet_credited',
+    );
+    return notification;
   }
 
   /**

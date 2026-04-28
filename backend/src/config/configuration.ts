@@ -42,7 +42,7 @@ export default registerAs('config', () => ({
     endpoint: process.env.S3_ENDPOINT,
   },
   email: {
-    apiKey: process.env.EMAIL_API_KEY,
+    apiKey: process.env.RESEND_API_KEY,
     from: process.env.EMAIL_FROM,
   },
   fx: {

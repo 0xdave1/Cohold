@@ -259,6 +259,19 @@ export class TransferService {
           `Failed incoming P2P notification transferId=${created.id} recipient=${recipient.id}: ${notifyErr}`,
         );
       }
+      try {
+        await this.notificationsService.notifyOutgoingP2PSent(
+          senderId,
+          formatMoney(amount),
+          this.transferCurrency,
+          recipient.username,
+          created.id,
+        );
+      } catch (notifyErr) {
+        this.logger.warn(
+          `Failed outgoing P2P notification transferId=${created.id} sender=${senderId}: ${notifyErr}`,
+        );
+      }
 
       return this.formatTransferReceipt(created);
     } catch (err) {

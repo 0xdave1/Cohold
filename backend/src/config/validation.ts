@@ -45,7 +45,7 @@ export const validationSchema = Joi.object({
   S3_ENDPOINT: Joi.string().uri().required(),
   
 
-  EMAIL_API_KEY: Joi.string().required(),
+  RESEND_API_KEY: Joi.string().required(),
   EMAIL_FROM: Joi.string().email().required(),
 
   ELASTICSEARCH_NODE: Joi.string().uri().optional(),

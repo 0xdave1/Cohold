@@ -7,6 +7,7 @@ import { toDecimal } from '../../common/money/decimal.util';
 import Decimal from 'decimal.js';
 import { FlutterwaveService } from './flutterwave.service';
 import { WalletService, PLATFORM_USER_ID } from '../wallet/wallet.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class PaymentService {
@@ -16,6 +17,7 @@ export class PaymentService {
     private readonly prisma: PrismaService,
     private readonly flutterwaveService: FlutterwaveService,
     private readonly walletService: WalletService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async initializeFlutterwavePayment(data: { amount: number; userId: string; email: string }) {
@@ -46,7 +48,7 @@ export class PaymentService {
     const verified = await this.flutterwaveService.verifyPayment(reference);
     const expectedAmount = toDecimal(verified.amount.toString());
 
-    const tx = await this.prisma.$transaction((trx) =>
+    const funding = await this.prisma.$transaction((trx) =>
       this.processWalletFunding(trx, {
         userId,
         amount: expectedAmount,
@@ -54,13 +56,25 @@ export class PaymentService {
         providerTransactionId: verified.txId,
       }),
     );
+    if (funding.didCredit) {
+      try {
+        await this.notificationsService.notifyWalletFunded(
+          userId,
+          expectedAmount.toString(),
+          Currency.NGN,
+          reference,
+        );
+      } catch (err) {
+        this.logger.warn(`wallet funding notification failed user=${userId} ref=${reference}: ${err}`);
+      }
+    }
     return {
-      id: tx[0]?.id,
+      id: funding.legs[0]?.id,
       reference,
       status: TransactionStatus.COMPLETED,
       amount: expectedAmount.toString(),
-      createdAt: tx[0]?.createdAt,
-      updatedAt: tx[tx.length - 1]?.updatedAt,
+      createdAt: funding.legs[0]?.createdAt,
+      updatedAt: funding.legs[funding.legs.length - 1]?.updatedAt,
     };
   }
 
@@ -72,13 +86,14 @@ export class PaymentService {
       reference: string;
       providerTransactionId?: string | null;
     },
-  ) {
+  ): Promise<{ legs: Array<{ id: string; createdAt: Date; updatedAt: Date }>; didCredit: boolean }> {
     const existing = await tx.transaction.findMany({
       where: { reference: data.reference, type: TransactionType.WALLET_TOP_UP },
       orderBy: { createdAt: 'asc' },
+      select: { id: true, createdAt: true, updatedAt: true },
     });
     if (existing.length >= 2) {
-      return existing;
+      return { legs: existing, didCredit: false };
     }
 
     let userWallet = await tx.wallet.findUnique({
@@ -102,7 +117,7 @@ export class PaymentService {
       throw new NotFoundException('Wallet not found');
     }
     const platformWallet = await this.walletService.getPlatformWallet(tx as Prisma.TransactionClient, Currency.NGN);
-    return this.walletService.postDoubleEntry(tx as Prisma.TransactionClient, data.reference, [
+    const legs = await this.walletService.postDoubleEntry(tx as Prisma.TransactionClient, data.reference, [
       {
         walletId: platformWallet.id,
         userId: PLATFORM_USER_ID,
@@ -134,6 +149,10 @@ export class PaymentService {
         } as Prisma.InputJsonValue,
       },
     ]);
+    return {
+      legs: legs.map((x) => ({ id: x.id, createdAt: x.createdAt, updatedAt: x.updatedAt })),
+      didCredit: true,
+    };
   }
 
   async handleFlutterwaveWebhook(payload: Record<string, unknown>) {
@@ -154,7 +173,7 @@ export class PaymentService {
     const verified = await this.flutterwaveService.verifyPayment(reference);
     const expectedAmount = toDecimal(verified.amount.toString());
 
-    await this.prisma.$transaction((trx) =>
+    const funding = await this.prisma.$transaction((trx) =>
       this.processWalletFunding(trx, {
         userId: effectiveUserId,
         amount: expectedAmount,
@@ -162,6 +181,18 @@ export class PaymentService {
         providerTransactionId: verified.txId,
       }),
     );
+    if (funding.didCredit) {
+      try {
+        await this.notificationsService.notifyWalletFunded(
+          effectiveUserId,
+          expectedAmount.toString(),
+          Currency.NGN,
+          reference,
+        );
+      } catch (err) {
+        this.logger.warn(`webhook wallet notification failed user=${effectiveUserId} ref=${reference}: ${err}`);
+      }
+    }
     return { received: true };
   }
 }

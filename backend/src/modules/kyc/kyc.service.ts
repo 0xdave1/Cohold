@@ -63,6 +63,12 @@ export class KycService {
       },
     });
 
+    try {
+      await this.emailService.sendKycStatusEmail(user.email, 'submitted');
+    } catch (err) {
+      this.logger.warn(`Failed KYC submitted email user=${userId}: ${err}`);
+    }
+
     return { status: KycStatus.PENDING };
   }
 
@@ -95,6 +101,12 @@ export class KycService {
         governmentIdNumber: dto.nin,
       },
     });
+
+    try {
+      await this.emailService.sendKycStatusEmail(user.email, 'submitted');
+    } catch (err) {
+      this.logger.warn(`Failed KYC submitted email user=${userId}: ${err}`);
+    }
 
     return { status: KycStatus.PENDING };
   }
@@ -248,9 +260,6 @@ export class KycService {
       this.logger.warn(`Failed to create virtual account for user ${userId}:`, err);
     }
 
-    // Send approval email
-    await this.emailService.sendKycStatusEmail(user.email, 'approved');
-
     // Send KYC approved notification
     try {
       await this.notificationsService.notifyKycApproved(userId);
@@ -310,7 +319,6 @@ export class KycService {
     } catch (err) {
       this.logger.warn(`Failed to send KYC rejected notification: ${err}`);
     }
-
     return updated;
   }
 }

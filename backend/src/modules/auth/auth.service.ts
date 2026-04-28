@@ -319,7 +319,6 @@ export class AuthService {
       where: { id: user.id },
       data: { emailVerifiedAt: new Date() },
     });
-    await this.emailService.sendWelcomeEmail(user.email);
     try {
       await this.notificationsService.notifyWelcome(user.id, user.firstName ?? undefined);
     } catch (err) {
@@ -538,6 +537,11 @@ export class AuthService {
       userId: user.id,
       metadata: { reason: 'password-reset' },
     });
+    try {
+      await this.emailService.sendPasswordResetSuccessEmail(user.email);
+    } catch (err) {
+      this.logger.warn(`Failed to send password reset success email user=${user.id}: ${err}`);
+    }
 
     return { message: 'Password reset successful' };
   }
