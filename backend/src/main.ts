@@ -18,8 +18,11 @@ function normalizeOrigin(origin: string): string {
 
 function buildCorsOriginValidator(configService: ConfigService): (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => void {
   const defaults = [
+    'http://localhost:3000',
+    'http://localhost:3001',
     'https://cohold.co',
     'https://www.cohold.co',
+    'https://cohold.vercel.app',
     'https://cohold.onrender.com',
   ];
   const fromConfig = String(configService.get<string>('config.app.corsOrigin') ?? '')

@@ -15,12 +15,13 @@ function VerifyOtpContent() {
   const router = useRouter();
   const email = searchParams.get('email') ?? '';
   const purpose = (searchParams.get('purpose') as 'signup' | 'login' | 'transaction') ?? 'signup';
+  const reason = searchParams.get('reason') ?? '';
 
   const [otp, setOtp] = useState<string[]>(['', '', '', '', '', '']);
   const [error, setError] = useState<string | null>(null);
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
-  const { completeSignup, verifyOtp } = useAuth();
+  const { completeSignup, verifyOtp, resendOtp } = useAuth();
 
   useEffect(() => {
     if (purpose === 'login' && email) {
@@ -29,7 +30,7 @@ function VerifyOtpContent() {
   }, [purpose, email, router]);
 
   const otpString = otp.join('');
-  const isPending = completeSignup.isPending || verifyOtp.isPending;
+  const isPending = completeSignup.isPending || verifyOtp.isPending || resendOtp.isPending;
 
   const handleChange = useCallback(
     (index: number, value: string) => {
@@ -124,6 +125,22 @@ function VerifyOtpContent() {
     }
   };
 
+  const handleResendOtp = async () => {
+    if (!email) {
+      setError('Missing email. Please go back and try again.');
+      return;
+    }
+    setError(null);
+    try {
+      const res = await resendOtp.mutateAsync({ email, purpose });
+      if (!res.success) {
+        throw new Error(res.error ?? 'Failed to resend OTP');
+      }
+    } catch (e: unknown) {
+      setError(getApiErrorMessage(e, 'Unable to resend OTP right now. Please try again.'));
+    }
+  };
+
   if (purpose === 'login' && email) {
     return (
       <main className={auth.card}>
@@ -142,6 +159,11 @@ function VerifyOtpContent() {
         <p className={`mt-2 ${auth.body}`}>
           A 6-digit OTP has been sent to your email. Enter OTP to verify your account and continue
         </p>
+        {reason === 'pending' && (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            Account pending verification. Enter your OTP to continue, or request a new code.
+          </div>
+        )}
       </div>
 
       <div className="mt-8 space-y-6">
@@ -179,8 +201,17 @@ function VerifyOtpContent() {
 
       <p className={`mt-6 ${auth.footerText}`}>
         Didn&apos;t receive the code?{' '}
-        <Link href="/login" className={auth.link}>
-          Back to login
+        <button
+          type="button"
+          onClick={handleResendOtp}
+          disabled={resendOtp.isPending}
+          className={auth.link}
+        >
+          {resendOtp.isPending ? 'Resending...' : 'Resend OTP'}
+        </button>{' '}
+        |{' '}
+        <Link href="/signup" className={auth.link}>
+          Change email
         </Link>
       </p>
     </main>

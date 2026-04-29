@@ -47,6 +47,12 @@ export class AuthService {
     private readonly attempts: AuthAttemptsService,
   ) {}
 
+  getCookieDomain(): string | undefined {
+    const raw = this.configService.get<string>('config.app.cookieDomain') ?? '';
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
   private getJwtConfig() {
     const accessSecret = this.configService.get<string>('config.jwt.accessSecret');
     const refreshSecret = this.configService.get<string>('config.jwt.refreshSecret');
@@ -290,6 +296,7 @@ export class AuthService {
         code: 'SIGNUP_PENDING_VERIFICATION',
         message:
           'An account with this email is pending verification. Use the code we sent or request a new one.',
+        email: dto.email,
       });
     }
 

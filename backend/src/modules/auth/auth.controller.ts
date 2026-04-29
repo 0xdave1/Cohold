@@ -25,12 +25,13 @@ export class AuthController {
    * Production (Vercel → Render): SameSite=None + Secure so browsers attach cookies on XHR.
    * Local dev: Lax + non-secure for http://localhost.
    */
-  private getTrustedCookieFlags(): { secure: boolean; sameSite: 'none' | 'lax' } {
+  private getTrustedCookieFlags(): { secure: boolean; sameSite: 'none' | 'lax'; domain?: string } {
     const isProd = process.env.NODE_ENV === 'production';
+    const domain = this.authService.getCookieDomain();
     if (isProd) {
-      return { secure: true, sameSite: 'none' };
+      return { secure: true, sameSite: 'none', domain };
     }
-    return { secure: false, sameSite: 'lax' };
+    return { secure: false, sameSite: 'lax', domain };
   }
 
   /** Sets session cookies; returns CSRF plaintext for JSON body (cross-origin clients cannot read API cookies from JS). */
@@ -38,8 +39,8 @@ export class AuthController {
     res: Response,
     tokens: { accessToken: string; refreshToken?: string | null },
   ): string {
-    const { secure, sameSite } = this.getTrustedCookieFlags();
-    const httpOnlyBase = { httpOnly: true as const, secure, sameSite };
+    const { secure, sameSite, domain } = this.getTrustedCookieFlags();
+    const httpOnlyBase = { httpOnly: true as const, secure, sameSite, domain };
 
     res.cookie('cohold_access_token', tokens.accessToken, {
       ...httpOnlyBase,
@@ -58,6 +59,7 @@ export class AuthController {
       httpOnly: false,
       secure,
       sameSite,
+      domain,
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
@@ -65,18 +67,20 @@ export class AuthController {
   }
 
   private clearAuthCookies(res: Response) {
-    const { secure, sameSite } = this.getTrustedCookieFlags();
-    res.clearCookie('cohold_access_token', { httpOnly: true, secure, sameSite, path: '/' });
+    const { secure, sameSite, domain } = this.getTrustedCookieFlags();
+    res.clearCookie('cohold_access_token', { httpOnly: true, secure, sameSite, domain, path: '/' });
     res.clearCookie('cohold_refresh_token', {
       httpOnly: true,
       secure,
       sameSite,
+      domain,
       path: '/',
     });
     res.clearCookie('cohold_csrf_token', {
       httpOnly: false,
       secure,
       sameSite,
+      domain,
       path: '/',
     });
   }
@@ -84,7 +88,9 @@ export class AuthController {
   @Post('login')
   async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     if (this.debugEnabled()) {
-      this.logger.debug(`login attempt email=${dto.email} ip=${req.ip ?? 'n/a'}`);
+      this.logger.debug(
+        `login attempt email=${dto.email} ip=${req.ip ?? 'n/a'} origin=${String(req.headers.origin ?? 'n/a')} ua=${String(req.headers['user-agent'] ?? 'n/a')}`,
+      );
     }
     const session = await this.authService.login(dto, {
       userAgent: req.headers['user-agent'] ?? null,
@@ -101,6 +107,12 @@ export class AuthController {
   @Post('signup')
   async signup(@Body() dto: SignupDto) {
     return this.authService.signup(dto);
+  }
+
+  @Post('resend-otp')
+  async resendOtp(@Body() dto: OtpRequestDto) {
+    await this.authService.requestOtp(dto.email, dto.purpose ?? 'signup');
+    return { message: 'OTP resent to your email' };
   }
 
   @Post('verify-otp')
@@ -132,7 +144,9 @@ export class AuthController {
   @Post('refresh')
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     if (this.debugEnabled()) {
-      this.logger.debug(`refresh request hasCookie=${Boolean(req.cookies?.cohold_refresh_token)}`);
+      this.logger.debug(
+        `refresh request origin=${String(req.headers.origin ?? 'n/a')} hasRefreshCookie=${Boolean(req.cookies?.cohold_refresh_token)} cookieHeaderPresent=${Boolean(req.headers.cookie)}`,
+      );
     }
     const refreshToken = req.cookies?.cohold_refresh_token;
     if (!refreshToken) {

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { getApiErrorCode, getApiErrorMessage } from "@/lib/api/errors";
+import axios from "axios";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CoholdLogo } from "@/components/auth/CoholdLogo";
@@ -41,8 +42,12 @@ export default function SignupPage() {
       router.push(`/auth/verify-otp?email=${encodeURIComponent(values.email)}&purpose=signup`);
     } catch (e: unknown) {
       if (getApiErrorCode(e) === "SIGNUP_PENDING_VERIFICATION") {
+        const pendingEmail =
+          axios.isAxiosError(e) && e.response?.data?.error?.email
+            ? String(e.response.data.error.email)
+            : values.email;
         router.push(
-          `/auth/verify-otp?email=${encodeURIComponent(values.email)}&purpose=signup`,
+          `/auth/verify-otp?email=${encodeURIComponent(pendingEmail)}&purpose=signup&reason=pending`,
         );
         return;
       }

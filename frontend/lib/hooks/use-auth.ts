@@ -82,6 +82,12 @@ export function useAuth() {
     },
   });
 
+  const resendOtpMutation = useMutation({
+    mutationFn: async (data: { email: string; purpose?: 'signup' | 'login' | 'transaction' | 'delete_account' }) => {
+      return apiClient.post<{ message?: string }>('/auth/resend-otp', data);
+    },
+  });
+
   const verifyOtpMutation = useMutation({
     mutationFn: async (data: {
       email: string;
@@ -208,6 +214,7 @@ export function useAuth() {
   return {
     signup: signupMutation,
     requestOtp: requestOtpMutation,
+    resendOtp: resendOtpMutation,
     verifyOtp: verifyOtpMutation,
     completeSignup: completeSignupMutation,
     login: loginMutation,

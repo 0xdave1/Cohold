@@ -6,7 +6,7 @@ import { Providers } from '@/lib/providers';
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
   process.env.NEXT_PUBLIC_APP_URL ||
-  'https://cohold.vercel.app';
+  'https://cohold.co';
 
 export const viewport: Viewport = {
   themeColor: '#00406C',

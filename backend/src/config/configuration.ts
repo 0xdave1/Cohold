@@ -6,6 +6,7 @@ export default registerAs('config', () => ({
     port: parseInt(process.env.PORT ?? '3000', 10),
     apiPrefix: process.env.API_PREFIX ?? '/api/v1',
     corsOrigin: process.env.CORS_ORIGIN ?? process.env.FRONTEND_URL ?? '',
+    cookieDomain: process.env.AUTH_COOKIE_DOMAIN ?? undefined,
   },
   elasticsearch: {
     node: process.env.ELASTICSEARCH_NODE,
