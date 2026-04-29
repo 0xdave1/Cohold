@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { clearClientCsrfToken } from '@/lib/api/csrf-memory';
 
 export type AuthRole = 'user' | 'admin';
 
@@ -19,9 +18,15 @@ interface AuthState {
   isAuthenticated: boolean;
   role: AuthRole | null;
   user: AuthUser | null;
+  /** User JWT — memory only, never localStorage or cookies */
+  accessToken: string | null;
+  /** Admin JWT — memory only */
+  adminAccessToken: string | null;
   hasHydrated: boolean;
   authChecked: boolean;
   setAuthChecked: (value: boolean) => void;
+  setAccessToken: (token: string | null) => void;
+  setAdminAccessToken: (token: string | null) => void;
   setSession: (payload: {
     role: AuthRole;
     user: AuthUser | null;
@@ -34,10 +39,16 @@ export const useAuthStore = create<AuthState>()((set) => ({
   isAuthenticated: false,
   role: null,
   user: null,
+  accessToken: null,
+  adminAccessToken: null,
   hasHydrated: true,
   authChecked: false,
 
   setAuthChecked: (value) => set({ authChecked: value }),
+
+  setAccessToken: (token) => set({ accessToken: token }),
+
+  setAdminAccessToken: (token) => set({ adminAccessToken: token }),
 
   setSession: ({ role, user }) => {
     set({ isAuthenticated: true, role, user });
@@ -46,11 +57,12 @@ export const useAuthStore = create<AuthState>()((set) => ({
   setUser: (user) => set({ user }),
 
   clearSession: () => {
-    clearClientCsrfToken();
     set({
       role: null,
       user: null,
       isAuthenticated: false,
+      accessToken: null,
+      adminAccessToken: null,
       authChecked: true,
     });
   },

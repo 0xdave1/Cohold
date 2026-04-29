@@ -286,18 +286,23 @@ export class AuthService {
     await this.attempts.reset('txn-otp-verify', userId);
   }
 
-  async signup(dto: SignupDto): Promise<{ message: string; email: string }> {
+  async signup(
+    dto: SignupDto,
+  ): Promise<
+    | { pendingVerification: true; email: string; message: string }
+    | { pendingVerification: false; message: string; email: string }
+  > {
     const existingUser = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existingUser) {
       if (existingUser.emailVerifiedAt) {
         throw new BadRequestException('User with this email already exists');
       }
-      throw new BadRequestException({
-        code: 'SIGNUP_PENDING_VERIFICATION',
+      return {
+        pendingVerification: true,
+        email: dto.email,
         message:
           'An account with this email is pending verification. Use the code we sent or request a new one.',
-        email: dto.email,
-      });
+      };
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
@@ -312,6 +317,7 @@ export class AuthService {
     });
     await this.requestOtp(dto.email, 'signup');
     return {
+      pendingVerification: false,
       message: 'Account created. Please check your email for verification code.',
       email: dto.email,
     };

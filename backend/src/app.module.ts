@@ -29,8 +29,8 @@ import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { CsrfGuard } from './common/guards/csrf.guard';
 // Auth guards are applied at controller level to avoid mixing user/admin tokens globally.
+// CSRF APP_GUARD removed temporarily — auth uses in-memory access JWT + HttpOnly refresh cookie; re-enable after transport is stable.
 
 @Module({
   imports: [
@@ -76,10 +76,6 @@ import { CsrfGuard } from './common/guards/csrf.guard';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: CsrfGuard,
     },
   ],
 })

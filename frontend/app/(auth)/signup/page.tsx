@@ -5,8 +5,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { getApiErrorCode, getApiErrorMessage } from "@/lib/api/errors";
-import axios from "axios";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CoholdLogo } from "@/components/auth/CoholdLogo";
@@ -39,18 +38,15 @@ export default function SignupPage() {
         setError(signupRes.error ?? "Unable to create account. Please try again.");
         return;
       }
-      router.push(`/auth/verify-otp?email=${encodeURIComponent(values.email)}&purpose=signup`);
-    } catch (e: unknown) {
-      if (getApiErrorCode(e) === "SIGNUP_PENDING_VERIFICATION") {
-        const pendingEmail =
-          axios.isAxiosError(e) && e.response?.data?.error?.email
-            ? String(e.response.data.error.email)
-            : values.email;
+      const payload = signupRes.data;
+      if (payload.pendingVerification) {
         router.push(
-          `/auth/verify-otp?email=${encodeURIComponent(pendingEmail)}&purpose=signup&reason=pending`,
+          `/auth/verify-otp?email=${encodeURIComponent(payload.email)}&purpose=signup&reason=pending`,
         );
         return;
       }
+      router.push(`/auth/verify-otp?email=${encodeURIComponent(values.email)}&purpose=signup`);
+    } catch (e: unknown) {
       setError(
         getApiErrorMessage(
           e,

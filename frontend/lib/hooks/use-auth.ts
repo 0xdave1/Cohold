@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/lib/api/client';
+import { apiClient, postWithCredentialsOnly } from '@/lib/api/client';
+import type { ApiResponse } from '@/lib/api/client';
 import { getApiErrorMessage } from '@/lib/api/errors';
 import { useAuthStore } from '@/stores/auth.store';
 import { useRouter } from 'next/navigation';
@@ -57,12 +58,8 @@ async function finalizeUserSession(params: {
 }
 
 /**
- * Auth mutations and helpers (HttpOnly cookies + CSRF; no tokens in JS).
- *
- * - Signup → OTP → complete-signup → cookies set → GET /users/me → store user → onboarding
- * - Login → cookies set → GET /users/me → store user → dashboard
- * - Logout → POST /auth/logout → clear in-memory user + React Query → login
- * - 401 on API calls: client POST /auth/refresh (with cookies + CSRF), then retries; session clears if refresh fails
+ * Auth: refresh token in HttpOnly cookie; access JWT in Zustand memory only.
+ * 401 → POST /auth/refresh (credentials only) → Bearer on subsequent requests.
  */
 export function useAuth() {
   const router = useRouter();
@@ -72,7 +69,11 @@ export function useAuth() {
 
   const signupMutation = useMutation({
     mutationFn: async (data: { email: string; password: string; referralCode?: string }) => {
-      return apiClient.post<{ message: string; email: string }>('/auth/signup', data);
+      return apiClient.post<{
+        pendingVerification: boolean;
+        message: string;
+        email: string;
+      }>('/auth/signup', data);
     },
   });
 
@@ -101,6 +102,7 @@ export function useAuth() {
   const completeSignupMutation = useMutation({
     mutationFn: async (data: { email: string; otp: string }) => {
       const res = await apiClient.post<{
+        accessToken?: string;
         requiresUsernameSetup?: boolean;
       }>('/auth/complete-signup', data);
 
@@ -123,6 +125,7 @@ export function useAuth() {
   const loginMutation = useMutation({
     mutationFn: async (data: { email: string; password: string }) => {
       const res = await apiClient.post<{
+        accessToken?: string;
         requiresUsernameSetup?: boolean;
       }>('/auth/login', data);
 
@@ -144,7 +147,11 @@ export function useAuth() {
 
   const refreshMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiClient.post<{ requiresUsernameSetup?: boolean }>('/auth/refresh', {});
+      const axiosRes = await postWithCredentialsOnly<ApiResponse<{ requiresUsernameSetup?: boolean }>>(
+        '/auth/refresh',
+        {},
+      );
+      const res = axiosRes.data;
 
       if (!res.success) {
         throw new Error(res.error ?? 'Refresh failed');

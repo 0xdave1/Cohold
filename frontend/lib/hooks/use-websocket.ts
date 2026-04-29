@@ -13,8 +13,7 @@ function socketOriginFromApiUrl(): string {
 }
 
 /**
- * WebSocket hook for real-time updates.
- * Auth uses HttpOnly cookies on the handshake (`withCredentials: true`); no tokens in JS.
+ * WebSocket hook: access JWT from memory is passed in `auth.token` (not stored in cookies).
  */
 export function useWebSocket(namespace: '/ws/user' | '/ws/admin' | '/ws/support', callbacks: {
   onKycStatus?: (data: { status: string }) => void;
@@ -27,13 +26,23 @@ export function useWebSocket(namespace: '/ws/user' | '/ws/admin' | '/ws/support'
 }) {
   const socketRef = useRef<Socket | null>(null);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const adminAccessToken = useAuthStore((s) => s.adminAccessToken);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    const token =
+      namespace === '/ws/support'
+        ? accessToken || adminAccessToken || null
+        : namespace === '/ws/admin'
+          ? adminAccessToken
+          : accessToken;
+    if (!token) return;
+    if (namespace === '/ws/user' && (!isAuthenticated || !accessToken)) return;
 
     const origin = socketOriginFromApiUrl();
     const socket = io(`${origin}${namespace}`, {
       withCredentials: true,
+      auth: { token },
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,
@@ -79,7 +88,7 @@ export function useWebSocket(namespace: '/ws/user' | '/ws/admin' | '/ws/support'
     return () => {
       socket.disconnect();
     };
-  }, [isAuthenticated, namespace, callbacks]);
+  }, [isAuthenticated, accessToken, adminAccessToken, namespace, callbacks]);
 
   return socketRef.current;
 }

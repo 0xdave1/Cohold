@@ -29,16 +29,15 @@ export class JwtAuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers.authorization as string | undefined;
-    if (authHeader?.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Bearer authorization is not supported');
-    }
-
-    const token = request.cookies?.cohold_access_token as string | undefined;
-    if (!token) {
+    if (!authHeader?.startsWith('Bearer ')) {
       if (process.env.AUTH_DEBUG === '1') {
-        this.logger.debug(`missing access cookie path=${String(request.originalUrl ?? request.url ?? '')}`);
+        this.logger.debug(`missing bearer token path=${String(request.originalUrl ?? request.url ?? '')}`);
       }
-      throw new UnauthorizedException('Missing access token cookie');
+      throw new UnauthorizedException('Missing or invalid authorization header');
+    }
+    const token = authHeader.slice('Bearer '.length).trim();
+    if (!token) {
+      throw new UnauthorizedException('Missing or invalid authorization header');
     }
     const secret = this.configService.get<string>('config.jwt.accessSecret');
     const issuer = this.configService.get<string>('config.jwt.issuer') ?? 'cohold-api';

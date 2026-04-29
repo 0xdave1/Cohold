@@ -15,6 +15,7 @@ export class CsrfGuard implements CanActivate {
     '/api/v1/auth/signup',
     '/api/v1/auth/complete-signup',
     '/api/v1/auth/request-otp',
+    '/api/v1/auth/resend-otp',
     '/api/v1/auth/verify-otp',
     '/api/v1/auth/reset-password',
     '/api/v1/admin-auth/login',

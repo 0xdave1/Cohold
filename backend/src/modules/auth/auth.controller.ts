@@ -9,7 +9,6 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Response, Request } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { randomBytes } from 'crypto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -22,67 +21,42 @@ export class AuthController {
   }
 
   /**
-   * Production (Vercel → Render): SameSite=None + Secure so browsers attach cookies on XHR.
-   * Local dev: Lax + non-secure for http://localhost.
+   * Cross-site refresh cookie: SameSite=None + Secure. Local: Lax + non-secure.
+   * Refresh token only — no access token in cookies; no manual domain unless env set.
    */
-  private getTrustedCookieFlags(): { secure: boolean; sameSite: 'none' | 'lax'; domain?: string } {
+  private getRefreshCookieOptions(): {
+    secure: boolean;
+    sameSite: 'none' | 'lax';
+    domain?: string;
+  } {
     const isProd = process.env.NODE_ENV === 'production';
     const domain = this.authService.getCookieDomain();
     if (isProd) {
-      return { secure: true, sameSite: 'none', domain };
+      return { secure: true, sameSite: 'none', ...(domain ? { domain } : {}) };
     }
-    return { secure: false, sameSite: 'lax', domain };
+    return { secure: false, sameSite: 'lax', ...(domain ? { domain } : {}) };
   }
 
-  /** Sets session cookies; returns CSRF plaintext for JSON body (cross-origin clients cannot read API cookies from JS). */
-  private setAuthCookies(
-    res: Response,
-    tokens: { accessToken: string; refreshToken?: string | null },
-  ): string {
-    const { secure, sameSite, domain } = this.getTrustedCookieFlags();
-    const httpOnlyBase = { httpOnly: true as const, secure, sameSite, domain };
-
-    res.cookie('cohold_access_token', tokens.accessToken, {
-      ...httpOnlyBase,
-      path: '/',
-      maxAge: 15 * 60 * 1000,
-    });
-    if (tokens.refreshToken) {
-      res.cookie('cohold_refresh_token', tokens.refreshToken, {
-        ...httpOnlyBase,
-        path: '/',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-    }
-    const csrf = randomBytes(32).toString('hex');
-    res.cookie('cohold_csrf_token', csrf, {
-      httpOnly: false,
-      secure,
-      sameSite,
-      domain,
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-    return csrf;
-  }
-
-  private clearAuthCookies(res: Response) {
-    const { secure, sameSite, domain } = this.getTrustedCookieFlags();
-    res.clearCookie('cohold_access_token', { httpOnly: true, secure, sameSite, domain, path: '/' });
-    res.clearCookie('cohold_refresh_token', {
+  /** HttpOnly refresh cookie only (host-only unless AUTH_COOKIE_DOMAIN is set). */
+  private setRefreshCookie(res: Response, refreshToken: string): void {
+    const { secure, sameSite, domain } = this.getRefreshCookieOptions();
+    res.cookie('cohold_refresh_token', refreshToken, {
       httpOnly: true,
       secure,
       sameSite,
-      domain,
       path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      ...(domain ? { domain } : {}),
     });
-    res.clearCookie('cohold_csrf_token', {
-      httpOnly: false,
-      secure,
-      sameSite,
-      domain,
-      path: '/',
-    });
+  }
+
+  /** Clear refresh + legacy access/CSRF cookies from prior deployments. */
+  private clearSessionCookies(res: Response): void {
+    const { secure, sameSite, domain } = this.getRefreshCookieOptions();
+    const base = { secure, sameSite, path: '/' as const, ...(domain ? { domain } : {}) };
+    res.clearCookie('cohold_refresh_token', { httpOnly: true, ...base });
+    res.clearCookie('cohold_access_token', { httpOnly: true, ...base });
+    res.clearCookie('cohold_csrf_token', { httpOnly: false, ...base });
   }
 
   @Post('login')
@@ -97,11 +71,14 @@ export class AuthController {
       ipAddress: req.ip ?? null,
       deviceLabel: null,
     });
-    const csrfToken = this.setAuthCookies(res, session);
+    this.setRefreshCookie(res, session.refreshToken);
     if (this.debugEnabled()) {
-      this.logger.debug(`login success email=${dto.email} cookies_set=access,refresh,csrf`);
+      this.logger.debug(`login success email=${dto.email} refresh_cookie_set=1`);
     }
-    return { requiresUsernameSetup: session.requiresUsernameSetup, csrfToken };
+    return {
+      accessToken: session.accessToken,
+      requiresUsernameSetup: session.requiresUsernameSetup,
+    };
   }
 
   @Post('signup')
@@ -131,8 +108,11 @@ export class AuthController {
       ipAddress: req.ip ?? null,
       deviceLabel: null,
     });
-    const csrfToken = this.setAuthCookies(res, session);
-    return { requiresUsernameSetup: session.requiresUsernameSetup, csrfToken };
+    this.setRefreshCookie(res, session.refreshToken);
+    return {
+      accessToken: session.accessToken,
+      requiresUsernameSetup: session.requiresUsernameSetup,
+    };
   }
 
   @Post('request-otp')
@@ -150,7 +130,7 @@ export class AuthController {
     }
     const refreshToken = req.cookies?.cohold_refresh_token;
     if (!refreshToken) {
-      this.clearAuthCookies(res);
+      this.clearSessionCookies(res);
       throw new UnauthorizedException('Missing refresh token');
     }
     const session = await this.authService.refresh(refreshToken, {
@@ -158,21 +138,21 @@ export class AuthController {
       ipAddress: req.ip ?? null,
       deviceLabel: null,
     });
-    const csrfToken = this.setAuthCookies(res, session);
+    this.setRefreshCookie(res, session.refreshToken);
     if (this.debugEnabled()) {
-      this.logger.debug('refresh success cookies_rotated=access,refresh,csrf');
+      this.logger.debug('refresh success refresh_cookie_rotated=1');
     }
-    return { requiresUsernameSetup: session.requiresUsernameSetup, csrfToken };
+    return {
+      accessToken: session.accessToken,
+      requiresUsernameSetup: session.requiresUsernameSetup,
+    };
   }
 
   @Get('session')
   @UseGuards(JwtAuthGuard)
-  async session(@CurrentUser() user: { id: string }, @Req() req: Request) {
+  async session(@CurrentUser() user: { id: string }) {
     const profile = await this.authService.getSessionProfile(user.id);
-    return {
-      user: profile,
-      csrfToken: req.cookies?.cohold_csrf_token ?? null,
-    };
+    return { user: profile };
   }
 
   @Post('reset-password')
@@ -188,7 +168,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const refreshToken = req.cookies?.cohold_refresh_token;
-    this.clearAuthCookies(res);
+    this.clearSessionCookies(res);
     if (!refreshToken) {
       return { message: 'Logged out' };
     }
@@ -198,7 +178,7 @@ export class AuthController {
   @Post('logout-all')
   @UseGuards(JwtAuthGuard)
   async logoutAll(@CurrentUser() user: { id: string }, @Res({ passthrough: true }) res: Response) {
-    this.clearAuthCookies(res);
+    this.clearSessionCookies(res);
     return this.authService.logoutAllSessions(user.id);
   }
 

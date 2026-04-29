@@ -2,13 +2,11 @@
 
 import { type ReactNode, useEffect } from 'react';
 import { useAuthStore } from '@/stores/auth.store';
-import { apiClient } from '@/lib/api/client';
+import { apiClient, postWithCredentialsOnly } from '@/lib/api/client';
+import type { ApiResponse } from '@/lib/api/client';
 
 /**
- * Cookie-only auth bootstrap:
- * - GET /auth/session (cookies) as canonical restore endpoint
- * - fallback: POST /auth/refresh then GET /users/me when session endpoint is unavailable
- * - store user in Zustand only; no access/refresh tokens in JS
+ * Bootstrap session: refresh cookie → access JWT in memory → GET /users/me.
  */
 export function AuthBootstrap({ children }: { children: ReactNode }) {
   const authChecked = useAuthStore((s) => s.authChecked);
@@ -20,77 +18,43 @@ export function AuthBootstrap({ children }: { children: ReactNode }) {
     let cancelled = false;
     async function bootstrap() {
       try {
-        const session = await apiClient.get<{
-          user: {
-            id: string;
-            email: string;
-            username?: string | null;
-            requiresUsernameSetup?: boolean;
-            kycStatus?: string | null;
-            onboardingCompletedAt?: string | null;
-            firstName?: string | null;
-            lastName?: string | null;
-            emailVerifiedAt?: string | null;
-          };
-          csrfToken?: string | null;
-        }>('/auth/session');
-        if (!session.success || !session.data?.user) {
-          throw new Error(session.error ?? 'Unauthenticated');
+        const refresh = await postWithCredentialsOnly<
+          ApiResponse<{ accessToken?: string; requiresUsernameSetup?: boolean }>
+        >('/auth/refresh', {});
+        if (!refresh.data.success) {
+          throw new Error('Unauthenticated');
+        }
+        const me = await apiClient.get<{
+          id: string;
+          email: string;
+          username?: string | null;
+          requiresUsernameSetup?: boolean;
+          kycStatus?: string | null;
+          onboardingCompletedAt?: string | null;
+          firstName?: string | null;
+          lastName?: string | null;
+          emailVerifiedAt?: string | null;
+        }>('/users/me');
+        if (!me.success || !me.data) {
+          throw new Error(me.error ?? 'Failed to load profile');
         }
         if (cancelled) return;
         setSession({
           role: 'user',
           user: {
-            id: session.data.user.id,
-            email: session.data.user.email,
-            username: session.data.user.username ?? null,
-            requiresUsernameSetup:
-              session.data.user.requiresUsernameSetup ?? (session.data.user.username == null),
-            kycStatus: session.data.user.kycStatus ?? null,
-            onboardingCompletedAt: session.data.user.onboardingCompletedAt ?? null,
-            firstName: session.data.user.firstName ?? null,
-            lastName: session.data.user.lastName ?? null,
-            emailVerifiedAt: session.data.user.emailVerifiedAt ?? null,
+            id: me.data.id,
+            email: me.data.email,
+            username: me.data.username ?? null,
+            requiresUsernameSetup: me.data.requiresUsernameSetup ?? (me.data.username == null),
+            kycStatus: me.data.kycStatus ?? null,
+            onboardingCompletedAt: me.data.onboardingCompletedAt ?? null,
+            firstName: me.data.firstName ?? null,
+            lastName: me.data.lastName ?? null,
+            emailVerifiedAt: me.data.emailVerifiedAt ?? null,
           },
         });
       } catch {
-        try {
-          const refresh = await apiClient.post<{ requiresUsernameSetup?: boolean }>('/auth/refresh', {});
-          if (!refresh.success) {
-            throw new Error(refresh.error ?? 'Unauthenticated');
-          }
-          const me = await apiClient.get<{
-            id: string;
-            email: string;
-            username?: string | null;
-            requiresUsernameSetup?: boolean;
-            kycStatus?: string | null;
-            onboardingCompletedAt?: string | null;
-            firstName?: string | null;
-            lastName?: string | null;
-            emailVerifiedAt?: string | null;
-          }>('/users/me');
-          if (!me.success || !me.data) {
-            throw new Error(me.error ?? 'Failed to load profile');
-          }
-          if (cancelled) return;
-          setSession({
-            role: 'user',
-            user: {
-              id: me.data.id,
-              email: me.data.email,
-              username: me.data.username ?? null,
-              requiresUsernameSetup: me.data.requiresUsernameSetup ?? (me.data.username == null),
-              kycStatus: me.data.kycStatus ?? null,
-              onboardingCompletedAt: me.data.onboardingCompletedAt ?? null,
-              firstName: me.data.firstName ?? null,
-              lastName: me.data.lastName ?? null,
-              emailVerifiedAt: me.data.emailVerifiedAt ?? null,
-            },
-          });
-        } catch {
-          if (!cancelled) clearSession();
-        }
+        if (!cancelled) clearSession();
       } finally {
         if (!cancelled) setAuthChecked(true);
       }

@@ -42,15 +42,22 @@ describe('JwtAuthGuard', () => {
     });
   });
 
-  it('rejects bearer authorization header', async () => {
-    const context = makeContext({
-      headers: { authorization: 'Bearer token' },
-      cookies: {},
-    });
+  it('rejects when Authorization header is missing', async () => {
+    const request: Record<string, any> = { headers: {}, cookies: {} };
+    const context = makeContext(request);
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('authenticates using cookie-only access token', async () => {
+  it('rejects when Bearer token is empty', async () => {
+    const request: Record<string, any> = {
+      headers: { authorization: 'Bearer   ' },
+      cookies: {},
+    };
+    const context = makeContext(request);
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('authenticates using Bearer access token', async () => {
     (jwtService.verify as jest.Mock).mockReturnValue({
       sub: 'user-1',
       role: 'user',
@@ -62,8 +69,8 @@ describe('JwtAuthGuard', () => {
       isFrozen: false,
     });
     const request: Record<string, any> = {
-      headers: {},
-      cookies: { cohold_access_token: 'cookie-token' },
+      headers: { authorization: 'Bearer jwt-token' },
+      cookies: {},
     };
     const context = makeContext(request);
 
@@ -71,4 +78,3 @@ describe('JwtAuthGuard', () => {
     expect(request.user).toEqual({ id: 'user-1', role: 'user' });
   });
 });
-

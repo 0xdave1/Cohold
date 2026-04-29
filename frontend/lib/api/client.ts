@@ -1,6 +1,5 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/auth.store';
-import { clearClientCsrfToken, getClientCsrfForRequest, setClientCsrfToken } from '@/lib/api/csrf-memory';
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -19,15 +18,18 @@ export function getApiBaseURL(): string {
   return process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_BASE_URL;
 }
 
-function getCookie(name: string): string | null {
-  if (typeof document === 'undefined') return null;
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function methodRequiresCsrf(method: string): boolean {
-  return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+function extractAccessTokenFromEnvelope(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const root = body as Record<string, unknown>;
+  const inner = root.data;
+  if (typeof inner === 'object' && inner !== null && 'accessToken' in inner) {
+    const t = (inner as Record<string, unknown>).accessToken;
+    if (typeof t === 'string' && t.length > 0) return t;
+  }
+  if ('accessToken' in root && typeof root.accessToken === 'string') {
+    return root.accessToken as string;
+  }
+  return undefined;
 }
 
 function isRefreshRequest(config: InternalAxiosRequestConfig | undefined): boolean {
@@ -53,40 +55,37 @@ function isAuthMutation401Allowed(config: InternalAxiosRequestConfig | undefined
     url.includes('/auth/complete-signup') ||
     url.includes('/auth/verify-otp') ||
     url.includes('/auth/request-otp') ||
-    url.includes('/auth/reset-password')
+    url.includes('/auth/resend-otp') ||
+    url.includes('/auth/reset-password') ||
+    url.includes('/admin-auth/login')
   );
 }
 
-function captureCsrfFromResponseBody(body: unknown): void {
-  if (!body || typeof body !== 'object') return;
-  const root = body as Record<string, unknown>;
-  const inner = root.data;
-  const csrf =
-    (typeof inner === 'object' && inner !== null && 'csrfToken' in inner
-      ? (inner as Record<string, unknown>).csrfToken
-      : undefined) ?? root.csrfToken;
-  if (typeof csrf === 'string' && csrf.length > 0) {
-    setClientCsrfToken(csrf);
-  }
-}
-
 /**
- * Shared Axios instance — use this for all app API calls (`withCredentials: true`).
- * Also exported as `api` for drop-in use with the same interceptors.
+ * Single Axios instance: `withCredentials: true`, Bearer access token from memory when present.
  */
 export const api: AxiosInstance = axios.create({
   baseURL: getApiBaseURL(),
   withCredentials: true,
 });
 
+export type RequestConfigWithSkip = InternalAxiosRequestConfig & { skipBearer?: boolean };
+
+/** POST without attaching in-memory Bearer (used for cookie-only refresh). */
+export function postWithCredentialsOnly<T = unknown>(url: string, body?: unknown) {
+  return api.post<T>(url, body, { skipBearer: true } as RequestConfigWithSkip);
+}
+
 api.interceptors.request.use((config) => {
-  const method = String(config.method ?? 'get').toUpperCase();
-  if (methodRequiresCsrf(method)) {
-    const csrfToken = getClientCsrfForRequest() ?? getCookie('cohold_csrf_token');
-    if (csrfToken) {
-      config.headers = config.headers ?? {};
-      config.headers['X-CSRF-Token'] = csrfToken;
-    }
+  const c = config as RequestConfigWithSkip;
+  if (c.skipBearer) {
+    return config;
+  }
+  const { accessToken, adminAccessToken } = useAuthStore.getState();
+  const token = isAdminRequest(config) ? adminAccessToken : accessToken;
+  if (token) {
+    config.headers = config.headers ?? {};
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
@@ -104,11 +103,14 @@ function ensureRefreshed(): Promise<void> {
 }
 
 async function refreshAccessToken(): Promise<void> {
-  const res = await api.post<ApiResponse<{ requiresUsernameSetup?: boolean; csrfToken?: string }>>(
+  const res = await postWithCredentialsOnly<ApiResponse<{ accessToken?: string; requiresUsernameSetup?: boolean }>>(
     '/auth/refresh',
     {},
   );
-  captureCsrfFromResponseBody(res.data);
+  const token = extractAccessTokenFromEnvelope(res.data);
+  if (token) {
+    useAuthStore.getState().setAccessToken(token);
+  }
   const body = res.data;
   if (!body.success) {
     throw new Error(body.error ?? 'Refresh failed');
@@ -125,8 +127,11 @@ function ensureAdminRefreshed(): Promise<void> {
 }
 
 async function refreshAdminAccessToken(): Promise<void> {
-  const res = await api.post<ApiResponse<{ csrfToken?: string }>>('/admin-auth/refresh', {});
-  captureCsrfFromResponseBody(res.data);
+  const res = await postWithCredentialsOnly<ApiResponse<{ accessToken?: string }>>('/admin-auth/refresh', {});
+  const token = extractAccessTokenFromEnvelope(res.data);
+  if (token) {
+    useAuthStore.getState().setAdminAccessToken(token);
+  }
   if (!res.data.success) {
     throw new Error(res.data.error ?? 'Admin refresh failed');
   }
@@ -134,7 +139,15 @@ async function refreshAdminAccessToken(): Promise<void> {
 
 api.interceptors.response.use(
   (response) => {
-    captureCsrfFromResponseBody(response.data);
+    const token = extractAccessTokenFromEnvelope(response.data);
+    if (token) {
+      const url = String(response.config?.url ?? '');
+      if (url.includes('/admin-auth/')) {
+        useAuthStore.getState().setAdminAccessToken(token);
+      } else {
+        useAuthStore.getState().setAccessToken(token);
+      }
+    }
     return response;
   },
   async (error: unknown) => {
@@ -145,7 +158,6 @@ api.interceptors.response.use(
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
     if (isRefreshRequest(originalRequest) || isAdminRefreshRequest(originalRequest)) {
-      clearClientCsrfToken();
       useAuthStore.getState().clearSession();
       return Promise.reject(error);
     }
@@ -155,7 +167,6 @@ api.interceptors.response.use(
     }
 
     if (originalRequest._retry) {
-      clearClientCsrfToken();
       useAuthStore.getState().clearSession();
       return Promise.reject(error);
     }
@@ -173,7 +184,6 @@ api.interceptors.response.use(
       if (isAdminRequest(originalRequest)) {
         return Promise.reject(error);
       }
-      clearClientCsrfToken();
       useAuthStore.getState().clearSession();
       return Promise.reject(error);
     }
