@@ -14,6 +14,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import {
   DistributionStatus,
   InvestmentStatus,
+  LedgerOperationType,
   Prisma,
   TransactionDirection,
   TransactionType,
@@ -155,7 +156,11 @@ export class DistributionService {
                 groupId: distGroupId,
               } as Prisma.InputJsonValue,
             },
-          ]);
+          ], {
+            operationType: LedgerOperationType.PROPERTY_RENT_DISTRIBUTION,
+            sourceModule: 'distribution.createDistribution',
+            sourceId: distribution.id,
+          });
 
           await tx.distributionPayout.create({
             data: {

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -7,12 +8,13 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { WalletTopUpDto } from './dto/wallet-top-up.dto';
 import { WalletSwapDto } from './dto/wallet-swap.dto';
 import { WalletDevCreditDto } from './dto/wallet-dev-credit.dto';
 import {
   Currency,
+  LedgerOperationType,
   Prisma,
+  Transaction,
   TransactionDirection,
   TransactionStatus,
   TransactionType,
@@ -23,6 +25,14 @@ import Decimal from 'decimal.js';
 import { VirtualAccountService } from '../virtual-account/virtual-account.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SUPPORTED_CURRENCIES } from '../../common/constants/currency.constants';
+import { fingerprintFromLegInputs, fingerprintFromPostedTransactions } from './ledger-fingerprint.util';
+
+export type PostDoubleEntryOptions = {
+  operationType: LedgerOperationType;
+  sourceModule?: string;
+  sourceId?: string;
+  metadata?: Prisma.InputJsonValue;
+};
 
 /**
  * Money separation (production rules):
@@ -32,6 +42,10 @@ import { SUPPORTED_CURRENCIES } from '../../common/constants/currency.constants'
  * - **Investments** (`Investment`): positions (shares + principal `amount`); not a wallet.
  *
  * All movements are recorded in `Transaction` with `fee` / `netAmount` / `propertyId` / `investmentId` where applicable.
+ *
+ * Issue 1 — User-initiated wallet crediting is forbidden. NGN user-wallet credits must only
+ * originate from verified provider settlement (`PaymentService.processWalletFunding`), future
+ * admin-controlled tooling (not yet exposed), or `devCredit` in non-production.
  */
 export const PLATFORM_USER_ID = 'PLATFORM_USER';
 /** In-flight payout liquidity (withdrawals) — not user-spendable. */
@@ -83,16 +97,36 @@ export class WalletService {
     }, new Decimal(0));
   }
 
+  /**
+   * Atomic double-entry with DB-enforced idempotency (`LedgerOperation.reference` unique).
+   * Legacy rows (transactions without `ledgerOperationId`) are adopted once when fingerprint matches.
+   */
   async postDoubleEntry(
     tx: LedgerTxClient,
     reference: string,
     legs: LedgerLegInput[],
-  ) {
+    opts: PostDoubleEntryOptions,
+  ): Promise<{ legs: Transaction[]; created: boolean }> {
     if (!reference?.trim()) {
       throw new BadRequestException('Ledger reference is required');
     }
     if (legs.length < 2) {
       throw new BadRequestException('A ledger reference group must contain at least two entries');
+    }
+
+    const currencies = new Set(legs.map((l) => l.currency));
+    if (currencies.size !== 1) {
+      throw new BadRequestException('All ledger legs must share the same currency');
+    }
+    const currency = legs[0].currency;
+
+    for (const leg of legs) {
+      if (!leg.walletId) {
+        throw new BadRequestException('Every ledger entry must include walletId');
+      }
+      if (fixMoney(leg.amount).lte(0)) {
+        throw new BadRequestException('Ledger leg amounts must be positive');
+      }
     }
 
     const debitTotal = legs
@@ -104,65 +138,194 @@ export class WalletService {
     if (!fixMoney(debitTotal).eq(fixMoney(creditTotal))) {
       throw new BadRequestException('Double-entry invariant failed: DEBIT total must equal CREDIT total');
     }
-    if (legs.some((l) => !l.walletId)) {
-      throw new BadRequestException('Every ledger entry must include walletId');
-    }
 
-    const existingLegs = await tx.transaction.findMany({ where: { reference } });
-    if (existingLegs.length >= 2) {
-      return existingLegs.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-    }
-    if (existingLegs.length === 1) {
-      throw new BadRequestException(
-        `Corrupt ledger group for reference ${reference}: expected at least 2 entries`,
-      );
-    }
+    const fingerprint = fingerprintFromLegInputs(legs);
 
     const walletIds = Array.from(new Set(legs.map((l) => l.walletId))).sort();
     for (const walletId of walletIds) {
       await tx.$queryRawUnsafe(`SELECT id FROM "Wallet" WHERE id = $1 FOR UPDATE`, walletId);
     }
 
-    await tx.transaction.createMany({
-      data: legs.map((leg, idx) => ({
-        walletId: leg.walletId,
-        userId: leg.userId ?? null,
-        reference,
-        groupId: reference,
-        externalReference: leg.externalReference ?? null,
-        type: leg.type,
-        status: TransactionStatus.COMPLETED,
-        amount: moneyStr(fixMoney(leg.amount)),
-        fee: leg.fee != null ? moneyStr(fixMoney(leg.fee)) : null,
-        netAmount: leg.netAmount != null ? moneyStr(fixMoney(leg.netAmount)) : null,
-        currency: leg.currency,
-        direction: leg.direction,
-        metadata: ({
-          ...(leg.metadata as Record<string, unknown> | undefined),
-          ledgerReference: reference,
-          ledgerIndex: idx,
-        } as Prisma.InputJsonValue),
-        propertyId: leg.propertyId ?? null,
-        investmentId: leg.investmentId ?? null,
-      })),
+    const existingOp = await tx.ledgerOperation.findUnique({
+      where: { reference },
+      include: { transactions: { orderBy: { ledgerLegIndex: 'asc' } } },
     });
-
-    const deltas = new Map<string, Decimal>();
-    for (const leg of legs) {
-      const signed = leg.direction === TransactionDirection.CREDIT ? fixMoney(leg.amount) : fixMoney(leg.amount).neg();
-      deltas.set(leg.walletId, fixMoney((deltas.get(leg.walletId) ?? new Decimal(0)).plus(signed)));
+    if (existingOp) {
+      if (existingOp.legFingerprint !== fingerprint) {
+        throw new ConflictException(
+          `ledger_reference_conflict: reference=${reference} already posted with different economics`,
+        );
+      }
+      if (existingOp.transactions.length !== legs.length) {
+        throw new ConflictException(
+          `ledger_reference_conflict: reference=${reference} has ${existingOp.transactions.length} legs, expected ${legs.length}`,
+        );
+      }
+      return { legs: existingOp.transactions, created: false };
     }
 
-    for (const [walletId, delta] of deltas.entries()) {
-      const wallet = await tx.wallet.findUniqueOrThrow({ where: { id: walletId } });
-      const next = fixMoney(toDecimal(wallet.balance.toString()).plus(delta));
-      await tx.wallet.update({
-        where: { id: walletId },
-        data: { balance: moneyStr(next) },
+    const legacyRows = await tx.transaction.findMany({
+      where: {
+        reference,
+        ledgerOperationId: null,
+        status: TransactionStatus.COMPLETED,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (legacyRows.length >= 2) {
+      const legacyFp = fingerprintFromPostedTransactions(legacyRows);
+      if (legacyFp !== fingerprint) {
+        throw new ConflictException(
+          `ledger_reference_conflict: reference=${reference} exists with different posted economics`,
+        );
+      }
+      const op = await tx.ledgerOperation.create({
+        data: {
+          reference,
+          type: LedgerOperationType.LEGACY_UNKNOWN,
+          currency,
+          totalAmount: moneyStr(fixMoney(debitTotal)),
+          legFingerprint: fingerprint,
+          metadata: {
+            adoptedLegacy: true,
+            intendedOperationType: opts.operationType,
+            sourceModule: opts.sourceModule ?? null,
+          } as Prisma.InputJsonValue,
+          sourceModule: opts.sourceModule ?? null,
+          sourceId: opts.sourceId ?? null,
+        },
+      });
+      for (let i = 0; i < legacyRows.length; i++) {
+        await tx.transaction.update({
+          where: { id: legacyRows[i].id },
+          data: { ledgerOperationId: op.id, ledgerLegIndex: i },
+        });
+      }
+      const linked = await tx.transaction.findMany({
+        where: { ledgerOperationId: op.id },
+        orderBy: { ledgerLegIndex: 'asc' },
+      });
+      return { legs: linked, created: false };
+    }
+    if (legacyRows.length === 1) {
+      throw new BadRequestException(
+        `Corrupt ledger group for reference ${reference}: expected at least 2 entries`,
+      );
+    }
+
+    let ledgerOperationId: string;
+    try {
+      const op = await tx.ledgerOperation.create({
+        data: {
+          reference,
+          type: opts.operationType,
+          currency,
+          totalAmount: moneyStr(fixMoney(debitTotal)),
+          legFingerprint: fingerprint,
+          metadata: opts.metadata ?? Prisma.JsonNull,
+          sourceModule: opts.sourceModule ?? null,
+          sourceId: opts.sourceId ?? null,
+        },
+      });
+      ledgerOperationId = op.id;
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const raced = await tx.ledgerOperation.findUnique({
+          where: { reference },
+          include: { transactions: { orderBy: { ledgerLegIndex: 'asc' } } },
+        });
+        if (!raced || raced.legFingerprint !== fingerprint || raced.transactions.length !== legs.length) {
+          throw new ConflictException(
+            `ledger_reference_conflict: concurrent post for reference=${reference} could not be reconciled`,
+          );
+        }
+        return { legs: raced.transactions, created: false };
+      }
+      throw e;
+    }
+
+    for (let idx = 0; idx < legs.length; idx++) {
+      const leg = legs[idx];
+      await tx.transaction.create({
+        data: {
+          walletId: leg.walletId,
+          userId: leg.userId ?? null,
+          reference,
+          groupId: reference,
+          externalReference: leg.externalReference ?? null,
+          type: leg.type,
+          status: TransactionStatus.COMPLETED,
+          amount: moneyStr(fixMoney(leg.amount)),
+          fee: leg.fee != null ? moneyStr(fixMoney(leg.fee)) : null,
+          netAmount: leg.netAmount != null ? moneyStr(fixMoney(leg.netAmount)) : null,
+          currency: leg.currency,
+          direction: leg.direction,
+          metadata: ({
+            ...(leg.metadata as Record<string, unknown> | undefined),
+            ledgerReference: reference,
+            ledgerIndex: idx,
+          } as Prisma.InputJsonValue),
+          propertyId: leg.propertyId ?? null,
+          investmentId: leg.investmentId ?? null,
+          ledgerOperationId,
+          ledgerLegIndex: idx,
+        },
       });
     }
 
-    return tx.transaction.findMany({ where: { reference }, orderBy: { createdAt: 'asc' } });
+    const deltas = new Map<string, Decimal>();
+    for (const leg of legs) {
+      const signed =
+        leg.direction === TransactionDirection.CREDIT ? fixMoney(leg.amount) : fixMoney(leg.amount).neg();
+      deltas.set(leg.walletId, fixMoney((deltas.get(leg.walletId) ?? new Decimal(0)).plus(signed)));
+    }
+
+    const sortedWalletIds = Array.from(deltas.keys()).sort();
+    for (const walletId of sortedWalletIds) {
+      const net = deltas.get(walletId)!;
+      if (net.lt(0)) {
+        await this.applyWalletBalanceDelta(tx, walletId, net);
+      }
+    }
+    for (const walletId of sortedWalletIds) {
+      const net = deltas.get(walletId)!;
+      if (net.gt(0)) {
+        await this.applyWalletBalanceDelta(tx, walletId, net);
+      }
+    }
+
+    const posted = await tx.transaction.findMany({
+      where: { ledgerOperationId },
+      orderBy: { ledgerLegIndex: 'asc' },
+    });
+    return { legs: posted, created: true };
+  }
+
+  private async applyWalletBalanceDelta(tx: LedgerTxClient, walletId: string, delta: Decimal) {
+    const d = fixMoney(delta);
+    if (d.eq(0)) {
+      return;
+    }
+    const absStr = moneyStr(d.abs());
+    if (d.gt(0)) {
+      const n = await tx.$executeRawUnsafe(
+        `UPDATE "Wallet" SET balance = balance + $1::decimal(19,4), "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2::uuid`,
+        absStr,
+        walletId,
+      );
+      if (Number(n) !== 1) {
+        throw new BadRequestException('Wallet balance update failed (credit)');
+      }
+      return;
+    }
+    const n = await tx.$executeRawUnsafe(
+      `UPDATE "Wallet" SET balance = balance - $1::decimal(19,4), "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2::uuid AND balance >= $1::decimal(19,4)`,
+      absStr,
+      walletId,
+    );
+    if (Number(n) !== 1) {
+      throw new BadRequestException('Insufficient wallet balance for ledger debit');
+    }
   }
 
   async getBalances(userId: string) {
@@ -263,6 +426,7 @@ export class WalletService {
           currency: true,
           direction: true,
           createdAt: true,
+          ledgerOperationId: true,
         },
       }),
       this.prisma.transaction.count({ where }),
@@ -278,6 +442,7 @@ export class WalletService {
         currency: t.currency,
         direction: t.direction,
         createdAt: t.createdAt,
+        ledgerOperationId: t.ledgerOperationId ?? null,
       })),
       meta: { page, limit, total },
     };
@@ -339,13 +504,18 @@ export class WalletService {
     });
   }
 
-  /** Top-up wallet safely */
-  async topUp(userId: string, dto: WalletTopUpDto) {
-    if (dto.currency !== this.walletCurrency) {
-      throw new BadRequestException('Only NGN top-ups are supported for now');
-    }
-    const amount = toDecimal(dto.amount);
-    if (amount.lte(0)) throw new BadRequestException('Amount must be positive');
+  /**
+   * Internal only: move value from platform synthetic wallet to a user wallet.
+   * `reference` and `userCreditReason` must be server-controlled — never from HTTP DTOs.
+   * Verified Flutterwave funding does not use this path; it uses `PaymentService.processWalletFunding`.
+   */
+  private async applyTrustedPlatformToUserCredit(
+    userId: string,
+    amount: Decimal,
+    params: { reference: string; userCreditReason: 'dev_wallet_credit' },
+  ) {
+    const amt = fixMoney(amount);
+    if (amt.lte(0)) throw new BadRequestException('Amount must be positive');
 
     const wallet = await this.prisma.wallet.findFirst({
       where: { userId, currency: this.walletCurrency },
@@ -353,22 +523,9 @@ export class WalletService {
     if (!wallet) throw new NotFoundException('Wallet not found for currency');
 
     const result = await this.prisma.$transaction(async (tx) => {
-      const reference = dto.clientReference ?? `TOPUP-${Date.now()}-${wallet.id}`;
-      const amt = fixMoney(amount);
-
-      // Idempotency by grouping reference.
-      const existingLegs = await tx.transaction.findMany({
-        where: { reference },
-        orderBy: { createdAt: 'asc' },
-      });
-      if (existingLegs.length > 0) {
-        const currentWallet = await tx.wallet.findUnique({ where: { id: wallet.id } });
-        if (!currentWallet) throw new NotFoundException('Wallet not found');
-        return { updatedWallet: currentWallet, didCredit: false, reference, amount: amt };
-      }
-
+      const reference = params.reference;
       const platformWallet = await this.getPlatformWallet(tx, this.walletCurrency);
-      await this.postDoubleEntry(tx, reference, [
+      const { created } = await this.postDoubleEntry(tx, reference, [
         {
           walletId: platformWallet.id,
           userId: PLATFORM_USER_ID,
@@ -377,7 +534,7 @@ export class WalletService {
           amount: amt,
           currency: this.walletCurrency,
           netAmount: amt,
-          metadata: { reason: 'topup_funding_source', groupId: reference } as Prisma.InputJsonValue,
+          metadata: { reason: 'trusted_platform_debit', groupId: reference } as Prisma.InputJsonValue,
         },
         {
           walletId: wallet.id,
@@ -387,32 +544,36 @@ export class WalletService {
           amount: amt,
           currency: this.walletCurrency,
           netAmount: amt,
-          metadata: { reason: dto.reason ?? 'manual_or_alt_rail_topup', groupId: reference } as Prisma.InputJsonValue,
+          metadata: {
+            reason: params.userCreditReason,
+            groupId: reference,
+          } as Prisma.InputJsonValue,
         },
-      ]);
+      ], {
+        operationType: LedgerOperationType.DEV_CREDIT,
+        sourceModule: 'wallet.applyTrustedPlatformToUserCredit',
+        sourceId: reference,
+        metadata: { userCreditReason: params.userCreditReason } as Prisma.InputJsonValue,
+      });
 
       const updatedWallet = await tx.wallet.findUnique({ where: { id: wallet.id } });
       if (!updatedWallet) throw new NotFoundException('Wallet not found');
-      return { updatedWallet, didCredit: true, reference, amount: amt };
+      return { updatedWallet, didCredit: created, reference, amount: amt };
     });
 
     if (result.didCredit) {
-      const txMetaReason = dto.reason ?? 'manual_or_alt_rail_topup';
-      // Investment checkout flow pre-credits the wallet before createFractional; avoid duplicate WALLET_FUNDED.
-      if (txMetaReason !== 'investment_checkout_success') {
-        try {
-          await this.notificationsService.notifyWalletFunded(
-            userId,
-            formatMoney(result.amount),
-            result.updatedWallet.currency,
-            result.reference,
-          );
-        } catch (err) {
-          this.logger.warn(
-            `Failed to create wallet funded notification userId=${userId} ref=${result.reference}`,
-            err instanceof Error ? err.stack : err,
-          );
-        }
+      try {
+        await this.notificationsService.notifyWalletFunded(
+          userId,
+          formatMoney(result.amount),
+          result.updatedWallet.currency,
+          result.reference,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Failed to create wallet funded notification userId=${userId} ref=${result.reference}`,
+          err instanceof Error ? err.stack : err,
+        );
       }
     }
 
@@ -425,37 +586,23 @@ export class WalletService {
   }
 
   /**
-   * Credit user wallet by reference (idempotent when reference matches existing transaction).
-   * Used by payment webhooks and dev tooling.
+   * Dev/test-only: synthetic credit via platform wallet. Forbidden in production at
+   * service layer (defense in depth with `WalletController`). Never call from webhooks,
+   * `PaymentService`, or investment flows.
    */
-  async credit(
-    userId: string,
-    params: {
-      amount: string;
-      currency: Currency;
-      reference: string;
-      reason?: string;
-    },
-  ) {
-    if (params.currency !== this.walletCurrency) {
-      throw new BadRequestException('Only NGN credits are supported for now');
-    }
-    return this.topUp(userId, {
-      currency: this.walletCurrency,
-      amount: params.amount,
-      clientReference: params.reference,
-      reason: params.reason ?? 'wallet_credit',
-    });
-  }
-
-  /** Dev-only direct credit (non-production). */
   async devCredit(userId: string, dto: WalletDevCreditDto) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ForbiddenException('Dev wallet credit is disabled in production');
+    }
+    if (dto.currency !== this.walletCurrency) {
+      throw new BadRequestException('Only NGN dev credits are supported for now');
+    }
+    const amount = toDecimal(dto.amount);
+    if (amount.lte(0)) throw new BadRequestException('Amount must be positive');
     const ref = `DEV-${Date.now()}-${randomUUID()}`;
-    return this.credit(userId, {
-      amount: dto.amount,
-      currency: dto.currency,
+    return this.applyTrustedPlatformToUserCredit(userId, amount, {
       reference: ref,
-      reason: 'dev_wallet_credit',
+      userCreditReason: 'dev_wallet_credit',
     });
   }
 

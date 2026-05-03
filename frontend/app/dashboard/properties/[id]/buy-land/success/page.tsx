@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { usePropertyDetails } from '@/lib/hooks/use-properties';
 import { formatMoney } from '@/lib/hooks/use-wallet';
+import { sumMoneyDecimalStrings } from '@/lib/money/format-display';
 import { DetailRow, GhostButton, PrimaryButton, SectionCard } from '../../../_components/listing-ui';
 
 export default function BuyLandSuccessPage() {
@@ -30,7 +31,7 @@ export default function BuyLandSuccessPage() {
         <DetailRow label="Land purchase amount" value={formatMoney(amount, property.currency)} />
         <DetailRow label="Plot size" value="300sqm" />
         <DetailRow label="Processing fee" value={formatMoney('100', property.currency)} />
-        <DetailRow label="Total payment" value={formatMoney(String(Number(amount) + 100), property.currency)} />
+        <DetailRow label="Total payment" value={formatMoney(sumMoneyDecimalStrings(amount, '100'), property.currency)} />
       </SectionCard>
       <div className="grid grid-cols-2 gap-2">
         <GhostButton>View receipt</GhostButton>

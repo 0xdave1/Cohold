@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/api/client';
+import type { LedgerReconciliationReport } from '@/lib/admin/ledger-reconciliation';
 
 async function adminGet<T>(path: string): Promise<T> {
   const res = await apiClient.get<T>(`/${path}`);
@@ -42,6 +43,10 @@ export const adminApi = {
   closeProperty: (id: string) => adminPost<any>(`admin/properties/${id}/close`),
   deleteProperty: (id: string) => adminDelete<any>(`admin/properties/${id}`),
   walletTransactions: (params?: string) => adminGet<any>(`admin/wallet-transactions${params ? `?${params}` : ''}`),
+  withdrawals: (params?: string) => adminGet<any>(`admin/withdrawals${params ? `?${params}` : ''}`),
+  reconcileWithdrawal: (id: string) => adminPost<any>(`admin/withdrawals/${id}/reconcile`),
+  reconcileStaleWithdrawals: (params?: string) =>
+    adminPost<any>(`admin/withdrawals/reconcile-stale${params ? `?${params}` : ''}`),
   disputes: (params?: string) => adminGet<any>(`admin/disputes${params ? `?${params}` : ''}`),
   admins: (params?: string) => adminGet<any>(`admin/admins${params ? `?${params}` : ''}`),
   adminDetail: (id: string) => adminGet<any>(`admin/admins/${id}`),
@@ -66,6 +71,7 @@ export const adminApi = {
   fees: (params?: string) => adminGet<any>(`admin/fees${params ? `?${params}` : ''}`),
   coholds: (params?: string) => adminGet<any>(`admin/coholds${params ? `?${params}` : ''}`),
   activityLog: (params?: string) => adminGet<any>(`admin/activity-log${params ? `?${params}` : ''}`),
+  ledgerReconciliation: () => adminGet<LedgerReconciliationReport>('admin/ledger/reconciliation'),
 
   // Support inbox
   supportConversations: (params?: string) => adminGet<any>(`admin/support/conversations${params ? `?${params}` : ''}`),

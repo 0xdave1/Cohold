@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { DataTable, type Column } from '@/components/admin/DataTable';
 import { adminApi } from '@/lib/admin/api';
+import { formatDecimalMoneyForDisplay } from '@/lib/money/format-display';
 
 interface Cohold {
   id: string;
@@ -17,7 +18,11 @@ interface Cohold {
 const columns: Column<Cohold>[] = [
   { key: 'title', header: 'Name', render: (r) => <span className="font-medium text-gray-900">{r.title}</span> },
   { key: 'members', header: 'Members' },
-  { key: 'totalInvested', header: 'Total invested', render: (r) => `${r.currency} ${parseFloat(r.totalInvested || '0').toLocaleString()}` },
+  {
+    key: 'totalInvested',
+    header: 'Total invested',
+    render: (r) => formatDecimalMoneyForDisplay(r.totalInvested || '0', r.currency),
+  },
   {
     key: 'status', header: 'Status',
     render: (r) => (

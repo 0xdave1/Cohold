@@ -4,6 +4,7 @@ import { AuthController } from './auth.controller';
 describe('AuthController', () => {
   const authService = {
     refresh: jest.fn(),
+    getCookieDomain: jest.fn().mockReturnValue(undefined),
   } as any;
   const controller = new AuthController(authService);
 

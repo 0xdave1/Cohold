@@ -9,6 +9,7 @@ import { useCreateWithdrawal } from '@/lib/hooks/use-withdrawals';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { formatMoney } from '@/lib/hooks/use-wallet';
 import { getApiErrorMessage } from '@/lib/api/errors';
+import { mapWithdrawalSubmitError } from '@/lib/withdrawals/withdrawal-errors';
 
 function BankBuildingIcon({ className }: { className?: string }) {
   return (
@@ -58,6 +59,10 @@ export function WithdrawWalletModal({
   const [otpSending, setOtpSending] = useState(false);
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
+  /** One key per modal open — aligns with backend idempotency and prevents duplicate active withdrawals. */
+  const [idempotencyKey, setIdempotencyKey] = useState('');
+  const otpRequestLock = useRef(false);
+  const submitLock = useRef(false);
 
   useEffect(() => {
     if (!open) {
@@ -68,7 +73,17 @@ export function WithdrawWalletModal({
       setOtpError(null);
       setOtp(['', '', '', '', '', '']);
       setOtpSending(false);
+      otpRequestLock.current = false;
+      submitLock.current = false;
+      return;
     }
+    setIdempotencyKey(
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `idem-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    otpRequestLock.current = false;
+    submitLock.current = false;
   }, [open]);
 
   useEffect(() => {
@@ -103,6 +118,7 @@ export function WithdrawWalletModal({
   }, [amountRaw, balance, selectedBankId]);
 
   const goToOtp = async () => {
+    if (otpRequestLock.current || otpSending) return;
     const err = validateForm();
     if (err) {
       setFormError(err);
@@ -112,8 +128,13 @@ export function WithdrawWalletModal({
       setFormError('Your account email is missing. Please sign in again.');
       return;
     }
+    if (!idempotencyKey) {
+      setFormError('Please close and reopen the withdraw window.');
+      return;
+    }
     setFormError(null);
     setOtpError(null);
+    otpRequestLock.current = true;
     setOtpSending(true);
     try {
       await requestOtp.mutateAsync({ email: userEmail.trim(), purpose: 'transaction' });
@@ -122,23 +143,27 @@ export function WithdrawWalletModal({
       setFormError(getApiErrorMessage(e, 'Could not send OTP. Try again.'));
     } finally {
       setOtpSending(false);
+      otpRequestLock.current = false;
     }
   };
 
   const submitWithdrawal = async () => {
+    if (submitLock.current || createWithdrawal.isPending) return;
     const code = otp.join('');
     if (code.length !== 6) {
       setOtpError('Enter the 6-digit code from your email.');
       return;
     }
     const apiAmount = toApiAmount(amountRaw);
-    if (!apiAmount || !selectedBankId) {
+    if (!apiAmount || !selectedBankId || !idempotencyKey) {
       setOtpError('Invalid amount or bank. Go back and check your details.');
       return;
     }
     setOtpError(null);
+    submitLock.current = true;
     try {
       const created = await createWithdrawal.mutateAsync({
+        idempotencyKey,
         linkedBankAccountId: selectedBankId,
         amount: apiAmount,
         currency: 'NGN',
@@ -146,7 +171,9 @@ export function WithdrawWalletModal({
       });
       onWithdrawCreated(created.id);
     } catch (e) {
-      setOtpError(getApiErrorMessage(e, 'Withdrawal could not be completed.'));
+      setOtpError(mapWithdrawalSubmitError(e));
+    } finally {
+      submitLock.current = false;
     }
   };
 
@@ -165,7 +192,9 @@ export function WithdrawWalletModal({
     return (
       <WalletModalShell title="OTP Code" onClose={onClose}>
         <p className="mb-5 text-sm leading-relaxed text-dashboard-body">
-          A 6-digit OTP has been sent to your email. Enter the code to verify and submit your withdrawal.
+          A 6-digit OTP has been sent to your email. Codes expire shortly—if the code is rejected, go back and tap
+          Withdraw again for a new one. Your withdrawal is only submitted after you complete this step; the next
+          screen shows live status from our servers. Money is not confirmed in your bank until the status is completed.
         </p>
         <p className="mb-2 text-xs font-medium text-dashboard-heading">OTP Code</p>
         <div className="mb-2 flex items-center justify-center gap-1.5 sm:gap-2">
@@ -213,12 +242,16 @@ export function WithdrawWalletModal({
         </button>
         <button
           type="button"
-          onClick={submitWithdrawal}
+          onClick={() => void submitWithdrawal()}
           disabled={createWithdrawal.isPending || otp.join('').length !== 6}
           className="w-full rounded-xl bg-cohold-blue py-3 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {createWithdrawal.isPending ? 'Submitting…' : 'Complete withdrawal'}
         </button>
+        <p className="text-center text-[10px] text-dashboard-muted">
+          Same idempotency key for this window: a safe retry may return the existing withdrawal instead of duplicating—refresh
+          history if unsure.
+        </p>
       </WalletModalShell>
     );
   }

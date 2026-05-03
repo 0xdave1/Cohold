@@ -3,15 +3,15 @@
 import { useEffect, useState } from 'react';
 import { DashboardCard } from '@/components/admin/DashboardCard';
 import { adminApi } from '@/lib/admin/api';
+import { formatDecimalMoneyForDisplay } from '@/lib/money/format-display';
 
 function fmt(n: number): string {
   return new Intl.NumberFormat('en-NG').format(n);
 }
 
 function fmtMoney(amount: string | number, currency: string): string {
-  const symbols: Record<string, string> = { NGN: 'N', USD: '$', GBP: '\u00A3', EUR: '\u20AC' };
-  const n = typeof amount === 'string' ? parseFloat(amount) || 0 : amount;
-  return `${symbols[currency] ?? ''}${new Intl.NumberFormat('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`;
+  const s = typeof amount === 'number' ? String(amount) : amount;
+  return formatDecimalMoneyForDisplay(s, currency);
 }
 
 interface Overview {

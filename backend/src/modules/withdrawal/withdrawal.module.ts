@@ -6,11 +6,12 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { WithdrawalThrottleGuard } from './guards/withdrawal-throttle.guard';
 import { PayoutModule } from '../payout/payout.module';
 import { WalletModule } from '../wallet/wallet.module';
+import { WithdrawalReconciliationScheduler } from './withdrawal-reconciliation.scheduler';
 
 @Module({
   imports: [PrismaModule, NotificationsModule, PayoutModule, WalletModule],
   controllers: [WithdrawalController],
-  providers: [WithdrawalService, WithdrawalThrottleGuard],
+  providers: [WithdrawalService, WithdrawalThrottleGuard, WithdrawalReconciliationScheduler],
   exports: [WithdrawalService],
 })
 export class WithdrawalModule {}

@@ -15,6 +15,7 @@ import { estimateSellFifoPreview } from '@/lib/money/sell-preview';
 import { SELL_PROFIT_FEE_RATE } from '@/lib/constants/investment';
 import { saveSellReceipt } from '@/lib/sell/sell-receipt-storage';
 import { logSellPreviewVsBackendMismatch } from '@/lib/sell/sell-preview-audit';
+import Decimal from 'decimal.js';
 import { BackIconButton, DetailRow, PrimaryButton, SectionCard } from '../../../_components/listing-ui';
 
 export default function SellSummaryPage() {
@@ -28,6 +29,13 @@ export default function SellSummaryPage() {
   const sellMutation = useSellFractional();
 
   const shares = search.get('shares') ?? '0';
+  const sharesPositive = useMemo(() => {
+    try {
+      return new Decimal(shares || '0').gt(0);
+    } catch {
+      return false;
+    }
+  }, [shares]);
   const sharePrice = property?.sharePrice ?? property?.totalValue ?? '0';
 
   const positions = useMemo(() => {
@@ -132,7 +140,7 @@ export default function SellSummaryPage() {
         >
           Go back
         </Link>
-        <PrimaryButton type="button" onClick={submit} disabled={sellMutation.isPending || Number(shares) <= 0}>
+        <PrimaryButton type="button" onClick={submit} disabled={sellMutation.isPending || !sharesPositive}>
           {sellMutation.isPending ? 'Selling…' : 'Confirm sale'}
         </PrimaryButton>
       </div>

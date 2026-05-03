@@ -37,6 +37,17 @@ export function sumActiveShares(
   return sum.toFixed(8);
 }
 
+/** Display-only grouping for share totals from backend decimal strings (no JS float). */
+export function formatSharesQuantityForDisplay(raw: string): string {
+  const d = new Decimal(raw || '0');
+  if (!d.isFinite()) return '0';
+  const s = d.toDecimalPlaces(4, Decimal.ROUND_DOWN).toFixed(4);
+  const [intPart, decPart = ''] = s.split('.');
+  const trimmedDec = decPart.replace(/0+$/, '');
+  const intGrouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return trimmedDec.length ? `${intGrouped}.${trimmedDec}` : intGrouped;
+}
+
 export function countActiveAssets(
   items: Array<{ status?: string; currency: string }>,
   currency: string,

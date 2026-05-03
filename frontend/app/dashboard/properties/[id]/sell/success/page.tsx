@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { usePropertyDetails } from '@/lib/hooks/use-properties';
 import { readSellReceipt, type StoredSellReceipt } from '@/lib/sell/sell-receipt-storage';
+import Decimal from 'decimal.js';
 import { DetailRow, SectionCard } from '../../../_components/listing-ui';
 
 /** Same strings returned by the sell API (`formatMoney` on backend = fixed 4 dp). */
@@ -94,12 +95,13 @@ export default function SellSuccessPage() {
         </svg>
       </div>
       <p className="text-center text-sm text-dashboard-body px-2">
-        You sold {receipt.shares} {Number(receipt.shares) === 1 ? 'share' : 'shares'} in {property.title}.{' '}
+        You sold {receipt.shares}{' '}
+        {new Decimal(receipt.shares || '0').eq(1) ? 'share' : 'shares'} in {property.title}.{' '}
         <span className="font-semibold text-dashboard-heading">
           <LedgerAmount amountStr={net} currency={receipt.currency} />
         </span>{' '}
         was credited to your wallet
-        {Number(receipt.platformFee) > 0
+        {new Decimal(receipt.platformFee || '0').gt(0)
           ? ' (after platform fee on profit).'
           : ' (no fee — no realised profit on this sale).'}
       </p>

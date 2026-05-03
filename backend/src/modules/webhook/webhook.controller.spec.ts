@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
+import type { Request } from 'express';
 import { WebhookController } from './webhook.controller';
 import { PaymentService } from '../payment/payment.service';
 import { WithdrawalService } from '../withdrawal/withdrawal.service';
@@ -23,8 +24,9 @@ describe('WebhookController', () => {
     }).compile();
 
     const controller = moduleRef.get(WebhookController);
+    const req = { rawBody: Buffer.from('{}') } as Request & { rawBody: Buffer };
     await expect(
-      controller.handleFlutterwaveWebhook('bad', { 'verif-hash': 'bad' }, { event: 'charge.completed' }),
+      controller.handleFlutterwaveWebhook('bad', {}, req, { event: 'charge.completed' }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

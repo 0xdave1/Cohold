@@ -10,6 +10,7 @@ import {
   countActiveAssets,
   investmentPositionValue,
   isActiveInvestmentStatus,
+  formatSharesQuantityForDisplay,
 } from '@/lib/money/portfolio';
 import Link from 'next/link';
 
@@ -76,7 +77,7 @@ export default function InvestmentsPage() {
         </p>
         <p className="text-[10px] text-dashboard-body/80 mb-3 text-center">
           Principal + returns · {numberOfAssets} {numberOfAssets === 1 ? 'asset' : 'assets'} ·{' '}
-          {Number(totalSharesRaw).toLocaleString(undefined, { maximumFractionDigits: 4 })} shares
+          {formatSharesQuantityForDisplay(totalSharesRaw)} shares
         </p>
 
         <div className="flex flex-col items-center">

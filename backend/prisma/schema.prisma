@@ -204,6 +204,28 @@ model Wallet {
   @@index([userId, currency])
 }
 
+/// DB-enforced idempotency key for balanced money movements (Issue 3). All new `Transaction` legs link here.
+model LedgerOperation {
+  id             String                @id @default(uuid())
+  reference      String                @unique
+  type           LedgerOperationType
+  status         LedgerOperationStatus @default(POSTED)
+  currency       Currency
+  totalAmount    Decimal               @db.Decimal(19, 4)
+  /// Canonical hash of posted legs — duplicate `reference` with different economics must fail closed.
+  legFingerprint String
+  metadata       Json?
+  sourceModule   String?
+  sourceId       String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  transactions   Transaction[]
+
+  @@index([type, createdAt])
+  @@index([status])
+  @@index([createdAt])
+}
+
 model Transaction {
   id                String               @id @default(uuid())
   walletId          String?
@@ -224,12 +246,15 @@ model Transaction {
   investmentId      String?
   /// Deprecated legacy grouping field. Use `reference` as the required grouping key.
   groupId           String
+  ledgerOperationId String?
+  ledgerLegIndex     Int?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
   investment        Investment?          @relation("InvestmentLedgerTx", fields: [investmentId], references: [id])
   property          Property?            @relation("PropertyTransactions", fields: [propertyId], references: [id])
   user              User?                @relation("UserTransactions", fields: [userId], references: [id])
   wallet            Wallet?              @relation("WalletTransactions", fields: [walletId], references: [id])
+  ledgerOperation   LedgerOperation?     @relation(fields: [ledgerOperationId], references: [id], onDelete: Restrict)
 
   @@index([userId])
   @@index([walletId])
@@ -240,6 +265,8 @@ model Transaction {
   @@index([type])
   @@index([propertyId])
   @@index([investmentId])
+  @@index([ledgerOperationId])
+  @@unique([ledgerOperationId, ledgerLegIndex])
 }
 
 /// User-linked payout destination (NGN-only at product level; currency field kept for future).
@@ -274,12 +301,19 @@ model Withdrawal {
   reference             String            @unique
   providerReference     String?
   providerTransferCode  String?
+  /// Last known Flutterwave transfer status string (e.g. NEW, SUCCESSFUL, FAILED).
+  providerStatus        String?
+  providerLastCheckedAt DateTime?
   amount                Decimal           @db.Decimal(19, 4)
   fee                   Decimal           @default(0) @db.Decimal(19, 4)
   netAmount             Decimal           @db.Decimal(19, 4)
   currency              Currency
   status                WithdrawalStatus  @default(PENDING)
   failureReason         String?
+  /// Set when provider reports SUCCESS after a local failure with reversal already posted (ops/finance follow-up).
+  reconciliationConflict   Boolean           @default(false)
+  reconciliationConflictReason String?
+  reconciliationConflictAt   DateTime?
   initiatedAt           DateTime          @default(now())
   processedAt           DateTime?
   completedAt           DateTime?
@@ -648,7 +682,11 @@ enum DistributionStatus {
 
 enum WithdrawalStatus {
   PENDING
+  /// Row claimed for exactly one payout initiation attempt (Flutterwave not yet finalized in DB).
+  INITIATING
   PROCESSING
+  /// Provider outcome unknown or ops follow-up required; never refund solely from this state.
+  RECONCILIATION_REQUIRED
   COMPLETED
   FAILED
   CANCELLED
@@ -678,4 +716,27 @@ enum SecurityEventType {
   PASSWORD_RESET
   SESSION_REVOKED
   USER_AGENT_MISMATCH
+}
+
+enum LedgerOperationType {
+  WALLET_FUNDING
+  WITHDRAWAL_DEBIT
+  WITHDRAWAL_REVERSAL
+  INVESTMENT_PURCHASE
+  INVESTMENT_SALE
+  ROI_DISTRIBUTION
+  REFERRAL_BONUS
+  TRANSFER
+  FEE
+  ADMIN_ADJUSTMENT
+  DEV_CREDIT
+  PROPERTY_RENT_DISTRIBUTION
+  LEGACY_UNKNOWN
+}
+
+enum LedgerOperationStatus {
+  POSTED
+  REVERSED
+  VOIDED
+  RECONCILIATION_REQUIRED
 }

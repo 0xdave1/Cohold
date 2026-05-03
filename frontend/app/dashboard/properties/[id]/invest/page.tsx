@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
+import Decimal from 'decimal.js';
 import { usePropertyDetails } from '@/lib/hooks/use-properties';
 import { useMyInvestments } from '@/lib/hooks/use-investments';
 import { useWalletBalances } from '@/lib/hooks/use-wallet';
@@ -48,11 +49,20 @@ export default function InvestFractionPage() {
   const preview = useMemo(() => {
     if (!property) return null;
     if (mode === 'amount') {
-      if (!cleanedAmount || Number(cleanedAmount) <= 0) return null;
+      if (!cleanedAmount) return null;
+      try {
+        if (new Decimal(cleanedAmount).lte(0)) return null;
+      } catch {
+        return null;
+      }
       return buyPreviewFromAmount(String(sharePrice), cleanedAmount);
     }
     const sh = shares.replace(/[^\d]/g, '') || '0';
-    if (!sh || Number(sh) <= 0) return null;
+    try {
+      if (!sh || new Decimal(sh).lte(0)) return null;
+    } catch {
+      return null;
+    }
     return buyPreviewFromShares(String(sharePrice), sh);
   }, [property, mode, cleanedAmount, shares, sharePrice]);
 

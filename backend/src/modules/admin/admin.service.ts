@@ -1,11 +1,13 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { AdminAccountStatus, AdminRole, KycStatus, Prisma } from '@prisma/client';
+import { AdminAccountStatus, AdminRole, KycStatus, Prisma, WithdrawalStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { toDecimal, formatMoney } from '../../common/money/decimal.util';
 import { WalletService } from '../wallet/wallet.service';
+import { LedgerReconciliationService } from '../wallet/ledger-reconciliation.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as bcrypt from 'bcrypt';
 import { StorageService } from '../storage/storage.service';
+import { WithdrawalService } from '../withdrawal/withdrawal.service';
 import { assertValidUpload, extensionFromFileName } from '../storage/upload-validation';
 
 type AdminUiRole = 'SUPER_ADMIN' | 'FINANCE_ADMIN' | 'OPERATION_ADMIN' | 'COMPLIANCE_ADMIN';
@@ -20,6 +22,8 @@ export class AdminService {
     private readonly walletService: WalletService,
     private readonly notificationsService: NotificationsService,
     private readonly storage: StorageService,
+    private readonly withdrawalService: WithdrawalService,
+    private readonly ledgerReconciliation: LedgerReconciliationService,
   ) {}
 
   async getDashboardOverview() {
@@ -957,6 +961,46 @@ export class AdminService {
     });
 
     return { message: 'Property deleted' };
+  }
+
+  async adminListWithdrawals(params: {
+    page: number;
+    limit: number;
+    status?: WithdrawalStatus;
+    stuckOnly?: boolean;
+    olderThanMinutes?: number;
+  }) {
+    return this.withdrawalService.adminListWithdrawals(params);
+  }
+
+  async adminReconcileWithdrawal(withdrawalId: string, adminId: string) {
+    const row = await this.withdrawalService.reconcileWithdrawalById(withdrawalId);
+    await this.prisma.adminActivityLog.create({
+      data: {
+        adminId,
+        action: 'RECONCILE_WITHDRAWAL',
+        entityType: 'Withdrawal',
+        entityId: withdrawalId,
+      },
+    });
+    return row;
+  }
+
+  async adminReconcileStaleWithdrawals(adminId: string, olderThanMinutes?: number) {
+    const out = await this.withdrawalService.reconcileStaleWithdrawals(olderThanMinutes ?? 30, 50);
+    await this.prisma.adminActivityLog.create({
+      data: {
+        adminId,
+        action: 'RECONCILE_STALE_WITHDRAWALS',
+        entityType: 'Withdrawal',
+        entityId: 'batch',
+      },
+    });
+    return out;
+  }
+
+  async getLedgerReconciliationReport() {
+    return this.ledgerReconciliation.buildReport();
   }
 }
 

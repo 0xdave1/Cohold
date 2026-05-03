@@ -2,15 +2,14 @@
 
 import { useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { FundWalletCard } from '@/components/wallet/FundWalletCard';
 import { useWalletBalances, formatMoney, useDevWalletCredit, useVerifyWalletPayment } from '@/lib/hooks/use-wallet';
+import { mapFinancialIntegrityError } from '@/lib/finance/financial-errors';
 
 function WalletPageInner() {
   const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
-  const { data: balances, isLoading: balLoading, refetch: refetchBalances } = useWalletBalances();
+  const { data: balances, isLoading: balLoading } = useWalletBalances();
   const verifyPayment = useVerifyWalletPayment();
   const devCredit = useDevWalletCredit();
 
@@ -29,10 +28,10 @@ function WalletPageInner() {
           },
         });
       }
-      queryClient.invalidateQueries({ queryKey: ['wallets'] });
-      refetchBalances();
+      // Do not invalidate/refetch balances here — only after verify succeeds
+      // (`useVerifyWalletPayment` onSuccess). Avoid implying funds before server confirmation.
     }
-  }, [searchParams, queryClient, refetchBalances, verifyPayment]);
+  }, [searchParams, verifyPayment]);
 
   const ngn = balances?.find((w) => w.currency === 'NGN');
 
@@ -62,7 +61,26 @@ function WalletPageInner() {
             {ngn ? formatMoney(ngn.balance, 'NGN') : '—'}
           </p>
         )}
+        <p className="mt-2 text-[11px] text-dashboard-muted">
+          Balance always comes from the server after ledger settlement — not from checkout redirect alone.
+        </p>
       </div>
+
+      {searchParams.get('status') === 'success' ? (
+        <div className="rounded-xl border border-dashboard-border bg-dashboard-card px-4 py-3 text-sm">
+          {verifyPayment.isPending ? (
+            <p className="text-amber-800">Verifying payment with the server… Your balance updates only after verification succeeds.</p>
+          ) : verifyPayment.isSuccess ? (
+            <p className="text-green-800">Payment verified. Refreshing wallet from the server…</p>
+          ) : verifyPayment.isError ? (
+            <p className="text-red-800" role="alert">
+              {mapFinancialIntegrityError(verifyPayment.error, 'Payment could not be verified. Your balance was not changed.')}
+            </p>
+          ) : (
+            <p className="text-dashboard-body">Return from checkout detected. If verification did not start automatically, open Wallet again from the menu.</p>
+          )}
+        </div>
+      ) : null}
 
       <FundWalletCard />
 

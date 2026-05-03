@@ -34,9 +34,23 @@ export type InitiateTransferResult = {
   accepted: boolean;
   providerReference: string | null;
   transferCode: string | null;
-  status: 'PROCESSING' | 'FAILED';
+  status: 'PROCESSING' | 'FAILED' | 'UNKNOWN';
   rawStatus?: string | null;
   failureReason?: string | null;
+  /**
+   * Network/timeout/5xx or unreadable response — do not treat as final provider failure or refund.
+   */
+  ambiguous?: boolean;
+};
+
+/** Result of polling a transfer by provider transfer id (Flutterwave `data.id`). */
+export type TransferPollResult = {
+  status: 'PROCESSING' | 'FAILED' | 'SUCCESS' | 'UNKNOWN';
+  providerReference: string | null;
+  transferCode: string | null;
+  rawStatus: string | null;
+  failureReason: string | null;
+  ambiguous?: boolean;
 };
 
 export type ParsedTransferWebhook = {
@@ -56,5 +70,6 @@ export interface PayoutProvider {
     rawBody?: Buffer | string,
   ): boolean;
   parseTransferWebhook(payload: Record<string, unknown>): ParsedTransferWebhook | null;
-  getTransferStatus?(providerReference: string): Promise<InitiateTransferResult>;
+  /** Poll provider for final transfer state (Flutterwave: GET /transfers/:id). */
+  getTransferStatus(transferId: string): Promise<TransferPollResult>;
 }

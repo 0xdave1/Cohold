@@ -4,12 +4,11 @@ import { useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { useP2PExecute, useP2PPreview } from '@/lib/hooks/use-p2p';
+import { formatDecimalMoneyForDisplay } from '@/lib/money/format-display';
 import { useP2PStore } from '@/stores/p2p.store';
 
 function formatMoney(currency: string, amount: string) {
-  const n = Number(amount);
-  if (!Number.isFinite(n)) return `${currency} ${amount}`;
-  return new Intl.NumberFormat('en-NG', { style: 'currency', currency }).format(n);
+  return formatDecimalMoneyForDisplay(amount, currency);
 }
 
 function createIdempotencyKey() {

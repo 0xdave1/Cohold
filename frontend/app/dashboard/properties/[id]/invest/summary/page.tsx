@@ -3,12 +3,8 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
-import {
-  invalidateInvestmentRelatedQueries,
-  useCreateInvestment,
-  usePropertyDetails,
-} from '@/lib/hooks/use-properties';
+import { useCreateInvestment, usePropertyDetails } from '@/lib/hooks/use-properties';
+import { mapFinancialIntegrityError } from '@/lib/finance/financial-errors';
 import { formatMoney } from '@/lib/hooks/use-wallet';
 import { buyPreviewFromShares } from '@/lib/money/buy-preview';
 import { INVESTMENT_FEE_RATE } from '@/lib/constants/investment';
@@ -18,7 +14,6 @@ export default function InvestSummaryPage() {
   const params = useParams();
   const search = useSearchParams();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const id = params.id as string;
   const { data: property } = usePropertyDetails(id);
   const createInvestment = useCreateInvestment();
@@ -47,13 +42,11 @@ export default function InvestSummaryPage() {
         shares,
         clientReference: `INV-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       });
-      await invalidateInvestmentRelatedQueries(queryClient);
       router.push(
         `/dashboard/properties/${id}/invest/success?shares=${encodeURIComponent(shares)}&amount=${encodeURIComponent(breakdown.principal)}&fee=${encodeURIComponent(breakdown.fee)}&total=${encodeURIComponent(breakdown.totalCharge)}`,
       );
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Something went wrong';
-      setErrorMessage(msg);
+      setErrorMessage(mapFinancialIntegrityError(e, 'Investment could not be completed.'));
     }
   };
 
@@ -80,7 +73,7 @@ export default function InvestSummaryPage() {
       </SectionCard>
 
       <p className="text-center text-[11px] text-dashboard-body">
-        You will be charged: {formatMoney(breakdown.totalCharge, property.currency)}
+        You will be charged: {formatMoney(breakdown.totalCharge, property.currency)} (wallet updates only after the server confirms the debit).
       </p>
 
       <div className="grid grid-cols-2 gap-2">

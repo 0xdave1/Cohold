@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { DataTable, type Column } from '@/components/admin/DataTable';
 import { adminApi } from '@/lib/admin/api';
 import type { WalletTransaction } from '@/lib/admin/types';
+import { formatDecimalMoneyForDisplay } from '@/lib/money/format-display';
 
 const STATUS_BADGE: Record<string, string> = {
   COMPLETED: 'bg-green-100 text-green-700',
@@ -15,7 +16,11 @@ const columns: Column<WalletTransaction>[] = [
   { key: 'reference', header: 'Reference', render: (r) => <span className="font-mono text-xs">{r.reference}</span> },
   { key: 'user', header: 'User', render: (r) => r.user ? [r.user.firstName, r.user.lastName].filter(Boolean).join(' ') || r.user.email : r.userId ?? '—' },
   { key: 'type', header: 'Type' },
-  { key: 'amount', header: 'Amount', render: (r) => `${r.currency} ${parseFloat(r.amount).toLocaleString()}` },
+  {
+    key: 'amount',
+    header: 'Amount',
+    render: (r) => `${r.currency} ${formatDecimalMoneyForDisplay(r.amount, r.currency)}`,
+  },
   { key: 'direction', header: 'Direction', render: (r) => <span className={r.direction === 'CREDIT' ? 'text-green-600' : 'text-gray-700'}>{r.direction}</span> },
   {
     key: 'status', header: 'Status',

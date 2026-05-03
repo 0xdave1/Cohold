@@ -3,43 +3,19 @@
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
-import { useWithdrawal, type WithdrawalStatusUi } from '@/lib/hooks/use-withdrawals';
+import { useWithdrawal } from '@/lib/hooks/use-withdrawals';
 import { formatMoney } from '@/lib/hooks/use-wallet';
+import {
+  isWithdrawalNonTerminal,
+  withdrawalHeadline,
+  withdrawalSubtitle,
+  withdrawalTone,
+  type WithdrawalStatus,
+} from '@/lib/withdrawals/status';
 
-function statusCopy(status: WithdrawalStatusUi): { title: string; subtitle: string } {
-  switch (status) {
-    case 'PENDING':
-      return {
-        title: 'Withdrawal request received',
-        subtitle: 'Your payout request has been accepted and is queued for provider processing.',
-      };
-    case 'PROCESSING':
-      return {
-        title: 'Withdrawal in progress',
-        subtitle: 'Payout has been initiated and is currently being processed by the provider.',
-      };
-    case 'COMPLETED':
-      return {
-        title: 'Withdrawal successful 🎉',
-        subtitle: '', // filled with amount line below
-      };
-    case 'FAILED':
-      return {
-        title: 'Withdrawal failed',
-        subtitle: 'Your withdrawal could not be completed.',
-      };
-    case 'CANCELLED':
-      return {
-        title: 'Withdrawal cancelled',
-        subtitle: 'This withdrawal was cancelled.',
-      };
-    default:
-      return { title: 'Withdrawal', subtitle: '' };
-  }
-}
-
-function StatusIcon({ status }: { status: WithdrawalStatusUi }) {
-  if (status === 'COMPLETED') {
+function StatusIcon({ status }: { status: WithdrawalStatus | 'UNKNOWN' }) {
+  const tone = withdrawalTone(status);
+  if (tone === 'success') {
     return (
       <div className="flex h-24 w-24 items-center justify-center rounded-2xl bg-[#D6EDF8]">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-cohold-blue">
@@ -50,7 +26,7 @@ function StatusIcon({ status }: { status: WithdrawalStatusUi }) {
       </div>
     );
   }
-  if (status === 'FAILED') {
+  if (tone === 'failure') {
     return (
       <div className="flex h-24 w-24 items-center justify-center rounded-2xl bg-red-50">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500">
@@ -112,25 +88,36 @@ export default function WithdrawalResultPage() {
     );
   }
 
-  const { title, subtitle } = statusCopy(w.status);
+  const title = withdrawalHeadline(w.status);
+  const subtitle = withdrawalSubtitle(w.status);
   const recipient = w.recipientBank;
   const acct = recipient?.accountNumber ?? '—';
   const name = recipient?.accountName ?? '—';
   const bank = recipient?.bankName ?? '—';
 
-  const successLine =
+  const bodyLine =
     w.status === 'COMPLETED'
       ? `You have successfully withdrawn ${formatMoney(w.amount, 'NGN' as const)}.`
       : subtitle;
+
+  const showProviderHint =
+    isWithdrawalNonTerminal(w.status) && (w.providerStatus || w.providerTransferCode);
 
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col px-4 pb-28 pt-8">
       <div className="flex flex-1 flex-col items-center text-center">
         <StatusIcon status={w.status} />
         <h1 className="mt-6 text-xl font-semibold text-dashboard-heading">{title}</h1>
-        <p className="mt-2 text-sm leading-relaxed text-dashboard-body">{successLine}</p>
+        <p className="mt-2 text-sm leading-relaxed text-dashboard-body">{bodyLine}</p>
         {w.status === 'FAILED' && w.failureReason ? (
           <p className="mt-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-800">{w.failureReason}</p>
+        ) : null}
+        {showProviderHint ? (
+          <p className="mt-2 max-w-sm text-[11px] leading-relaxed text-dashboard-body/80">
+            {w.providerStatus ? <>Provider status: {w.providerStatus}. </> : null}
+            {w.providerTransferCode ? <>Transfer id: {w.providerTransferCode}. </> : null}
+            This is informational only; the status above is what we store from the latest check.
+          </p>
         ) : null}
         <p className="mt-2 text-[11px] text-dashboard-body/70">Ref: {w.reference}</p>
       </div>
@@ -168,7 +155,7 @@ export default function WithdrawalResultPage() {
           Go back Home
         </button>
       </div>
-      {(w.status === 'PENDING' || w.status === 'PROCESSING') && (
+      {isWithdrawalNonTerminal(w.status) && (
         <button
           type="button"
           onClick={() => refetch()}

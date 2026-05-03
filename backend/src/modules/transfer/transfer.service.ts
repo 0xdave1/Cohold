@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { P2PTransferDto } from './dto/p2p-transfer.dto';
 import { toDecimal, formatMoney } from '../../common/money/decimal.util';
 import { fixMoney, moneyStr } from '../../common/money/precision.constants';
-import { Currency, Prisma, TransactionDirection, TransactionType } from '@prisma/client';
+import { Currency, LedgerOperationType, Prisma, TransactionDirection, TransactionType } from '@prisma/client';
 import { normalizeUsername } from '../../common/username/username.util';
 import { P2PExecuteDto } from './dto/p2p-execute.dto';
 import { P2PPreviewDto } from './dto/p2p-preview.dto';
@@ -240,7 +240,11 @@ export class TransferService {
             netAmount: recipientAmount,
             metadata: recipientMeta,
           },
-        ]);
+        ], {
+          operationType: LedgerOperationType.TRANSFER,
+          sourceModule: 'transfer.executeP2PTransfer',
+          sourceId: transfer.id,
+        });
 
         return transfer;
       });
@@ -439,7 +443,11 @@ export class TransferService {
             groupId: baseRef,
           } as Prisma.InputJsonValue,
         },
-      ]);
+      ], {
+        operationType: LedgerOperationType.TRANSFER,
+        sourceModule: 'transfer.p2pTransfer',
+        sourceId: baseRef,
+      });
 
       const updatedSenderWallet = await tx.wallet.findUniqueOrThrow({ where: { id: senderWallet.id } });
       const updatedRecipientWallet = await tx.wallet.findUniqueOrThrow({

@@ -1,7 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { useAuthReady } from '@/lib/hooks/use-auth-ready';
-import Decimal from 'decimal.js';
+import {
+  FLUTTERWAVE_WALLET_FUNDING_INITIALIZE_PATH,
+  flutterwaveWalletFundingVerifyPath,
+} from '@/lib/constants/wallet-funding';
+import type Decimal from 'decimal.js';
+import { formatDecimalMoneyForDisplay } from '@/lib/money/format-display';
 
 export interface WalletBalance {
   id: string;
@@ -18,6 +23,8 @@ export interface Transaction {
   currency: string;
   direction: 'CREDIT' | 'DEBIT';
   createdAt: string;
+  /** Links this leg to a `LedgerOperation` when the backend has posted under Issue 3. */
+  ledgerOperationId?: string | null;
 }
 
 export interface VirtualAccount {
@@ -58,33 +65,20 @@ export function useWalletBalances() {
   });
 }
 
-export function useWalletTopUp() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (data: {
-      currency: 'NGN';
-      amount: string;
-      clientReference?: string;
-    }) => {
-      return apiClient.post('/wallets/top-up', data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['wallets'] });
-    },
-  });
-}
-
 export interface InitializePaymentResponse {
   checkoutUrl: string;
   reference: string;
 }
 
+/**
+ * Starts Flutterwave-hosted checkout only (server: `PaymentsController` initialize).
+ * Never use a removed self-credit wallet route.
+ */
 export function useInitializeWalletPayment() {
   return useMutation({
     mutationFn: async (body: { amount: string; currency: 'NGN' }) => {
       const res = await apiClient.post<InitializePaymentResponse>(
-        '/payments/flutterwave/initialize',
+        FLUTTERWAVE_WALLET_FUNDING_INITIALIZE_PATH,
         body,
       );
       if (!res.success || !res.data?.checkoutUrl) {
@@ -95,11 +89,12 @@ export function useInitializeWalletPayment() {
   });
 }
 
+/** After Flutterwave redirect; confirms payment server-side before wallet balance updates. */
 export function useVerifyWalletPayment() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (reference: string) => {
-      const res = await apiClient.get(`/payments/verify/${encodeURIComponent(reference)}`);
+      const res = await apiClient.get(flutterwaveWalletFundingVerifyPath(reference));
       if (!res.success) {
         throw new Error(res.error ?? 'Failed to verify payment');
       }
@@ -107,6 +102,7 @@ export function useVerifyWalletPayment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['wallets'] });
+      queryClient.invalidateQueries({ queryKey: ['wallets', 'transactions'] });
     },
   });
 }
@@ -122,6 +118,7 @@ export function useDevWalletCredit() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['wallets'] });
+      queryClient.invalidateQueries({ queryKey: ['wallets', 'transactions'] });
     },
   });
 }
@@ -166,15 +163,7 @@ export function useWalletTransactions(filters: TransactionFilters = {}) {
   });
 }
 
-/**
- * Format money for display using Intl.NumberFormat.
- */
+/** Format backend decimal strings for UI without floating-point conversion. */
 export function formatMoney(amount: string | Decimal, currency: string): string {
-  const decimal = typeof amount === 'string' ? new Decimal(amount) : amount;
-  return new Intl.NumberFormat('en-NG', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(decimal.toNumber());
+  return formatDecimalMoneyForDisplay(amount, currency);
 }

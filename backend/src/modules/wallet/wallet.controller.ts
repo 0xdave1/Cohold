@@ -3,10 +3,14 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { WalletService } from './wallet.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { WalletTopUpDto } from './dto/wallet-top-up.dto';
 import { WalletSwapDto } from './dto/wallet-swap.dto';
 import { WalletDevCreditDto } from './dto/wallet-dev-credit.dto';
 
+/**
+ * Security (Issue 1): Authenticated users must never be able to mint wallet balance.
+ * There is no POST /wallets/top-up and no user-supplied “credit” DTO. NGN credits only
+ * flow from verified Flutterwave settlement (PaymentService) or this dev-only escape hatch.
+ */
 @ApiTags('wallets')
 @ApiBearerAuth('user-jwt')
 @UseGuards(JwtAuthGuard)
@@ -24,17 +28,15 @@ export class WalletController {
     return this.walletService.getVirtualAccounts(user.id);
   }
 
-  @Post('top-up')
-  async topUp(@CurrentUser() user: { id: string }, @Body() dto: WalletTopUpDto) {
-    return this.walletService.topUp(user.id, dto);
-  }
-
   @Post('swap')
   async swap(@CurrentUser() user: { id: string }, @Body() dto: WalletSwapDto) {
     return this.walletService.swap(user.id, dto);
   }
 
-  /** Dev-only: credit wallet without Paystack (disabled in production). */
+  /**
+   * Local/test-only: synthetic ledger credit for QA. Must never be reachable in production
+   * (controller + service guard). Not used by webhooks, payments, or investments.
+   */
   @Post('dev-credit')
   async devCredit(@CurrentUser() user: { id: string }, @Body() dto: WalletDevCreditDto) {
     if (process.env.NODE_ENV === 'production') {

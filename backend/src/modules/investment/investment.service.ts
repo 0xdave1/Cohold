@@ -19,6 +19,7 @@ import {
 } from '../../common/money/precision.constants';
 import {
   InvestmentStatus,
+  LedgerOperationType,
   PropertyStatus,
   Prisma,
   TransactionDirection,
@@ -244,7 +245,11 @@ export class InvestmentService {
             groupId: txRef,
           } as Prisma.InputJsonValue,
         },
-      ]);
+      ], {
+        operationType: LedgerOperationType.INVESTMENT_PURCHASE,
+        sourceModule: 'investment.createFractional',
+        sourceId: investment.id,
+      });
 
       const updatedUserWallet = await tx.wallet.findUniqueOrThrow({
         where: { id: userWallet.id },
@@ -441,6 +446,7 @@ export class InvestmentService {
         });
       }
 
+      const primaryInvestmentId = slices[0]?.investmentId;
       const txRef = clientRef ?? `SELL-${randomUUID()}`;
       await this.walletService.postDoubleEntry(tx, txRef, [
         {
@@ -499,10 +505,13 @@ export class InvestmentService {
               },
             ]
           : []),
-      ]);
+      ], {
+        operationType: LedgerOperationType.INVESTMENT_SALE,
+        sourceModule: 'investment.sellFractional',
+        sourceId: primaryInvestmentId ?? userId,
+      });
 
       const uw = await tx.wallet.findUniqueOrThrow({ where: { id: userWallet.id } });
-      const primaryInvestmentId = slices[0]?.investmentId;
       return {
         sellAmount: formatMoney(sellAmount),
         fee: formatMoney(platformFee),
@@ -742,7 +751,11 @@ export class InvestmentService {
               groupId,
             } as Prisma.InputJsonValue,
           },
-        ]);
+        ], {
+          operationType: LedgerOperationType.ROI_DISTRIBUTION,
+          sourceModule: 'investment.distributeROI',
+          sourceId: p.investmentId,
+        });
       }
 
       if (options?.adminId) {

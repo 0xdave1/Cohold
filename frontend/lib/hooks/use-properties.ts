@@ -1,4 +1,4 @@
-import { useQuery, useMutation, type QueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { useAuthReady } from '@/lib/hooks/use-auth-ready';
 
@@ -95,6 +95,7 @@ export async function invalidateInvestmentRelatedQueries(queryClient: QueryClien
     queryClient.invalidateQueries({ queryKey: ['investments'] }),
     queryClient.invalidateQueries({ queryKey: ['properties'] }),
     queryClient.invalidateQueries({ queryKey: ['wallets'] }),
+    queryClient.invalidateQueries({ queryKey: ['wallets', 'transactions'] }),
   ]);
   await Promise.all([
     queryClient.refetchQueries({ queryKey: ['wallets', 'balances'] }),
@@ -104,6 +105,7 @@ export async function invalidateInvestmentRelatedQueries(queryClient: QueryClien
 }
 
 export function useCreateInvestment() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: {
       propertyId: string;
@@ -115,6 +117,9 @@ export function useCreateInvestment() {
         throw new Error(res.error ?? 'Investment could not be completed');
       }
       return res.data;
+    },
+    onSuccess: async () => {
+      await invalidateInvestmentRelatedQueries(queryClient);
     },
   });
 }

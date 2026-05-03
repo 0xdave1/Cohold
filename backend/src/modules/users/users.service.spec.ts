@@ -39,6 +39,7 @@ describe('UsersService linked banks', () => {
         isVerified: true,
       }),
       listSupportedBanks: jest.fn().mockResolvedValue([{ code: '058', name: 'GTBank' }]),
+      getTransferStatus: jest.fn(),
     };
     const moduleRef = await Test.createTestingModule({
       providers: [

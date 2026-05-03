@@ -23,6 +23,7 @@ export function useCreateFractionalInvestment() {
       queryClient.invalidateQueries({ queryKey: ['properties'] });
       queryClient.invalidateQueries({ queryKey: ['wallets'] });
       queryClient.invalidateQueries({ queryKey: ['wallets', 'balances'] });
+      queryClient.invalidateQueries({ queryKey: ['wallets', 'transactions'] });
     },
   });
 }

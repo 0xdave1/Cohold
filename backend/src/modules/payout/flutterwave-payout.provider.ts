@@ -9,6 +9,7 @@ import {
   ResolveBankAccountInput,
   ResolveBankAccountResult,
   SupportedBank,
+  TransferPollResult,
 } from './payout-provider.interface';
 
 @Injectable()
@@ -97,6 +98,46 @@ export class FlutterwavePayoutProvider implements PayoutProvider {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  private isAmbiguousAxiosError(error: unknown): boolean {
+    if (!axios.isAxiosError(error)) return true;
+    const status = error.response?.status;
+    if (status == null) return true;
+    if (status >= 500) return true;
+    return false;
+  }
+
+  private mapDataStatusToInitiateResult(
+    data: {
+      id?: number | string;
+      reference?: string;
+      status?: string;
+      complete_message?: string | null;
+    } | undefined,
+    input: InitiateTransferInput,
+    apiMessage?: string,
+  ): InitiateTransferResult {
+    const rawStatus = String(data?.status ?? '').toLowerCase();
+    const normalized =
+      rawStatus === 'successful'
+        ? 'PROCESSING'
+        : rawStatus === 'failed' || rawStatus === 'rejected'
+          ? 'FAILED'
+          : 'PROCESSING';
+
+    return {
+      accepted: normalized !== 'FAILED',
+      providerReference: data?.reference ? String(data.reference) : input.reference,
+      transferCode: data?.id != null ? String(data.id) : null,
+      status: normalized,
+      rawStatus: rawStatus || null,
+      ambiguous: false,
+      failureReason:
+        normalized === 'FAILED'
+          ? String(data?.complete_message ?? apiMessage ?? 'Transfer rejected')
+          : null,
+    };
+  }
+
   async initiateTransfer(input: InitiateTransferInput): Promise<InitiateTransferResult> {
     try {
       const response = await this.client.post<{
@@ -119,35 +160,96 @@ export class FlutterwavePayoutProvider implements PayoutProvider {
       });
 
       const data = response.data?.data;
-      const rawStatus = String(data?.status ?? '').toLowerCase();
-      const normalized =
-        rawStatus === 'successful'
-          ? 'PROCESSING'
-          : rawStatus === 'failed' || rawStatus === 'rejected'
-            ? 'FAILED'
-            : 'PROCESSING';
-
-      return {
-        accepted: normalized !== 'FAILED',
-        providerReference: data?.reference ? String(data.reference) : input.reference,
-        transferCode: data?.id != null ? String(data.id) : null,
-        status: normalized,
-        rawStatus: rawStatus || null,
-        failureReason:
-          normalized === 'FAILED'
-            ? String(data?.complete_message ?? response.data?.message ?? 'Transfer rejected')
-            : null,
-      };
+      if (response.data?.status !== 'success' && response.data?.status !== 'SUCCESS') {
+        const msg = String(response.data?.message ?? 'Transfer initiation returned non-success');
+        return {
+          accepted: false,
+          providerReference: input.reference,
+          transferCode: data?.id != null ? String(data.id) : null,
+          status: 'FAILED',
+          rawStatus: String(data?.status ?? ''),
+          ambiguous: false,
+          failureReason: msg,
+        };
+      }
+      return this.mapDataStatusToInitiateResult(data, input, response.data?.message);
     } catch (error) {
       if (axios.isAxiosError(error)) {
+        const ambiguous = this.isAmbiguousAxiosError(error);
+        if (ambiguous) {
+          return {
+            accepted: false,
+            providerReference: input.reference,
+            transferCode: null,
+            status: 'UNKNOWN',
+            rawStatus: null,
+            ambiguous: true,
+            failureReason: error.message || 'Provider transfer initiation unreachable',
+          };
+        }
         return {
           accepted: false,
           providerReference: input.reference,
           transferCode: null,
           status: 'FAILED',
           rawStatus: null,
+          ambiguous: false,
           failureReason:
-            error.response?.data?.message ?? 'Provider transfer initiation failed',
+            (error.response?.data as { message?: string } | undefined)?.message ??
+            'Provider transfer initiation failed',
+        };
+      }
+      throw error;
+    }
+  }
+
+  async getTransferStatus(transferId: string): Promise<TransferPollResult> {
+    try {
+      const response = await this.client.get<{
+        status: string;
+        message?: string;
+        data?: {
+          id?: number | string;
+          reference?: string;
+          status?: string;
+          complete_message?: string | null;
+        };
+      }>(`/transfers/${encodeURIComponent(transferId)}`);
+
+      const data = response.data?.data;
+      const rawStatus = String(data?.status ?? '').toUpperCase();
+      let status: TransferPollResult['status'] = 'UNKNOWN';
+      if (rawStatus === 'SUCCESSFUL') status = 'SUCCESS';
+      else if (rawStatus === 'FAILED' || rawStatus === 'REJECTED') status = 'FAILED';
+      else if (
+        rawStatus === 'NEW' ||
+        rawStatus === 'PENDING' ||
+        rawStatus === 'PROCESSING' ||
+        rawStatus === 'PENDING_APPROVAL'
+      ) {
+        status = 'PROCESSING';
+      }
+
+      return {
+        status,
+        providerReference: data?.reference ? String(data.reference) : null,
+        transferCode: data?.id != null ? String(data.id) : transferId,
+        rawStatus: rawStatus || null,
+        ambiguous: false,
+        failureReason:
+          status === 'FAILED'
+            ? String(data?.complete_message ?? response.data?.message ?? 'Transfer failed')
+            : null,
+      };
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        return {
+          status: 'UNKNOWN',
+          providerReference: null,
+          transferCode: transferId,
+          rawStatus: null,
+          ambiguous: this.isAmbiguousAxiosError(error),
+          failureReason: error.message || 'Transfer status poll failed',
         };
       }
       throw error;

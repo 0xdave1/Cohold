@@ -12,6 +12,7 @@ import {
   SlidersHorizontal,
   Plus,
 } from 'lucide-react';
+import { formatDecimalMoneyForDisplay } from '@/lib/money/format-display';
 
 const LIMIT = 10;
 
@@ -29,9 +30,8 @@ function shortId(id: string) {
 }
 
 function fmtMoney(v: string | number, cur = 'NGN') {
-  const symbols: Record<string, string> = { NGN: '\u20A6', USD: '$', GBP: '\u00A3', EUR: '\u20AC' };
-  const n = typeof v === 'string' ? parseFloat(v) || 0 : v;
-  return `${symbols[cur] ?? ''}${new Intl.NumberFormat('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`;
+  const s = typeof v === 'number' ? String(v) : v;
+  return formatDecimalMoneyForDisplay(s, cur);
 }
 
 function fmtDate(iso: string) {

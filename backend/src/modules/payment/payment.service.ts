@@ -2,7 +2,13 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { Currency, TransactionDirection, TransactionStatus, TransactionType } from '@prisma/client';
+import {
+  Currency,
+  LedgerOperationType,
+  TransactionDirection,
+  TransactionStatus,
+  TransactionType,
+} from '@prisma/client';
 import { toDecimal } from '../../common/money/decimal.util';
 import Decimal from 'decimal.js';
 import { FlutterwaveService } from './flutterwave.service';
@@ -78,6 +84,10 @@ export class PaymentService {
     };
   }
 
+  /**
+   * Issue 1: Production wallet credits only after Flutterwave verification (verify API or webhook).
+   * This path never accepts user-controlled references from a generic “top-up” HTTP DTO.
+   */
   async processWalletFunding(
     tx: Prisma.TransactionClient,
     data: {
@@ -87,15 +97,6 @@ export class PaymentService {
       providerTransactionId?: string | null;
     },
   ): Promise<{ legs: Array<{ id: string; createdAt: Date; updatedAt: Date }>; didCredit: boolean }> {
-    const existing = await tx.transaction.findMany({
-      where: { reference: data.reference, type: TransactionType.WALLET_TOP_UP },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, createdAt: true, updatedAt: true },
-    });
-    if (existing.length >= 2) {
-      return { legs: existing, didCredit: false };
-    }
-
     let userWallet = await tx.wallet.findUnique({
       where: { userId_currency: { userId: data.userId, currency: Currency.NGN } },
       select: { id: true },
@@ -117,41 +118,50 @@ export class PaymentService {
       throw new NotFoundException('Wallet not found');
     }
     const platformWallet = await this.walletService.getPlatformWallet(tx as Prisma.TransactionClient, Currency.NGN);
-    const legs = await this.walletService.postDoubleEntry(tx as Prisma.TransactionClient, data.reference, [
+    const { legs, created } = await this.walletService.postDoubleEntry(
+      tx as Prisma.TransactionClient,
+      data.reference,
+      [
+        {
+          walletId: platformWallet.id,
+          userId: PLATFORM_USER_ID,
+          type: TransactionType.WALLET_TOP_UP,
+          direction: TransactionDirection.DEBIT,
+          amount: data.amount,
+          currency: Currency.NGN,
+          externalReference: data.providerTransactionId ?? null,
+          netAmount: data.amount,
+          metadata: {
+            provider: 'flutterwave',
+            providerTransactionId: data.providerTransactionId ?? null,
+            reason: 'flutterwave_wallet_funding',
+          } as Prisma.InputJsonValue,
+        },
+        {
+          walletId: userWallet.id,
+          userId: data.userId,
+          type: TransactionType.WALLET_TOP_UP,
+          direction: TransactionDirection.CREDIT,
+          amount: data.amount,
+          currency: Currency.NGN,
+          externalReference: data.providerTransactionId ?? null,
+          netAmount: data.amount,
+          metadata: {
+            provider: 'flutterwave',
+            providerTransactionId: data.providerTransactionId ?? null,
+            reason: 'flutterwave_wallet_funding',
+          } as Prisma.InputJsonValue,
+        },
+      ],
       {
-        walletId: platformWallet.id,
-        userId: PLATFORM_USER_ID,
-        type: TransactionType.WALLET_TOP_UP,
-        direction: TransactionDirection.DEBIT,
-        amount: data.amount,
-        currency: Currency.NGN,
-        externalReference: data.providerTransactionId ?? null,
-        netAmount: data.amount,
-        metadata: {
-          provider: 'flutterwave',
-          providerTransactionId: data.providerTransactionId ?? null,
-          reason: 'flutterwave_wallet_funding',
-        } as Prisma.InputJsonValue,
+        operationType: LedgerOperationType.WALLET_FUNDING,
+        sourceModule: 'payment.processWalletFunding',
+        sourceId: data.reference,
       },
-      {
-        walletId: userWallet.id,
-        userId: data.userId,
-        type: TransactionType.WALLET_TOP_UP,
-        direction: TransactionDirection.CREDIT,
-        amount: data.amount,
-        currency: Currency.NGN,
-        externalReference: data.providerTransactionId ?? null,
-        netAmount: data.amount,
-        metadata: {
-          provider: 'flutterwave',
-          providerTransactionId: data.providerTransactionId ?? null,
-          reason: 'flutterwave_wallet_funding',
-        } as Prisma.InputJsonValue,
-      },
-    ]);
+    );
     return {
       legs: legs.map((x) => ({ id: x.id, createdAt: x.createdAt, updatedAt: x.updatedAt })),
-      didCredit: true,
+      didCredit: created,
     };
   }
 

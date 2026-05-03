@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 import { usePropertyDetails } from '@/lib/hooks/use-properties';
 import { useMyInvestments } from '@/lib/hooks/use-investments';
 import { formatMoney } from '@/lib/hooks/use-wallet';
+import { sumDecimalStrings } from '@/lib/money/format-display';
 import { BackIconButton, PrimaryButton, SectionCard } from '../../_components/listing-ui';
 
 export default function OwnHomePage() {
@@ -19,7 +20,7 @@ export default function OwnHomePage() {
     const items = myInvestments?.items ?? [];
     const active = items.filter((i) => (i.status ?? 'ACTIVE') === 'ACTIVE');
     const same = active.filter((i) => i.currency === (property?.currency ?? 'NGN'));
-    return String(same.reduce((acc, i) => acc + Number(i.amount), 0));
+    return sumDecimalStrings(same.map((i) => String(i.amount ?? '0')));
   }, [myInvestments?.items, property?.currency]);
 
   if (!property) return <div className="h-64 animate-pulse rounded-xl bg-dashboard-border/60" />;

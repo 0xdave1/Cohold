@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { DataTable, type Column } from '@/components/admin/DataTable';
 import { adminApi } from '@/lib/admin/api';
+import { formatDecimalMoneyForDisplay } from '@/lib/money/format-display';
 
 interface FeeLog {
   id: string;
@@ -17,7 +18,7 @@ interface FeeLog {
 const columns: Column<FeeLog>[] = [
   { key: 'reference', header: 'Reference', render: (r) => <span className="font-mono text-xs">{r.reference}</span> },
   { key: 'type', header: 'Fee type' },
-  { key: 'amount', header: 'Amount', render: (r) => `${r.currency} ${parseFloat(r.amount).toLocaleString()}` },
+  { key: 'amount', header: 'Amount', render: (r) => formatDecimalMoneyForDisplay(r.amount, r.currency) },
   { key: 'userId', header: 'User ID', render: (r) => r.userId ?? '—' },
   { key: 'createdAt', header: 'Date', render: (r) => new Date(r.createdAt).toLocaleDateString() },
 ];

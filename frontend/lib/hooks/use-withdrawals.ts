@@ -1,15 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { useAuthReady } from '@/lib/hooks/use-auth-ready';
+import {
+  isWithdrawalNonTerminal,
+  parseWithdrawalStatus,
+  type WithdrawalStatus,
+} from '@/lib/withdrawals/status';
 
 export const WITHDRAWALS_QUERY_KEY = ['withdrawals'] as const;
 
-export type WithdrawalStatusUi =
-  | 'PENDING'
-  | 'PROCESSING'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELLED';
+export type { WithdrawalStatus };
 
 export interface WithdrawalRecipientBank {
   id: string;
@@ -27,8 +27,15 @@ export interface WithdrawalRecord {
   fee: string;
   netAmount: string;
   currency: string;
-  status: WithdrawalStatusUi;
+  status: WithdrawalStatus | 'UNKNOWN';
   failureReason: string | null;
+  providerReference?: string | null;
+  providerTransferCode?: string | null;
+  providerStatus?: string | null;
+  providerLastCheckedAt?: string | null;
+  reconciliationConflict?: boolean;
+  reconciliationConflictReason?: string | null;
+  reconciliationConflictAt?: string | null;
   initiatedAt: string;
   processedAt: string | null;
   completedAt: string | null;
@@ -44,20 +51,29 @@ export interface WithdrawalsListResponse {
   meta: { page: number; limit: number; total: number; totalPages: number };
 }
 
+function normalizeWithdrawalPayload(raw: Omit<WithdrawalRecord, 'status'> & { status: string }): WithdrawalRecord {
+  return {
+    ...raw,
+    status: parseWithdrawalStatus(raw.status),
+  };
+}
+
 export function useWithdrawal(withdrawalId: string | null) {
   const authReady = useAuthReady();
   return useQuery({
     queryKey: [...WITHDRAWALS_QUERY_KEY, withdrawalId],
     queryFn: async () => {
       if (!withdrawalId) return null;
-      const res = await apiClient.get<WithdrawalRecord>(`/withdrawals/${withdrawalId}`);
+      const res = await apiClient.get<Omit<WithdrawalRecord, 'status'> & { status: string }>(
+        `/withdrawals/${withdrawalId}`,
+      );
       if (!res.success) throw new Error(res.error ?? 'Failed to load withdrawal');
-      return res.data;
+      return normalizeWithdrawalPayload(res.data);
     },
     enabled: !!withdrawalId && authReady,
     refetchInterval: (q) => {
       const s = q.state.data?.status;
-      return s === 'PENDING' || s === 'PROCESSING' ? 8000 : false;
+      return s != null && isWithdrawalNonTerminal(s) ? 8000 : false;
     },
   });
 }
@@ -66,18 +82,20 @@ export function useCreateWithdrawal() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (body: {
+      idempotencyKey: string;
       linkedBankAccountId: string;
       amount: string;
       currency: 'NGN';
       otp: string;
     }) => {
-      const res = await apiClient.post<WithdrawalRecord>('/withdrawals', body);
+      const res = await apiClient.post<Omit<WithdrawalRecord, 'status'> & { status: string }>('/withdrawals', body);
       if (!res.success) throw new Error(res.error ?? 'Withdrawal failed');
-      return res.data;
+      return normalizeWithdrawalPayload(res.data);
     },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['wallets', 'balances'] }),
+        queryClient.invalidateQueries({ queryKey: ['wallets', 'transactions'] }),
         queryClient.invalidateQueries({ queryKey: [...WITHDRAWALS_QUERY_KEY] }),
       ]);
     },

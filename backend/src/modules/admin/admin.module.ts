@@ -4,9 +4,10 @@ import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 import { WalletModule } from '../wallet/wallet.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { WithdrawalModule } from '../withdrawal/withdrawal.module';
 
 @Module({
-  imports: [AuthModule, WalletModule, NotificationsModule],
+  imports: [AuthModule, WalletModule, NotificationsModule, WithdrawalModule],
   controllers: [AdminController],
   providers: [AdminService],
   exports: [AdminService],

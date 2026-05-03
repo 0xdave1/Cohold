@@ -1,11 +1,22 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminRoleGuard } from '../../common/guards/admin-role.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { AdminRole } from '@prisma/client';
+import { AdminRole, WithdrawalStatus } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PresignPropertyImageDto } from './dto/presign-property-image.dto';
 import { CompletePropertyImageDto } from './dto/complete-property-image.dto';
@@ -171,6 +182,55 @@ export class AdminController {
   @Post('admins/:id/deactivate')
   async deactivateAdmin(@Param('id') id: string, @CurrentUser() admin: { id: string }) {
     return this.adminService.deactivateAdmin(id, admin.id);
+  }
+
+  @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Get('withdrawals')
+  async listWithdrawals(
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+    @Query('status') status?: string,
+    @Query('stuckOnly') stuckOnly?: string,
+    @Query('olderThanMinutes') olderThanMinutes?: string,
+  ) {
+    let parsedStatus: WithdrawalStatus | undefined;
+    if (status) {
+      if (!Object.values(WithdrawalStatus).includes(status as WithdrawalStatus)) {
+        throw new BadRequestException('Invalid withdrawal status filter');
+      }
+      parsedStatus = status as WithdrawalStatus;
+    }
+    return this.adminService.adminListWithdrawals({
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
+      status: parsedStatus,
+      stuckOnly: stuckOnly === '1' || stuckOnly === 'true',
+      olderThanMinutes: olderThanMinutes ? parseInt(olderThanMinutes, 10) : undefined,
+    });
+  }
+
+  @Roles(AdminRole.SUPER_ADMIN, AdminRole.APPROVER)
+  @Post('withdrawals/:id/reconcile')
+  async reconcileWithdrawal(@Param('id') id: string, @CurrentUser() admin: { id: string }) {
+    return this.adminService.adminReconcileWithdrawal(id, admin.id);
+  }
+
+  @Roles(AdminRole.SUPER_ADMIN)
+  @Get('ledger/reconciliation')
+  async ledgerReconciliation() {
+    return this.adminService.getLedgerReconciliationReport();
+  }
+
+  @Roles(AdminRole.SUPER_ADMIN)
+  @Post('withdrawals/reconcile-stale')
+  async reconcileStaleWithdrawals(
+    @CurrentUser() admin: { id: string },
+    @Query('olderThanMinutes') olderThanMinutes?: string,
+  ) {
+    return this.adminService.adminReconcileStaleWithdrawals(
+      admin.id,
+      olderThanMinutes ? parseInt(olderThanMinutes, 10) : undefined,
+    );
   }
 
   @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)

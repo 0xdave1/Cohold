@@ -14,15 +14,16 @@ import {
   FileText,
   MoreHorizontal,
 } from 'lucide-react';
+import Decimal from 'decimal.js';
+import { formatDecimalMoneyForDisplay } from '@/lib/money/format-display';
 
 type Tab = 'info' | 'features' | 'investors' | 'documents';
 
 /* ── helpers ─────────────────────────────────────── */
 
 function fmtMoney(v: string | number, cur = 'NGN') {
-  const symbols: Record<string, string> = { NGN: '\u20A6', USD: '$', GBP: '\u00A3', EUR: '\u20AC' };
-  const n = typeof v === 'string' ? parseFloat(v) || 0 : v;
-  return `${symbols[cur] ?? ''}${new Intl.NumberFormat('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`;
+  const s = typeof v === 'number' ? String(v) : v;
+  return formatDecimalMoneyForDisplay(s, cur);
 }
 
 function fmtDate(iso: string) {
@@ -208,9 +209,13 @@ function InfoRow({ label, value, valueColor }: { label: string; value: string | 
 /* ── Property Info Tab ───────────────────────────── */
 
 function PropertyInfoTab({ prop }: { prop: PropertyDetail }) {
-  const sharesTotal = parseFloat(prop.sharesTotal) || 0;
-  const sharesSold = parseFloat(prop.sharesSold) || 0;
-  const yieldPct = prop.yieldPercentage ?? (sharesTotal > 0 ? ((sharesSold / sharesTotal) * 100).toFixed(1) : '0');
+  const sharesTotal = new Decimal(prop.sharesTotal || '0');
+  const sharesSold = new Decimal(prop.sharesSold || '0');
+  const yieldPct =
+    prop.yieldPercentage ??
+    (sharesTotal.gt(0)
+      ? sharesSold.div(sharesTotal).times(100).toDecimalPlaces(1, Decimal.ROUND_HALF_UP).toFixed(1)
+      : '0');
 
   return (
     <div className="space-y-6">
@@ -224,7 +229,7 @@ function PropertyInfoTab({ prop }: { prop: PropertyDetail }) {
           <InfoRow label="Share price" value={fmtMoney(prop.sharePrice, prop.currency)} />
           <InfoRow label="Yield" value={`${yieldPct}%`} />
           <InfoRow label="Total investment value" value={fmtMoney(prop.totalValue, prop.currency)} />
-          <InfoRow label="Total shares" value={String(sharesTotal)} />
+          <InfoRow label="Total shares" value={sharesTotal.toFixed()} />
           <InfoRow label="Date listed" value={fmtDate(prop.createdAt)} />
         </div>
       </div>
@@ -371,7 +376,9 @@ function InvestorsTab({ propertyId }: { propertyId: string }) {
                       <td className="px-5 py-4 text-sm font-medium text-gray-900">{inv.userName}</td>
                       <td className="px-5 py-4 text-sm text-gray-700">{fmtMoney(inv.amount, inv.currency)}</td>
                       <td className="px-5 py-4 text-sm text-gray-700">{fmtMoney(inv.amount, inv.currency)}</td>
-                      <td className="px-5 py-4 text-sm text-gray-700">{parseFloat(inv.ownershipPercent || '0').toFixed(0)}%</td>
+                      <td className="px-5 py-4 text-sm text-gray-700">
+                        {new Decimal(inv.ownershipPercent || '0').toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed()}%
+                      </td>
                       <td className="px-5 py-4 text-sm text-gray-500">{fmtDate(inv.createdAt)}</td>
                       <td className="px-3 py-4">
                         <button
