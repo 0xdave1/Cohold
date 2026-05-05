@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -9,6 +10,10 @@ import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuthOtpService } from './auth-otp.service';
 import { AuthAttemptsService } from './auth-attempts.service';
+
+function hashUserRefreshToken(token: string): string {
+  return createHash('sha256').update(`${token}:pepper-secret`).digest('hex');
+}
 
 describe('AuthService session security', () => {
   let service: AuthService;
@@ -128,10 +133,11 @@ describe('AuthService session security', () => {
     prismaMock.authSession.create.mockResolvedValue({});
     const first = await service.login({ email: 'user@example.com', password: 'Password123' });
 
+    const decoded = new JwtService().decode(first.refreshToken) as { sid: string };
     prismaMock.authSession.findFirst.mockResolvedValue({
-      id: 'sid-1',
+      id: decoded.sid,
       userId: 'user-1',
-      refreshTokenHash: 'hash',
+      refreshTokenHash: hashUserRefreshToken(first.refreshToken),
       isRevoked: false,
       expiresAt: new Date(Date.now() + 100000),
       createdAt: new Date(),
@@ -141,7 +147,7 @@ describe('AuthService session security', () => {
     const rotated = await service.refresh(first.refreshToken);
     expect(rotated.refreshToken).not.toEqual(first.refreshToken);
     expect(prismaMock.authSession.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'sid-1' } }),
+      expect.objectContaining({ where: { id: decoded.sid } }),
     );
     expect(prismaMock.authSession.create).toHaveBeenCalledTimes(2);
   });
@@ -150,7 +156,15 @@ describe('AuthService session security', () => {
     prismaMock.authSession.findFirst.mockResolvedValue(null);
     prismaMock.user.findUnique.mockResolvedValue(userFixture());
     const token = await new JwtService().signAsync(
-      { sub: 'user-1', role: 'user', ev: true, tokenType: 'refresh', sid: 'sid-1' },
+      {
+        sub: 'user-1',
+        email: 'user@example.com',
+        role: 'user',
+        ev: true,
+        tokenType: 'user_refresh',
+        sid: 'sid-1',
+        jti: 'jti-1',
+      },
       {
         secret: 'refresh-secret-0123456789012345678901',
         issuer: 'cohold-api',
@@ -170,7 +184,15 @@ describe('AuthService session security', () => {
   it('refresh rejects session past max lifetime and revokes it', async () => {
     prismaMock.user.findUnique.mockResolvedValue(userFixture());
     const token = await new JwtService().signAsync(
-      { sub: 'user-1', role: 'user', ev: true, tokenType: 'refresh', sid: 'sid-2' },
+      {
+        sub: 'user-1',
+        email: 'user@example.com',
+        role: 'user',
+        ev: true,
+        tokenType: 'user_refresh',
+        sid: 'sid-2',
+        jti: 'jti-2',
+      },
       {
         secret: 'refresh-secret-0123456789012345678901',
         issuer: 'cohold-api',
@@ -180,7 +202,7 @@ describe('AuthService session security', () => {
     prismaMock.authSession.findFirst.mockResolvedValue({
       id: 'sid-2',
       userId: 'user-1',
-      refreshTokenHash: 'hash',
+      refreshTokenHash: hashUserRefreshToken(token),
       isRevoked: false,
       expiresAt: new Date(Date.now() + 100000),
       createdAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000),
@@ -204,7 +226,15 @@ describe('AuthService session security', () => {
     prismaMock.user.findUnique.mockResolvedValue(userFixture());
     prismaMock.authSession.create.mockResolvedValue({});
     const token = await new JwtService().signAsync(
-      { sub: 'user-1', role: 'user', ev: true, tokenType: 'refresh', sid: 'sid-3' },
+      {
+        sub: 'user-1',
+        email: 'user@example.com',
+        role: 'user',
+        ev: true,
+        tokenType: 'user_refresh',
+        sid: 'sid-3',
+        jti: 'jti-3',
+      },
       {
         secret: 'refresh-secret-0123456789012345678901',
         issuer: 'cohold-api',
@@ -214,7 +244,7 @@ describe('AuthService session security', () => {
     prismaMock.authSession.findFirst.mockResolvedValue({
       id: 'sid-3',
       userId: 'user-1',
-      refreshTokenHash: 'hash',
+      refreshTokenHash: hashUserRefreshToken(token),
       isRevoked: false,
       expiresAt: new Date(Date.now() + 100000),
       createdAt: new Date(),
@@ -282,5 +312,23 @@ describe('AuthService session security', () => {
     await expect(
       service.login({ email: 'user@example.com', password: 'Password123' }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('requestPasswordResetOtp does not store OTP when email unknown', async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    await service.requestPasswordResetOtp('missing@example.com');
+    expect(otpMock.storeEmailOtp).not.toHaveBeenCalled();
+    expect(attemptsMock.recordOtpRequest).toHaveBeenCalled();
+  });
+
+  it('requestPasswordResetOtp stores OTP for verified users', async () => {
+    prismaMock.user.findUnique.mockResolvedValue(userFixture());
+    await service.requestPasswordResetOtp('user@example.com');
+    expect(otpMock.storeEmailOtp).toHaveBeenCalledWith(
+      'reset',
+      'user@example.com',
+      expect.any(String),
+      600,
+    );
   });
 });

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const ACCESS_COOKIE = 'cohold_access_token';
-const REFRESH_COOKIE = 'cohold_refresh_token';
-const CSRF_COOKIE = 'cohold_csrf_token';
+import { isAdminProxyAuthorized } from '@/lib/admin-proxy-auth';
+import { buildAdminProxyUpstreamHeaders } from '@/lib/admin-proxy-upstream';
+import { CSRF_COOKIE } from '@/lib/constants/auth-cookies';
 
 export async function GET(
   request: NextRequest,
@@ -37,32 +36,23 @@ async function proxy(
   context: { params: Promise<{ path: string[] }> },
   method: string,
 ) {
-  const accessToken = request.cookies.get(ACCESS_COOKIE)?.value;
-  const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
-  const csrfToken = request.cookies.get(CSRF_COOKIE)?.value;
-  if (!accessToken && !refreshToken) {
+  const cookieHeader = request.headers.get('cookie') ?? '';
+  if (!isAdminProxyAuthorized(cookieHeader)) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
+  const csrfToken = request.cookies.get(CSRF_COOKIE)?.value;
   const { path } = await context.params;
   const pathStr = path.join('/');
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
   const url = `${apiUrl}/${pathStr}${request.nextUrl.search}`;
 
-  const headers: Record<string, string> = {};
-  const forwardCookies = [
-    accessToken ? `${ACCESS_COOKIE}=${encodeURIComponent(accessToken)}` : null,
-    refreshToken ? `${REFRESH_COOKIE}=${encodeURIComponent(refreshToken)}` : null,
-    csrfToken ? `${CSRF_COOKIE}=${encodeURIComponent(csrfToken)}` : null,
-  ].filter(Boolean);
-  if (forwardCookies.length > 0) {
-    headers['Cookie'] = forwardCookies.join('; ');
-  }
-  const contentType = request.headers.get('content-type');
-  if (contentType) headers['Content-Type'] = contentType;
-  if (method !== 'GET' && csrfToken) {
-    headers['X-CSRF-Token'] = csrfToken;
-  }
+  const headers = buildAdminProxyUpstreamHeaders({
+    cookieHeader,
+    method,
+    csrfCookieValue: csrfToken,
+    contentType: request.headers.get('content-type'),
+  });
 
   let body: string | undefined;
   if (method !== 'GET') {
@@ -81,7 +71,7 @@ async function proxy(
     });
 
   let backendRes = await callBackend(url, method, body);
-  if (backendRes.status === 401 && refreshToken) {
+  if (backendRes.status === 401) {
     const refreshRes = await callBackend(`${apiUrl}/admin-auth/refresh`, 'POST');
     if (refreshRes.ok) {
       backendRes = await callBackend(url, method, body);
@@ -89,7 +79,6 @@ async function proxy(
   }
 
   const data = await backendRes.json().catch(() => ({}));
-  // Preserve backend payload but normalize message for frontend consumers.
   if (!backendRes.ok) {
     const errMessage =
       typeof data?.error === 'string'

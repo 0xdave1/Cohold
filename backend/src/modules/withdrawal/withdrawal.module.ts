@@ -7,9 +7,10 @@ import { WithdrawalThrottleGuard } from './guards/withdrawal-throttle.guard';
 import { PayoutModule } from '../payout/payout.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { WithdrawalReconciliationScheduler } from './withdrawal-reconciliation.scheduler';
+import { KycComplianceModule } from '../kyc/kyc-compliance.module';
 
 @Module({
-  imports: [PrismaModule, NotificationsModule, PayoutModule, WalletModule],
+  imports: [PrismaModule, NotificationsModule, PayoutModule, WalletModule, KycComplianceModule],
   controllers: [WithdrawalController],
   providers: [WithdrawalService, WithdrawalThrottleGuard, WithdrawalReconciliationScheduler],
   exports: [WithdrawalService],

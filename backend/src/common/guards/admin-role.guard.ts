@@ -7,7 +7,7 @@ import {
 
 /**
  * Restricts access to admin roles only.
- * Use after JwtAuthGuard; rejects when request.user.role === 'user'.
+ * Use after AdminJwtGuard (Issue 4). Rejects missing role or user tokens.
  */
 @Injectable()
 export class AdminRoleGuard implements CanActivate {

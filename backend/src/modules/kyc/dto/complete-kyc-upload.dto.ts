@@ -1,4 +1,4 @@
-import { IsIn, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export class CompleteKycUploadDto {
   @IsIn(['ID_FRONT', 'ID_BACK', 'SELFIE'])
@@ -7,5 +7,18 @@ export class CompleteKycUploadDto {
   @IsString()
   @MaxLength(512)
   key!: string;
-}
 
+  @IsString()
+  @MaxLength(120)
+  contentType!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(40_000_000)
+  sizeBytes!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  etag?: string;
+}

@@ -28,6 +28,15 @@ export const validationSchema = Joi.object({
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
   JWT_ISSUER: Joi.string().default('cohold-api'),
   JWT_AUDIENCE: Joi.string().default('cohold-client'),
+
+  /** Issue 4 — must be explicit in production/staging; optional in dev/test (configuration derives dev-only fallbacks). */
+  JWT_ADMIN_ACCESS_SECRET: Joi.string().min(32).optional(),
+  JWT_ADMIN_REFRESH_SECRET: Joi.string().min(32).optional(),
+  JWT_ADMIN_ISSUER: Joi.string().default('cohold-api'),
+  JWT_ADMIN_AUDIENCE: Joi.string().default('cohold-admin-panel'),
+  JWT_ADMIN_ACCESS_EXPIRES_IN: Joi.string().optional(),
+  JWT_ADMIN_REFRESH_EXPIRES_IN: Joi.string().optional(),
+
   AUTH_SESSION_PEPPER: Joi.string().min(16).optional(),
   AUTH_MAX_SESSION_LIFETIME_DAYS: Joi.number().integer().min(1).max(365).default(30),
 
@@ -46,14 +55,55 @@ export const validationSchema = Joi.object({
   S3_BUCKET: Joi.string().required(),
   S3_REGION: Joi.string().required(),
   S3_ENDPOINT: Joi.string().uri().required(),
-  
 
   RESEND_API_KEY: Joi.string().required(),
   EMAIL_FROM: Joi.string().email().required(),
 
   ELASTICSEARCH_NODE: Joi.string().uri().optional(),
+
+  /** Issue 5 — required in production/staging (enforced in Joi.custom + KycIdentityCryptoService). */
+  KYC_ENCRYPTION_KEY: Joi.string().optional(),
+  KYC_HASH_SECRET: Joi.string().min(32).optional(),
+  KYC_IDENTITY_PROVIDER_MODE: Joi.string().valid('manual', 'stub').default('manual'),
+  KYC_AUTO_VERIFICATION_REQUIRED: Joi.string().valid('true', 'false').default('false'),
+  KYC_MAX_DOCUMENT_BYTES: Joi.number().integer().min(1024).max(50_000_000).optional(),
 })
   .or('FLW_SECRET_KEY', 'FLUTTERWAVE_SECRET_KEY')
   .or('FLW_PUBLIC_KEY', 'FLUTTERWAVE_PUBLIC_KEY')
-  .or('FLW_WEBHOOK_SECRET', 'FLUTTERWAVE_WEBHOOK_SECRET');
+  .or('FLW_WEBHOOK_SECRET', 'FLUTTERWAVE_WEBHOOK_SECRET')
+  .custom((value, helpers) => {
+    const nodeEnv = value.NODE_ENV as string;
+    const prodLike = nodeEnv === 'production' || nodeEnv === 'staging';
+    const userAccess = value.JWT_ACCESS_SECRET as string;
+    const userRefresh = value.JWT_REFRESH_SECRET as string;
+    const adminAccess = (value.JWT_ADMIN_ACCESS_SECRET as string | undefined) ?? `${userAccess}.cohold-admin-access-dev-only`;
+    const adminRefresh =
+      (value.JWT_ADMIN_REFRESH_SECRET as string | undefined) ?? `${userRefresh}.cohold-admin-refresh-dev-only`;
 
+    if (prodLike) {
+      if (!value.JWT_ADMIN_ACCESS_SECRET || !value.JWT_ADMIN_REFRESH_SECRET) {
+        return helpers.error('any.custom', {
+          message:
+            'JWT_ADMIN_ACCESS_SECRET and JWT_ADMIN_REFRESH_SECRET are required in production/staging (Issue 4).',
+        });
+      }
+      if (!value.KYC_ENCRYPTION_KEY || !value.KYC_HASH_SECRET) {
+        return helpers.error('any.custom', {
+          message: 'KYC_ENCRYPTION_KEY and KYC_HASH_SECRET are required in production/staging (Issue 5).',
+        });
+      }
+    }
+
+    if (adminAccess === userAccess || adminRefresh === userRefresh) {
+      return helpers.error('any.custom', {
+        message: 'Admin JWT secrets must differ from user JWT secrets.',
+      });
+    }
+    if (adminAccess === adminRefresh) {
+      return helpers.error('any.custom', {
+        message: 'JWT_ADMIN_ACCESS_SECRET and JWT_ADMIN_REFRESH_SECRET must differ.',
+      });
+    }
+
+    return value;
+  });

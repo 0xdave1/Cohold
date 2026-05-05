@@ -35,7 +35,9 @@ export const adminApi = {
   deleteUser: (id: string) => adminDelete<any>(`admin/users/${id}`),
   verifications: (params?: string) => adminGet<any>(`admin/verifications${params ? `?${params}` : ''}`),
   approveKyc: (id: string) => adminPost<any>(`admin/verifications/${id}/approve`),
-  rejectKyc: (id: string) => adminPost<any>(`admin/verifications/${id}/reject`),
+  rejectKyc: (id: string, body: { reason: string }) => adminPost<any>(`admin/verifications/${id}/reject`, body),
+  getKycSignedReadUrl: (userId: string, slot: 'ID_FRONT' | 'ID_BACK' | 'SELFIE') =>
+    adminGet<{ url: string }>(`admin/users/${userId}/kyc-documents/${slot}/signed-read`),
   properties: (params?: string) => adminGet<any>(`admin/properties${params ? `?${params}` : ''}`),
   propertyDetail: (id: string) => adminGet<any>(`admin/properties/${id}`),
   propertyInvestors: (id: string, params?: string) =>

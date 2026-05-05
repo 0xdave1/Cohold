@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { UserGateway } from './user.gateway';
 import { AdminGateway } from './admin.gateway';
-import { JwtModule } from '@nestjs/jwt';
+import { WsModule } from '../../common/ws/ws.module';
 
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [WsModule],
   providers: [UserGateway, AdminGateway],
 })
 export class GatewayModule {}

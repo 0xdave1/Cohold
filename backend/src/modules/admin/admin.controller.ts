@@ -8,11 +8,13 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { AdminRoleGuard } from '../../common/guards/admin-role.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -22,10 +24,11 @@ import { PresignPropertyImageDto } from './dto/presign-property-image.dto';
 import { CompletePropertyImageDto } from './dto/complete-property-image.dto';
 import { PresignPropertyDocumentDto } from './dto/presign-property-document.dto';
 import { CompletePropertyDocumentDto } from './dto/complete-property-document.dto';
+import { KycReviewDto } from '../kyc/dto/kyc-review.dto';
 
 @ApiTags('admin')
 @ApiBearerAuth('admin-jwt')
-@UseGuards(JwtAuthGuard, AdminRoleGuard, RolesGuard)
+@UseGuards(AdminJwtGuard, AdminRoleGuard, RolesGuard)
 @Controller('admin')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
@@ -95,14 +98,46 @@ export class AdminController {
 
   @Roles(AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
   @Post('verifications/:id/approve')
-  async approveKyc(@Param('id') id: string, @CurrentUser() admin: { id: string }) {
-    return this.adminService.approveVerification(id, admin.id);
+  async approveKyc(
+    @Param('id') id: string,
+    @CurrentUser() admin: { id: string },
+    @Req() req: Request,
+  ) {
+    return this.adminService.approveVerification(id, admin.id, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
   }
 
   @Roles(AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
   @Post('verifications/:id/reject')
-  async rejectKyc(@Param('id') id: string, @CurrentUser() admin: { id: string }) {
-    return this.adminService.rejectVerification(id, admin.id);
+  async rejectKyc(
+    @Param('id') id: string,
+    @CurrentUser() admin: { id: string },
+    @Body() dto: KycReviewDto,
+    @Req() req: Request,
+  ) {
+    return this.adminService.rejectVerification(id, admin.id, dto, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
+  }
+
+  @Roles(AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Get('users/:userId/kyc-documents/:slot/signed-read')
+  async kycDocumentSignedRead(
+    @Param('userId') userId: string,
+    @Param('slot') slot: string,
+    @CurrentUser() admin: { id: string },
+    @Req() req: Request,
+  ) {
+    if (slot !== 'ID_FRONT' && slot !== 'ID_BACK' && slot !== 'SELFIE') {
+      throw new BadRequestException('Invalid document slot');
+    }
+    return this.adminService.getKycDocumentSignedReadUrl(admin.id, userId, slot, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
   }
 
   @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)

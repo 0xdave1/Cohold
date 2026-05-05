@@ -11,6 +11,7 @@ import { AuthService } from '../auth/auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PAYOUT_PROVIDER } from '../payout/payout-provider.interface';
 import { WalletService } from '../wallet/wallet.service';
+import { KycPolicyService } from '../kyc/kyc-policy.service';
 
 describe('WithdrawalService payout orchestration', () => {
   let service: WithdrawalService;
@@ -34,6 +35,18 @@ describe('WithdrawalService payout orchestration', () => {
     getTransferStatus: jest.fn(),
   };
 
+  const kycPolicy = {
+    assertFromUserSnapshot: jest.fn((u: { isFrozen: boolean; kycStatus: KycStatus }) => {
+      if (u.isFrozen) {
+        throw new ForbiddenException({ code: 'ACCOUNT_FROZEN', message: 'Account is disabled' });
+      }
+      if (u.kycStatus !== KycStatus.VERIFIED) {
+        throw new ForbiddenException({ code: 'KYC_REQUIRED', message: 'Verified KYC is required' });
+      }
+    }),
+    assertUserKycVerifiedForMoneyMovement: jest.fn(),
+  };
+
   const prismaMock = {
     user: { findUnique: jest.fn() },
     linkedBankAccount: { findFirst: jest.fn() },
@@ -54,6 +67,14 @@ describe('WithdrawalService payout orchestration', () => {
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    kycPolicy.assertFromUserSnapshot.mockImplementation((u: { isFrozen: boolean; kycStatus: KycStatus }) => {
+      if (u.isFrozen) {
+        throw new ForbiddenException({ code: 'ACCOUNT_FROZEN', message: 'Account is disabled' });
+      }
+      if (u.kycStatus !== KycStatus.VERIFIED) {
+        throw new ForbiddenException({ code: 'KYC_REQUIRED', message: 'Verified KYC is required' });
+      }
+    });
     walletService.getPayoutWallet.mockResolvedValue({ id: 'payout-wallet-1' });
     walletService.postDoubleEntry.mockResolvedValue({ legs: [], created: true });
     payoutProvider.getTransferStatus.mockResolvedValue({
@@ -70,6 +91,7 @@ describe('WithdrawalService payout orchestration', () => {
         { provide: AuthService, useValue: authService },
         { provide: NotificationsService, useValue: notificationsService },
         { provide: WalletService, useValue: walletService },
+        { provide: KycPolicyService, useValue: kycPolicy },
         { provide: PAYOUT_PROVIDER, useValue: payoutProvider },
       ],
     }).compile();
@@ -622,7 +644,7 @@ describe('WithdrawalService payout orchestration', () => {
         currency: 'NGN',
         otp: '123456',
       }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(ForbiddenException);
     expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 

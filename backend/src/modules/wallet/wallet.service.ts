@@ -361,7 +361,7 @@ export class WalletService {
 
   /**
    * Create a dedicated virtual account for a verified user.
-   * Delegates to VirtualAccountService (Paystack dedicated account integration).
+   * Delegates to VirtualAccountService (dedicated virtual account integration).
    */
   async createVirtualAccount(userId: string) {
     return this.virtualAccountService.createVirtualAccountForUser(userId);

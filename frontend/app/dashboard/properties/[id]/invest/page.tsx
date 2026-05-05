@@ -12,6 +12,8 @@ import { buyPreviewFromAmount, buyPreviewFromShares } from '@/lib/money/buy-prev
 import { sumActivePortfolioValue } from '@/lib/money/portfolio';
 import { INVESTMENT_FEE_RATE } from '@/lib/constants/investment';
 import { BackIconButton, SectionCard } from '../../_components/listing-ui';
+import { useMe } from '@/lib/hooks/use-onboarding';
+import { isKycMoneyActionAllowed } from '@/lib/kyc/status';
 
 const SUGGESTED_AMOUNTS = ['1000000', '2000000', '5000000', '10000000', '50000000', '100000000', '1000000000'] as const;
 
@@ -24,6 +26,7 @@ export default function InvestFractionPage() {
   const { data: property } = usePropertyDetails(id);
   const { data: myInvestments } = useMyInvestments(1, 100);
   const { data: walletBalances = [] } = useWalletBalances();
+  const { data: me, isLoading: meLoading } = useMe();
 
   const initialAmount = searchParams.get('amount') ?? '';
   const initialShares = searchParams.get('shares') ?? '1';
@@ -73,6 +76,7 @@ export default function InvestFractionPage() {
   };
 
   if (!property) return <div className="h-64 animate-pulse rounded-xl bg-dashboard-border/60" />;
+  const kycAllowed = isKycMoneyActionAllowed(me?.kycStatus);
 
   const summaryQuery = preview
     ? `shares=${encodeURIComponent(effectiveShares)}&principal=${encodeURIComponent(preview.principal)}&fee=${encodeURIComponent(preview.fee)}&total=${encodeURIComponent(preview.totalCharge)}`
@@ -218,9 +222,9 @@ export default function InvestFractionPage() {
         </div>
       </SectionCard>
 
-      {!preview || !effectiveShares || Number(effectiveShares) <= 0 ? (
+      {!preview || !effectiveShares || Number(effectiveShares) <= 0 || meLoading || !kycAllowed ? (
         <button type="button" disabled className="h-11 w-full rounded-full bg-cohold-blue px-4 text-sm font-medium text-white opacity-50">
-          Buy shares now
+          {meLoading ? 'Checking KYC…' : kycAllowed ? 'Buy shares now' : 'KYC verification required'}
         </button>
       ) : (
         <Link
@@ -230,6 +234,11 @@ export default function InvestFractionPage() {
           Buy shares now
         </Link>
       )}
+      {!meLoading && !kycAllowed ? (
+        <Link href="/dashboard/kyc" className="block text-center text-xs font-medium text-cohold-blue underline">
+          Complete KYC to invest
+        </Link>
+      ) : null}
     </div>
   );
 }

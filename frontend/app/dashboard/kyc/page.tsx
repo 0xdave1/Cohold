@@ -1,12 +1,40 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, Check, ChevronDown, ShieldCheck, X } from 'lucide-react';
 import { useSubmitBvn, useSubmitNin, useKycStatus, useKycDocumentUpload } from '@/lib/hooks/use-kyc';
 import { getApiErrorMessage } from '@/lib/api/errors';
 import { DocumentUploader } from '@/components/upload/DocumentUploader';
 import type { KycDocType } from '@/lib/uploads/upload-file';
+import { type KycStatusNormalized } from '@/lib/kyc/status';
+
+function statusCopy(status: KycStatusNormalized) {
+  switch (status) {
+    case 'NOT_STARTED':
+      return { title: 'KYC not started', body: 'Submit your identity and documents to begin compliance review.' };
+    case 'PENDING_REVIEW':
+      return { title: 'KYC submitted — under review', body: 'Your details are under compliance review. This is not an approval yet.' };
+    case 'RESUBMITTED':
+      return { title: 'KYC resubmitted — under review', body: 'Your updated details were received and are pending review.' };
+    case 'MANUAL_REVIEW':
+      return { title: 'Manual review in progress', body: 'Your verification requires human review before a final decision.' };
+    case 'REQUIRES_REVIEW':
+      return { title: 'Additional review required', body: 'Your account is in compliance review. Money actions remain restricted.' };
+    case 'REJECTED':
+      return { title: 'KYC rejected', body: 'Your verification was not approved. Please update details and resubmit.' };
+    case 'REVOKED':
+      return { title: 'KYC revoked', body: 'Verification was revoked. Please contact support and complete review again.' };
+    case 'VERIFIED':
+      return { title: 'KYC verified', body: 'Your account is verified and can access money actions subject to policy.' };
+    default:
+      return { title: 'KYC status unavailable', body: 'We could not confirm your KYC status. Money actions remain restricted until status is known.' };
+  }
+}
+
+function sanitizeIdentityErrorMessage(message: string): string {
+  return message.replace(/\b\d{6,}\b/g, '***');
+}
 
 export default function KycWizardPage() {
   const [method, setMethod] = useState<'bvn' | 'nin' | null>(null);
@@ -24,6 +52,13 @@ export default function KycWizardPage() {
   const bvnValid = useMemo(() => bvn.length === 11 && /^\d+$/.test(bvn), [bvn]);
   const ninValid = useMemo(() => nin.length === 11 && /^\d+$/.test(nin), [nin]);
 
+  useEffect(() => {
+    return () => {
+      setBvn('');
+      setNin('');
+    };
+  }, []);
+
   const handleVerify = async () => {
     setError(null);
     try {
@@ -32,9 +67,11 @@ export default function KycWizardPage() {
       } else if (method === 'nin') {
         await submitNin.mutateAsync(nin);
       }
+      setBvn('');
+      setNin('');
       setSuccess(true);
     } catch (e) {
-      setError(getApiErrorMessage(e, 'Verification failed'));
+      setError(sanitizeIdentityErrorMessage(getApiErrorMessage(e, 'Verification failed')));
     }
   };
 
@@ -47,7 +84,7 @@ export default function KycWizardPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-lg font-semibold mb-2">KYC Verification Approved</h2>
+          <h2 className="text-lg font-semibold mb-2">KYC verified</h2>
           <p className="text-sm text-slate-400">Your account is fully verified and ready for investments.</p>
         </div>
       </div>
@@ -126,8 +163,14 @@ export default function KycWizardPage() {
         </div>
 
         <p className="text-sm text-dashboard-body">
-          Verify your identification status and manage KYC. You can enter your BVN or NIN for KYC verification
+          Submit your BVN or NIN and required documents for compliance review.
         </p>
+
+        <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-4 text-sm">
+          <p className="font-semibold text-dashboard-heading">Status</p>
+          <p className="mt-1 text-dashboard-heading">{statusCopy(kycStatus?.status ?? 'UNKNOWN').title}</p>
+          <p className="mt-1 text-dashboard-body">{statusCopy(kycStatus?.status ?? 'UNKNOWN').body}</p>
+        </div>
 
         {/* Verification method */}
         <div className="relative">
@@ -216,6 +259,7 @@ export default function KycWizardPage() {
                 type="text"
                 inputMode="numeric"
                 maxLength={11}
+                autoComplete="off"
                 value={bvn}
                 onChange={(e) => setBvn(e.target.value.replace(/\D/g, ''))}
                 placeholder="Enter BVN"
@@ -238,6 +282,7 @@ export default function KycWizardPage() {
                 type="text"
                 inputMode="numeric"
                 maxLength={11}
+                autoComplete="off"
                 value={nin}
                 onChange={(e) => setNin(e.target.value.replace(/\D/g, ''))}
                 placeholder="Enter NIN"
@@ -282,8 +327,19 @@ export default function KycWizardPage() {
             }}
           />
           {kycDocUpload.isSuccess ? (
-            <p className="text-xs text-green-700">Document saved.</p>
+            <p className="text-xs text-green-700">Document uploaded. Verification remains pending until compliance review is completed.</p>
           ) : null}
+        </div>
+
+        <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-4 text-xs text-dashboard-body">
+          <p className="font-semibold text-dashboard-heading mb-1">Privacy and NDPR notice</p>
+          <p>
+            We request BVN/NIN for identity verification and regulatory compliance. Identity values are handled as sensitive data,
+            processed securely, and not displayed in full after submission.
+          </p>
+          <p className="mt-1">
+            Uploaded documents are private and reviewed by compliance teams. Review may be manual. For corrections or data requests, contact support.
+          </p>
         </div>
 
         {/* Verification note */}

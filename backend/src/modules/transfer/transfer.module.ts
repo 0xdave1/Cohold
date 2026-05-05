@@ -4,9 +4,10 @@ import { TransferService } from './transfer.service';
 import { TransferController } from './transfer.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { WalletModule } from '../wallet/wallet.module';
+import { KycComplianceModule } from '../kyc/kyc-compliance.module';
 
 @Module({
-  imports: [AuthModule, NotificationsModule, WalletModule],
+  imports: [AuthModule, NotificationsModule, WalletModule, KycComplianceModule],
   controllers: [TransferController],
   providers: [TransferService],
   exports: [TransferService],

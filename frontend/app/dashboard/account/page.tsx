@@ -18,6 +18,7 @@ import {
 import { useAuth } from '@/lib/hooks/use-auth';
 import { useMe } from '@/lib/hooks/use-onboarding';
 import { useKycStatus } from '@/lib/hooks/use-kyc';
+import { kycStatusUnderReview } from '@/lib/kyc/status';
 import { useAuthStore } from '@/stores/auth.store';
 import { AccountSettingRow } from '@/components/account/AccountSettingRow';
 import { LogoutModal } from '@/components/account/LogoutModal';
@@ -45,7 +46,7 @@ export default function AccountPage() {
   const userEmail = me?.email ?? user?.email ?? '';
   const profileImage = me?.profilePhotoUrl ?? me?.profileImageUrl ?? null;
 
-  const kycTag = kycData?.status === 'PENDING' ? 'Pending' : undefined;
+  const kycTag = kycStatusUnderReview(kycData?.status) ? 'Pending' : undefined;
 
   return (
     <div className="min-h-screen bg-dashboard-bg pb-20">

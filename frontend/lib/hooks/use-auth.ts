@@ -3,6 +3,7 @@ import { apiClient } from '@/lib/api/client';
 import { getApiErrorMessage } from '@/lib/api/errors';
 import { useAuthStore } from '@/stores/auth.store';
 import { useRouter } from 'next/navigation';
+import { clearUserSiteSession, establishUserSiteSession } from '@/lib/site-session';
 
 /** User profile shape returned by GET /users/me */
 export interface MeResponse {
@@ -69,6 +70,7 @@ export function useAuth() {
   const queryClient = useQueryClient();
   const setSession = useAuthStore((s) => s.setSession);
   const clearSession = useAuthStore((s) => s.clearSession);
+  const clearAdminSession = useAuthStore((s) => s.clearAdminSession);
 
   const signupMutation = useMutation({
     mutationFn: async (data: { email: string; password: string; referralCode?: string }) => {
@@ -104,6 +106,7 @@ export function useAuth() {
 
   const completeSignupMutation = useMutation({
     mutationFn: async (data: { email: string; otp: string }) => {
+      clearAdminSession();
       const res = await apiClient.post<{
         requiresUsernameSetup?: boolean;
       }>('/auth/complete-signup', data);
@@ -116,6 +119,8 @@ export function useAuth() {
         setSession,
         clearSession,
       });
+      const tok = useAuthStore.getState().accessToken;
+      if (tok) await establishUserSiteSession(tok);
 
       return res;
     },
@@ -126,6 +131,7 @@ export function useAuth() {
 
   const loginMutation = useMutation({
     mutationFn: async (data: { email: string; password: string }) => {
+      clearAdminSession();
       const res = await apiClient.post<{
         requiresUsernameSetup?: boolean;
       }>('/auth/login', data);
@@ -138,6 +144,8 @@ export function useAuth() {
         setSession,
         clearSession,
       });
+      const tok = useAuthStore.getState().accessToken;
+      if (tok) await establishUserSiteSession(tok);
 
       return res;
     },
@@ -162,6 +170,8 @@ export function useAuth() {
         role: 'user',
         user: mapMeToAuthUser(profileRes.data),
       });
+      const tok = useAuthStore.getState().accessToken;
+      if (tok) await establishUserSiteSession(tok);
 
       return res.data;
     },
@@ -169,9 +179,8 @@ export function useAuth() {
 
   const forgotPasswordMutation = useMutation({
     mutationFn: async (data: { email: string }) => {
-      return apiClient.post<{ message?: string }>('/auth/request-otp', {
+      return apiClient.post<{ message?: string }>('/auth/forgot-password', {
         email: data.email,
-        purpose: 'login',
       });
     },
   });
@@ -194,25 +203,31 @@ export function useAuth() {
   });
 
   const logout = () => {
-    void apiClient
-      .post('/auth/logout', {})
-      .catch(() => undefined)
-      .finally(() => {
-        clearSession();
-        queryClient.clear();
-        router.push('/login');
-      });
+    void (async () => {
+      try {
+        await apiClient.post('/auth/logout', {});
+      } catch {
+        /* ignore */
+      }
+      await clearUserSiteSession();
+      clearSession();
+      queryClient.clear();
+      router.push('/login');
+    })();
   };
 
   const logoutAll = () => {
-    void apiClient
-      .post('/auth/logout-all', {})
-      .catch(() => undefined)
-      .finally(() => {
-        clearSession();
-        queryClient.clear();
-        router.push('/login');
-      });
+    void (async () => {
+      try {
+        await apiClient.post('/auth/logout-all', {});
+      } catch {
+        /* ignore */
+      }
+      await clearUserSiteSession();
+      clearSession();
+      queryClient.clear();
+      router.push('/login');
+    })();
   };
 
   return {

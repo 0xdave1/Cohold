@@ -9,6 +9,8 @@ import { formatMoney } from '@/lib/hooks/use-wallet';
 import { buyPreviewFromShares } from '@/lib/money/buy-preview';
 import { INVESTMENT_FEE_RATE } from '@/lib/constants/investment';
 import { BackIconButton, DetailRow, PrimaryButton, SectionCard } from '../../../_components/listing-ui';
+import { useMe } from '@/lib/hooks/use-onboarding';
+import { isKycMoneyActionAllowed } from '@/lib/kyc/status';
 
 export default function InvestSummaryPage() {
   const params = useParams();
@@ -16,6 +18,7 @@ export default function InvestSummaryPage() {
   const router = useRouter();
   const id = params.id as string;
   const { data: property } = usePropertyDetails(id);
+  const { data: me, isLoading: meLoading } = useMe();
   const createInvestment = useCreateInvestment();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -33,8 +36,10 @@ export default function InvestSummaryPage() {
   }, [search, sharePrice, shares]);
 
   if (!property) return <div className="h-64 animate-pulse rounded-xl bg-dashboard-border/60" />;
+  const kycAllowed = isKycMoneyActionAllowed(me?.kycStatus);
 
   const submit = async () => {
+    if (!kycAllowed || meLoading) return;
     setErrorMessage(null);
     try {
       await createInvestment.mutateAsync({
@@ -83,10 +88,15 @@ export default function InvestSummaryPage() {
         >
           Go back
         </Link>
-        <PrimaryButton onClick={submit} disabled={createInvestment.isPending}>
-          {createInvestment.isPending ? 'Investing...' : 'Buy shares'}
+        <PrimaryButton onClick={submit} disabled={createInvestment.isPending || meLoading || !kycAllowed}>
+          {meLoading ? 'Checking KYC…' : createInvestment.isPending ? 'Investing...' : kycAllowed ? 'Buy shares' : 'Complete KYC'}
         </PrimaryButton>
       </div>
+      {!meLoading && !kycAllowed ? (
+        <Link href="/dashboard/kyc" className="block text-center text-xs font-medium text-cohold-blue underline">
+          Complete KYC to continue
+        </Link>
+      ) : null}
     </div>
   );
 }

@@ -7,12 +7,15 @@ export class CreateFractionalInvestmentDto {
   @IsString()
   shares!: string;
 
-  /** Idempotency key; when using Paystack, use the Paystack reference. */
+  /** Idempotency key for the investment ledger (e.g. provider checkout reference when paying by card). */
   @IsOptional()
   @IsString()
   clientReference?: string;
 
-  /** Paystack payment reference. When provided, verifies payment via Paystack instead of deducting from wallet. */
+  /**
+   * Optional provider checkout reference (e.g. Flutterwave `tx_ref`). Name is legacy;
+   * wallet-settled flows use Flutterwave hosted pay, not Paystack.
+   */
   @IsOptional()
   @IsString()
   paystackReference?: string;

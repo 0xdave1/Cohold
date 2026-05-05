@@ -9,13 +9,13 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 
-export interface JwtPayload {
+export type UserAccessJwtPayload = {
   sub: string;
-  role: string;
-  /** Present on user access tokens after OTP verification (defense in depth). */
-  ev?: boolean;
-  tokenType?: 'access' | 'refresh';
-}
+  email?: string;
+  role: 'user';
+  ev: true;
+  tokenType: 'user_access';
+};
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -46,9 +46,9 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('JWT not configured');
     }
 
-    let payload: JwtPayload;
+    let payload: UserAccessJwtPayload;
     try {
-      payload = this.jwtService.verify<JwtPayload>(token, {
+      payload = this.jwtService.verify<UserAccessJwtPayload>(token, {
         secret,
         algorithms: ['HS256'],
         issuer,
@@ -57,29 +57,31 @@ export class JwtAuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException('Invalid or expired token');
     }
-    if (payload.tokenType !== 'access') {
+
+    if (payload.tokenType !== 'user_access' || payload.role !== 'user') {
       throw new UnauthorizedException('Invalid token type');
     }
 
-    if (payload.role === 'user') {
-      const user = await this.prisma.user.findUnique({
-        where: { id: payload.sub },
-        select: { id: true, emailVerifiedAt: true, isFrozen: true },
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, email: true, emailVerifiedAt: true, isFrozen: true },
+    });
+    if (!user || user.isFrozen) {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+    if (!user.emailVerifiedAt) {
+      throw new UnauthorizedException({
+        code: 'OTP_NOT_VERIFIED',
+        message: 'Please verify your email with the OTP before logging in.',
       });
-      if (!user || user.isFrozen) {
-        throw new UnauthorizedException('Invalid or expired token');
-      }
-      if (!user.emailVerifiedAt) {
-        throw new UnauthorizedException({
-          code: 'OTP_NOT_VERIFIED',
-          message: 'Please verify your email with the OTP before logging in.',
-        });
-      }
+    }
+    if (payload.email && payload.email !== user.email) {
+      throw new UnauthorizedException('Invalid or expired token');
     }
 
     request.user = {
       id: payload.sub,
-      role: payload.role,
+      role: 'user' as const,
     };
     return true;
   }

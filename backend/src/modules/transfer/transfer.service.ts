@@ -10,6 +10,7 @@ import { P2PPreviewDto } from './dto/p2p-preview.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SUPPORTED_CURRENCIES } from '../../common/constants/currency.constants';
 import { WalletService } from '../wallet/wallet.service';
+import { KycPolicyService } from '../kyc/kyc-policy.service';
 
 @Injectable()
 export class TransferService {
@@ -20,6 +21,7 @@ export class TransferService {
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
     private readonly walletService: WalletService,
+    private readonly kycPolicy: KycPolicyService,
   ) {}
 
   private async assertUserHasUsername(userId: string) {
@@ -74,6 +76,8 @@ export class TransferService {
   }
 
   async preview(senderId: string, dto: P2PPreviewDto) {
+    await this.kycPolicy.assertUserKycVerifiedForMoneyMovement(senderId);
+    await this.kycPolicy.assertUserKycVerifiedForMoneyMovement(dto.recipientUserId);
     await this.assertUserHasUsername(senderId);
     if (dto.currency !== this.transferCurrency) {
       throw new BadRequestException('Only NGN transfers are supported for now');
@@ -124,6 +128,8 @@ export class TransferService {
   }
 
   async execute(senderId: string, dto: P2PExecuteDto) {
+    await this.kycPolicy.assertUserKycVerifiedForMoneyMovement(senderId);
+    await this.kycPolicy.assertUserKycVerifiedForMoneyMovement(dto.recipientUserId);
     const senderUsername = await this.assertUserHasUsername(senderId);
     if (dto.currency !== this.transferCurrency) {
       throw new BadRequestException('Only NGN transfers are supported for now');
@@ -360,6 +366,8 @@ export class TransferService {
   }
 
   async p2pTransfer(senderId: string, dto: P2PTransferDto) {
+    await this.kycPolicy.assertUserKycVerifiedForMoneyMovement(senderId);
+
     if (!dto.recipientHandle.startsWith('@')) {
       throw new BadRequestException('Recipient handle must start with @');
     }
@@ -385,6 +393,8 @@ export class TransferService {
     if (sender.id === recipient.id) {
       throw new BadRequestException('Cannot transfer to yourself');
     }
+
+    await this.kycPolicy.assertUserKycVerifiedForMoneyMovement(recipient.id);
 
     const amount = fixMoney(toDecimal(dto.amount));
     if (amount.lte(0)) {

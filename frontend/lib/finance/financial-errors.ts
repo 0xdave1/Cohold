@@ -11,6 +11,9 @@ export function mapFinancialIntegrityError(error: unknown, fallback: string): st
   if (code === 'CONFLICT' || lower.includes('ledger_reference_conflict') || lower.includes('duplicate')) {
     return 'This payment or transfer reference already exists. If you retried, your wallet may already be updated — refresh balances. Contact support if amounts look wrong.';
   }
+  if (code === 'KYC_REQUIRED' || lower.includes('kyc required') || lower.includes('kyc')) {
+    return 'KYC verification is required for this money action. Complete KYC and try again.';
+  }
   if (lower.includes('insufficient wallet balance for ledger debit')) {
     return 'Insufficient balance: another action may have used funds first. Refresh and try a smaller amount.';
   }

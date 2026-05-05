@@ -65,6 +65,7 @@ export interface AdminUserKycVerification {
   status: string;
   governmentIdType: string | null;
   governmentIdNumber: string | null;
+  governmentIdMasked?: string | null;
   documentKey: string | null;
   documentFrontKey: string | null;
   documentBackKey: string | null;
@@ -86,7 +87,6 @@ export interface UserDetail extends PlatformUser {
   streetName: string | null;
   city: string | null;
   state: string | null;
-  bvn: string | null;
   profilePhotoKey?: string | null;
   /** Signed GET URL for profile photo (private bucket). */
   profilePhotoUrl?: string | null;
@@ -121,6 +121,7 @@ export interface KycVerification {
   user: { email: string; firstName: string | null; lastName: string | null };
   governmentIdType: string | null;
   governmentIdNumber: string | null;
+  governmentIdMasked?: string | null;
   status: string;
   createdAt: string;
 }

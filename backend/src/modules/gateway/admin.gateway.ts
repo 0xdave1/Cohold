@@ -6,53 +6,38 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
+import { getAccessTokenFromHandshake } from '../../common/ws/handshake-access-token';
+import { WsAuthTokenVerifier } from '../../common/ws/ws-auth-token.verifier';
+import { wsCorsOptions } from '../../common/ws/ws-cors-origins';
 
 @WebSocketGateway({
   namespace: '/ws/admin',
-  cors: { origin: '*', credentials: true },
+  cors: wsCorsOptions(),
 })
 export class AdminGateway implements OnGatewayConnection {
   @WebSocketServer()
   server!: Server;
 
-  constructor(
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
-  ) {}
+  constructor(private readonly wsAuth: WsAuthTokenVerifier) {}
 
   async handleConnection(client: Socket): Promise<void> {
-    const token = client.handshake.auth?.token ?? client.handshake.query?.token;
-    if (!token || typeof token !== 'string') {
+    const token = getAccessTokenFromHandshake(client);
+    if (!token) {
       client.disconnect(true);
       return;
     }
-
-    try {
-      const secret = this.configService.get<string>('config.jwt.accessSecret');
-      if (!secret) {
-        client.disconnect(true);
-        return;
-      }
-      const payload = await this.jwtService.verifyAsync(token, { secret });
-      const adminId = payload.sub as string;
-      client.join(`admin:${adminId}`);
-      client.join('admin:all');
-    } catch {
+    const adminId = await this.wsAuth.verifyAdminAccessSocket(token);
+    if (!adminId) {
       client.disconnect(true);
+      return;
     }
+    client.join(`admin:${adminId}`);
+    client.join('admin:all');
   }
 
   @SubscribeMessage('ping')
   handlePing(@ConnectedSocket() client: Socket, @MessageBody() _data: any) {
     client.emit('pong', { ts: Date.now() });
   }
-
-  // Example to notify admins of alerts
-  notifyAlert(alert: { type: string; message: string }) {
-    this.server.to('admin:all').emit('alert', alert);
-  }
 }
-

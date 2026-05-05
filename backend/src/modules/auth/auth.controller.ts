@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Logger, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
@@ -6,6 +7,7 @@ import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { OtpRequestDto } from './dto/otp-request.dto';
 import { ApiTags } from '@nestjs/swagger';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { Response, Request } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -60,6 +62,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     if (this.debugEnabled()) {
       this.logger.debug(
@@ -155,7 +158,17 @@ export class AuthController {
     return { user: profile };
   }
 
+  @Post('forgot-password')
+  @Throttle({ default: { limit: 5, ttl: 60 * 60_000 } })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.authService.requestPasswordResetOtp(dto.email);
+    return {
+      message: 'If an account exists for this email, you will receive reset instructions.',
+    };
+  }
+
   @Post('reset-password')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
   }

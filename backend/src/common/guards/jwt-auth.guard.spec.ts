@@ -60,11 +60,13 @@ describe('JwtAuthGuard', () => {
   it('authenticates using Bearer access token', async () => {
     (jwtService.verify as jest.Mock).mockReturnValue({
       sub: 'user-1',
+      email: 'u@example.com',
       role: 'user',
-      tokenType: 'access',
+      tokenType: 'user_access',
     });
     prisma.user.findUnique.mockResolvedValue({
       id: 'user-1',
+      email: 'u@example.com',
       emailVerifiedAt: new Date(),
       isFrozen: false,
     });
@@ -76,5 +78,21 @@ describe('JwtAuthGuard', () => {
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.user).toEqual({ id: 'user-1', role: 'user' });
+  });
+
+  it('rejects admin access token', async () => {
+    (jwtService.verify as jest.Mock).mockReturnValue({
+      sub: 'admin-1',
+      email: 'a@cohold.test',
+      role: 'SUPER_ADMIN',
+      sessionId: 'sess-1',
+      tokenType: 'admin_access',
+    });
+    const request: Record<string, any> = {
+      headers: { authorization: 'Bearer jwt-token' },
+      cookies: {},
+    };
+    const context = makeContext(request);
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

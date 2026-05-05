@@ -17,6 +17,7 @@ import { useProperties } from '@/lib/hooks/use-properties';
 import { useMe } from '@/lib/hooks/use-onboarding';
 import { useAuthStore } from '@/stores/auth.store';
 import { EmptyState } from '@/components/dashboard/EmptyState';
+import { isKycMoneyActionAllowed } from '@/lib/kyc/status';
 
 const CURRENCIES: Array<{ code: 'NGN'; flag: string; label: string }> = [
   { code: 'NGN', flag: '🇳🇬', label: 'NGN Account' },
@@ -34,9 +35,9 @@ export default function HomeDashboardPage() {
   const userEmail = me?.email ?? userFromStore?.email ?? '';
   const initials = [me?.firstName?.[0], me?.lastName?.[0]].filter(Boolean).join('').toUpperCase() || (userFromStore?.email?.[0] ?? 'U').toUpperCase();
   const profileImage = me?.profilePhotoUrl ?? me?.profileImageUrl ?? null;
-  const meIsVerified = me?.kycStatus === 'VERIFIED' && !!me?.onboardingCompletedAt;
+  const meIsVerified = isKycMoneyActionAllowed(me?.kycStatus) && !!me?.onboardingCompletedAt;
   const storeIsVerified =
-    userFromStore?.kycStatus === 'VERIFIED' && !!userFromStore?.onboardingCompletedAt;
+    isKycMoneyActionAllowed(userFromStore?.kycStatus) && !!userFromStore?.onboardingCompletedAt;
   const isVerified = meIsVerified || storeIsVerified;
 
   const [selectedCurrency, setSelectedCurrency] = useState<'NGN'>('NGN');

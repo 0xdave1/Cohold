@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { AdminRoleGuard } from '../../common/guards/admin-role.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -15,7 +15,7 @@ import { PresignSupportAttachmentDto } from './dto/presign-attachment.dto';
 
 @ApiTags('admin-support')
 @ApiBearerAuth('admin-jwt')
-@UseGuards(JwtAuthGuard, AdminRoleGuard, RolesGuard, SupportAdminGuard)
+@UseGuards(AdminJwtGuard, AdminRoleGuard, RolesGuard, SupportAdminGuard)
 @Controller('admin/support')
 export class SupportAdminController {
   constructor(

@@ -1,9 +1,15 @@
-import { Currency, LedgerOperationType, TransactionDirection, TransactionType } from '@prisma/client';
+import { Currency, KycStatus, LedgerOperationType, TransactionDirection, TransactionType } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { PaymentService } from './payment.service';
 import { WalletService, PLATFORM_USER_ID } from '../wallet/wallet.service';
+import { KycPolicyService } from '../kyc/kyc-policy.service';
 
 describe('PaymentService verified Flutterwave funding (Issue 1)', () => {
+  const kycPolicy: Pick<KycPolicyService, 'assertFromUserSnapshot' | 'assertUserKycVerifiedForMoneyMovement'> = {
+    assertFromUserSnapshot: jest.fn(),
+    assertUserKycVerifiedForMoneyMovement: jest.fn(),
+  };
+
   it('processWalletFunding posts double-entry with provider metadata (not user top-up DTO)', async () => {
     const postDoubleEntry = jest.fn().mockResolvedValue({
       legs: [
@@ -16,6 +22,9 @@ describe('PaymentService verified Flutterwave funding (Issue 1)', () => {
     const walletService = { postDoubleEntry, getPlatformWallet } as unknown as WalletService;
 
     const tx = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ isFrozen: false, kycStatus: KycStatus.VERIFIED }),
+      },
       wallet: {
         findUnique: jest
           .fn()
@@ -25,7 +34,13 @@ describe('PaymentService verified Flutterwave funding (Issue 1)', () => {
       },
     };
 
-    const service = new PaymentService({} as never, {} as never, walletService, {} as never);
+    const service = new PaymentService(
+      {} as never,
+      walletService,
+      {} as never,
+      {} as never,
+      kycPolicy as never,
+    );
 
     const result = await service.processWalletFunding(tx as never, {
       userId: 'user-1',
@@ -83,6 +98,9 @@ describe('PaymentService verified Flutterwave funding (Issue 1)', () => {
     } as unknown as WalletService;
 
     const tx = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ isFrozen: false, kycStatus: KycStatus.VERIFIED }),
+      },
       wallet: {
         findUnique: jest
           .fn()
@@ -92,7 +110,13 @@ describe('PaymentService verified Flutterwave funding (Issue 1)', () => {
       },
     };
 
-    const service = new PaymentService({} as never, {} as never, walletService, {} as never);
+    const service = new PaymentService(
+      {} as never,
+      walletService,
+      {} as never,
+      {} as never,
+      kycPolicy as never,
+    );
     const result = await service.processWalletFunding(tx as never, {
       userId: 'user-1',
       amount: new Decimal('50'),

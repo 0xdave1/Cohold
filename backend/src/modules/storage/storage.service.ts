@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -119,9 +119,32 @@ export class StorageService {
   }
 
   /**
-   * Generate a presigned PUT URL for direct uploads (user/admin clients upload to S3/R2).
-   * The returned URL is short-lived and should be used immediately.
+   * Verify object exists and return metadata after client-side upload (Issue 5).
    */
+  async headObject(key: string): Promise<{
+    contentLength?: number;
+    contentType?: string;
+    etag?: string;
+    lastModified?: Date;
+  }> {
+    if (!this.s3Client) {
+      throw new Error('S3 client not configured');
+    }
+    const out = await this.s3Client.send(
+      new HeadObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+    );
+    const etag = out.ETag?.replace(/"/g, '');
+    return {
+      contentLength: out.ContentLength,
+      contentType: out.ContentType,
+      etag,
+      lastModified: out.LastModified,
+    };
+  }
+
   async createPresignedUploadUrl(
     key: string,
     contentType: string,

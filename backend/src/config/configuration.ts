@@ -24,6 +24,28 @@ export default registerAs('config', () => ({
     audience: process.env.JWT_AUDIENCE ?? 'cohold-client',
     sessionPepper: process.env.AUTH_SESSION_PEPPER ?? process.env.JWT_REFRESH_SECRET,
     maxSessionLifetimeDays: parseInt(process.env.AUTH_MAX_SESSION_LIFETIME_DAYS ?? '30', 10),
+    /** Isolated from end-user JWTs (Issue 4). In production must be set explicitly — see validation. */
+    adminAccessSecret:
+      process.env.JWT_ADMIN_ACCESS_SECRET ??
+      (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging'
+        ? undefined
+        : `${process.env.JWT_ACCESS_SECRET ?? ''}.cohold-admin-access-dev-only`),
+    adminRefreshSecret:
+      process.env.JWT_ADMIN_REFRESH_SECRET ??
+      (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging'
+        ? undefined
+        : `${process.env.JWT_REFRESH_SECRET ?? ''}.cohold-admin-refresh-dev-only`),
+    adminIssuer: process.env.JWT_ADMIN_ISSUER ?? process.env.JWT_ISSUER ?? 'cohold-api',
+    adminAudience: process.env.JWT_ADMIN_AUDIENCE ?? 'cohold-admin-panel',
+    adminAccessExpiresIn: process.env.JWT_ADMIN_ACCESS_EXPIRES_IN ?? process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',
+    adminRefreshExpiresIn: process.env.JWT_ADMIN_REFRESH_EXPIRES_IN ?? process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
+  },
+  kyc: {
+    encryptionKey: process.env.KYC_ENCRYPTION_KEY,
+    hashSecret: process.env.KYC_HASH_SECRET,
+    identityProviderMode: (process.env.KYC_IDENTITY_PROVIDER_MODE ?? 'manual').toLowerCase(),
+    autoVerificationRequired: process.env.KYC_AUTO_VERIFICATION_REQUIRED === 'true',
+    maxDocumentBytes: parseInt(process.env.KYC_MAX_DOCUMENT_BYTES ?? `${5 * 1024 * 1024}`, 10),
   },
   flutterwave: {
     secretKey: process.env.FLW_SECRET_KEY ?? process.env.FLUTTERWAVE_SECRET_KEY,
@@ -50,4 +72,3 @@ export default registerAs('config', () => ({
     apiKey: process.env.EXCHANGE_RATE_API_KEY,
   },
 }));
-

@@ -27,10 +27,12 @@ type SessionContext = {
 
 type JwtUserPayload = {
   sub: string;
+  email?: string;
   role: 'user';
   ev: true;
-  tokenType: 'access' | 'refresh';
+  tokenType: 'user_access' | 'user_refresh';
   sid?: string;
+  jti?: string;
 };
 
 @Injectable()
@@ -75,10 +77,16 @@ export class AuthService {
     return createHash('sha256').update(`${refreshToken}:${pepper}`).digest('hex');
   }
 
-  private async signAccessToken(userId: string): Promise<string> {
+  private async signAccessToken(userId: string, email: string): Promise<string> {
     const { accessSecret, accessExpiresIn, issuer, audience } = this.getJwtConfig();
     return this.jwtService.signAsync(
-      { sub: userId, role: 'user', ev: true, tokenType: 'access' } satisfies JwtUserPayload,
+      {
+        sub: userId,
+        email,
+        role: 'user',
+        ev: true,
+        tokenType: 'user_access',
+      } satisfies JwtUserPayload,
       {
         secret: accessSecret,
         expiresIn: accessExpiresIn,
@@ -89,11 +97,32 @@ export class AuthService {
     );
   }
 
-  private async createRefreshSession(userId: string, context?: SessionContext) {
+  private async createRefreshSession(
+    userId: string,
+    context?: SessionContext,
+    email?: string | null,
+  ) {
     const { refreshSecret, refreshExpiresIn, issuer, audience } = this.getJwtConfig();
     const sid = randomUUID();
+    const jti = randomUUID();
+    const resolvedEmail =
+      email ??
+      (
+        await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { email: true },
+        })
+      )?.email;
     const refreshToken = await this.jwtService.signAsync(
-      { sub: userId, role: 'user', ev: true, tokenType: 'refresh', sid } satisfies JwtUserPayload,
+      {
+        sub: userId,
+        ...(resolvedEmail ? { email: resolvedEmail } : {}),
+        role: 'user',
+        ev: true,
+        tokenType: 'user_refresh',
+        sid,
+        jti,
+      } satisfies JwtUserPayload,
       {
         secret: refreshSecret,
         expiresIn: refreshExpiresIn,
@@ -180,8 +209,8 @@ export class AuthService {
       });
     }
 
-    const accessToken = await this.signAccessToken(user.id);
-    const { refreshToken } = await this.createRefreshSession(user.id, context);
+    const accessToken = await this.signAccessToken(user.id, user.email);
+    const { refreshToken } = await this.createRefreshSession(user.id, context, user.email);
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     await this.logSecurityEvent({
       type: SecurityEventType.LOGIN_SUCCESS,
@@ -338,8 +367,8 @@ export class AuthService {
       this.logger.warn(`Failed to send welcome notification: ${err}`);
     }
 
-    const accessToken = await this.signAccessToken(user.id);
-    const { refreshToken } = await this.createRefreshSession(user.id, context);
+    const accessToken = await this.signAccessToken(user.id, user.email);
+    const { refreshToken } = await this.createRefreshSession(user.id, context, user.email);
     await this.logSecurityEvent({
       type: SecurityEventType.LOGIN_SUCCESS,
       userId: user.id,
@@ -359,13 +388,13 @@ export class AuthService {
         issuer,
         audience,
       });
-      if (payload.tokenType !== 'refresh' || payload.role !== 'user') {
+      if (payload.tokenType !== 'user_refresh' || payload.role !== 'user') {
         throw new UnauthorizedException('Invalid refresh token');
       }
 
       const user = await this.prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { id: true, emailVerifiedAt: true, isFrozen: true, username: true },
+        select: { id: true, email: true, emailVerifiedAt: true, isFrozen: true, username: true },
       });
       if (!user || user.isFrozen) throw new UnauthorizedException('Invalid refresh token');
       if (!user.emailVerifiedAt) {
@@ -429,12 +458,16 @@ export class AuthService {
         });
       }
 
-      const { refreshToken: nextRefreshToken } = await this.createRefreshSession(payload.sub, context);
+      const { refreshToken: nextRefreshToken } = await this.createRefreshSession(
+        payload.sub,
+        context,
+        user.email,
+      );
       await this.prisma.authSession.update({
         where: { id: session.id },
         data: { isRevoked: true, revokedAt: new Date(), lastUsedAt: new Date() },
       });
-      const accessToken = await this.signAccessToken(payload.sub);
+      const accessToken = await this.signAccessToken(payload.sub, user.email);
       return {
         accessToken,
         refreshToken: nextRefreshToken,
@@ -521,6 +554,24 @@ export class AuthService {
       ...user,
       requiresUsernameSetup: user.username == null,
     };
+  }
+
+  async requestPasswordResetOtp(emailRaw: string): Promise<void> {
+    await this.attempts.assertEmailNotLockedForOtpRequest('reset', emailRaw);
+    await this.attempts.recordOtpRequest('reset', emailRaw);
+
+    const normalized = emailRaw.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalized },
+      select: { id: true, email: true, emailVerifiedAt: true },
+    });
+    if (!user?.emailVerifiedAt) {
+      return;
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    await this.otpStore.storeEmailOtp('reset', user.email, otp, 600);
+    await this.emailService.sendOtpEmail(user.email, otp, 'verification');
   }
 
   async resetPassword(dto: ResetPasswordDto) {

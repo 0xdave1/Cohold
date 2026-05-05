@@ -7,12 +7,21 @@ import { VirtualAccountModule } from '../virtual-account/virtual-account.module'
 import { EmailModule } from '../email/email.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { KycComplianceModule } from './kyc-compliance.module';
 
 @Module({
-  imports: [AuthModule, StorageModule, VirtualAccountModule, EmailModule, WalletModule, NotificationsModule],
+  imports: [
+    KycComplianceModule,
+    AuthModule,
+    StorageModule,
+    VirtualAccountModule,
+    EmailModule,
+    WalletModule,
+    NotificationsModule,
+  ],
   controllers: [KycController],
   providers: [KycService],
-  exports: [KycService],
+  exports: [KycService, KycComplianceModule],
 })
 export class KycModule {}
 

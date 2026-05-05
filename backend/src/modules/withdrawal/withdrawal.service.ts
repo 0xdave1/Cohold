@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -8,7 +7,6 @@ import {
 } from '@nestjs/common';
 import {
   Currency,
-  KycStatus,
   LedgerOperationType,
   Prisma,
   TransactionDirection,
@@ -25,6 +23,7 @@ import { ListWithdrawalsQueryDto } from './dto/list-withdrawals.query.dto';
 import { fixMoney, moneyStr } from '../../common/money/precision.constants';
 import { toDecimal } from '../../common/money/decimal.util';
 import { WalletService } from '../wallet/wallet.service';
+import { KycPolicyService } from '../kyc/kyc-policy.service';
 import {
   InitiateTransferResult,
   PAYOUT_PROVIDER,
@@ -58,6 +57,7 @@ export class WithdrawalService {
     private readonly authService: AuthService,
     private readonly notificationsService: NotificationsService,
     private readonly walletService: WalletService,
+    private readonly kycPolicy: KycPolicyService,
     @Inject(PAYOUT_PROVIDER) private readonly payoutProvider: PayoutProvider,
   ) {}
 
@@ -117,13 +117,7 @@ export class WithdrawalService {
       select: { id: true, isFrozen: true, kycStatus: true },
     });
     if (!user) throw new NotFoundException('User not found');
-    if (user.isFrozen) throw new ForbiddenException('Account is disabled');
-    if (user.kycStatus !== KycStatus.VERIFIED) {
-      throw new BadRequestException({
-        code: 'KYC_REQUIRED',
-        message: 'Verified KYC is required to withdraw',
-      });
-    }
+    this.kycPolicy.assertFromUserSnapshot(user);
 
     const amount = fixMoney(toDecimal(dto.amount));
     if (amount.lte(0)) throw new BadRequestException('Amount must be positive');

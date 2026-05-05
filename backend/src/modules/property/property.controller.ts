@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/co
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { PropertyService } from './property.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { AdminRoleGuard } from '../../common/guards/admin-role.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -11,7 +11,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('admin-properties')
 @ApiBearerAuth('admin-jwt')
-@UseGuards(JwtAuthGuard, AdminRoleGuard, RolesGuard)
+@UseGuards(AdminJwtGuard, AdminRoleGuard, RolesGuard)
 @Controller('admin/properties')
 export class PropertyController {
   constructor(private readonly propertyService: PropertyService) {}

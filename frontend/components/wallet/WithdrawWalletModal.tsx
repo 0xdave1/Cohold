@@ -10,6 +10,8 @@ import { useAuth } from '@/lib/hooks/use-auth';
 import { formatMoney } from '@/lib/hooks/use-wallet';
 import { getApiErrorMessage } from '@/lib/api/errors';
 import { mapWithdrawalSubmitError } from '@/lib/withdrawals/withdrawal-errors';
+import { useMe } from '@/lib/hooks/use-onboarding';
+import { isKycMoneyActionAllowed } from '@/lib/kyc/status';
 
 function BankBuildingIcon({ className }: { className?: string }) {
   return (
@@ -48,8 +50,10 @@ export function WithdrawWalletModal({
   onWithdrawCreated,
 }: WithdrawWalletModalProps) {
   const { data: banks = [], isLoading: banksLoading } = useLinkedBanks();
+  const { data: me, isLoading: meLoading } = useMe();
   const { requestOtp } = useAuth();
   const createWithdrawal = useCreateWithdrawal();
+  const kycAllowed = isKycMoneyActionAllowed(me?.kycStatus);
 
   const [step, setStep] = useState<Step>('form');
   const [amountRaw, setAmountRaw] = useState('');
@@ -376,6 +380,8 @@ export function WithdrawWalletModal({
           type="button"
           onClick={goToOtp}
           disabled={
+            meLoading ||
+            !kycAllowed ||
             otpSending ||
             banks.length === 0 ||
             !amountRaw ||
@@ -385,6 +391,11 @@ export function WithdrawWalletModal({
         >
           {otpSending ? 'Sending code…' : 'Withdraw'}
         </button>
+        {!meLoading && !kycAllowed ? (
+          <p className="text-center text-xs text-dashboard-body">
+            Withdrawals are enabled only when KYC status is VERIFIED. <Link href="/dashboard/kyc" className="text-cohold-blue underline">Complete KYC</Link>.
+          </p>
+        ) : null}
       </div>
     </WalletModalShell>
   );

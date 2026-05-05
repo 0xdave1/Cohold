@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { useMemo } from 'react';
 import { usePropertyDetails } from '@/lib/hooks/use-properties';
 import { useMyInvestments } from '@/lib/hooks/use-investments';
+import { useMe } from '@/lib/hooks/use-onboarding';
 import { formatMoney } from '@/lib/hooks/use-wallet';
 import { detectListingMode } from '@/lib/listings/category';
 import { investmentPositionValue } from '@/lib/money/portfolio';
@@ -13,6 +14,7 @@ import { formatAnnualYieldPercent } from '@/lib/format/yield';
 import { INVESTMENT_FEE_RATE } from '@/lib/constants/investment';
 import { BackIconButton, DetailRow, ListingHero, PrimaryButton, SectionCard } from '../_components/listing-ui';
 import Decimal from 'decimal.js';
+import { isKycMoneyActionAllowed } from '@/lib/kyc/status';
 
 export default function PropertyDetailPage() {
   const params = useParams();
@@ -20,6 +22,7 @@ export default function PropertyDetailPage() {
   const id = params.id as string;
   const { data: property, isLoading } = usePropertyDetails(id);
   const { data: myInvestments } = useMyInvestments(1, 100);
+  const { data: me, isLoading: meLoading } = useMe();
 
   const myPositions = useMemo(() => {
     const items = myInvestments?.items ?? [];
@@ -90,6 +93,7 @@ export default function PropertyDetailPage() {
       ? Math.max(0, sharesTotalNum - sharesSoldNum)
       : 0;
   const soldOut = sharesTotalNum > 0 && sharesSoldNum >= sharesTotalNum;
+  const kycAllowed = isKycMoneyActionAllowed(me?.kycStatus);
 
   const annualYield = property.annualYield;
   const durationLabel =
@@ -273,9 +277,9 @@ export default function PropertyDetailPage() {
               Fully funded
             </span>
           ) : (
-            <Link href={`/dashboard/properties/${id}/invest`} className="block">
-              <span className="flex h-11 w-full items-center justify-center rounded-full bg-cohold-blue px-4 text-sm font-medium text-white">
-                Buy more shares
+            <Link href={kycAllowed ? `/dashboard/properties/${id}/invest` : '/dashboard/kyc'} className="block">
+              <span className={`flex h-11 w-full items-center justify-center rounded-full px-4 text-sm font-medium ${kycAllowed ? 'bg-cohold-blue text-white' : 'bg-dashboard-border/80 text-dashboard-heading'}`}>
+                {kycAllowed ? 'Buy more shares' : 'Complete KYC'}
               </span>
             </Link>
           )}
@@ -288,10 +292,10 @@ export default function PropertyDetailPage() {
             </span>
           ) : (
             <Link
-              href={nextPath}
-              className="col-span-2 flex h-11 w-full items-center justify-center rounded-full bg-cohold-blue px-4 text-sm font-medium text-white"
+              href={kycAllowed ? nextPath : '/dashboard/kyc'}
+              className={`col-span-2 flex h-11 w-full items-center justify-center rounded-full px-4 text-sm font-medium ${kycAllowed ? 'bg-cohold-blue text-white' : 'bg-dashboard-border/80 text-dashboard-heading'}`}
             >
-              Invest now
+              {kycAllowed ? 'Invest now' : 'Complete KYC'}
             </Link>
           )}
         </div>
@@ -383,11 +387,16 @@ export default function PropertyDetailPage() {
           ) : (
             <div />
           )}
-          <Link href={nextPath}>
-            <PrimaryButton>{primaryLabel}</PrimaryButton>
+          <Link href={kycAllowed ? nextPath : '/dashboard/kyc'}>
+            <PrimaryButton>{kycAllowed ? primaryLabel : 'Complete KYC'}</PrimaryButton>
           </Link>
         </div>
       )}
+      {meLoading ? (
+        <p className="text-center text-xs text-dashboard-body">Checking KYC status before enabling money actions…</p>
+      ) : !kycAllowed ? (
+        <p className="text-center text-xs text-dashboard-body">Money actions are available only after your KYC status is VERIFIED.</p>
+      ) : null}
     </div>
   );
 }

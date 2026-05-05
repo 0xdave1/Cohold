@@ -22,7 +22,8 @@ model User {
   streetName            String?
   city                  String?
   state                 String?
-  bvn                   String?               @unique
+  /// @deprecated Plaintext BVN must not be written. Uniqueness/dedupe uses `KycVerification.identityHash`. Follow-up migration may NULL legacy values after backfill.
+  bvn                   String?
   paystackCustomerCode  String?               @unique
   username              String?               @unique
   passwordHash          String
@@ -109,10 +110,33 @@ model Admin {
   supportConversations SupportConversation[]
   supportMessages      SupportMessage[]
   supportPresence      SupportPresence?
+  adminSessions        AdminSession[]
 
   @@index([accountStatus])
   @@index([email])
   @@index([canSupport])
+}
+
+/// DB-backed admin refresh sessions (Issue 4). Access JWT carries sessionId for immediate revocation checks.
+model AdminSession {
+  id               String    @id @default(uuid())
+  adminId          String
+  refreshTokenHash String
+  userAgent        String?
+  ipAddress        String?
+  isRevoked        Boolean   @default(false)
+  revokedAt        DateTime?
+  expiresAt        DateTime
+  lastUsedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  admin Admin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, createdAt])
+  @@index([expiresAt])
+  @@index([isRevoked])
+  @@index([adminId, refreshTokenHash])
 }
 
 model SupportConversation {
@@ -458,8 +482,21 @@ model KycVerification {
   id                 String    @id @default(uuid())
   userId             String    @unique
   status             KycStatus @default(PENDING)
+  /// @deprecated Plaintext government id — use `identityEncrypted` + `identityHash` only.
   governmentIdType   String?
   governmentIdNumber String?
+  identityType                   IdentityType?
+  identityEncrypted              String?
+  /// HMAC-SHA256 keyed hash for dedupe/search. Never store raw BVN/NIN.
+  identityHash                   String?                   @unique
+  identityLast4                  String?
+  identityProviderReference      String?
+  identityVerifiedAt             DateTime?
+  identityVerificationStatus     IdentityVerificationStatus @default(PENDING)
+  /// Per-slot upload metadata: issued presign, HEAD result, malware placeholder, etc. (application-defined shape).
+  kycDocumentSlots               Json?
+  /// Optional NDPR retention horizon for encrypted identity payload (documentation in KycService).
+  identityDataRetentionUntil     DateTime?
   /// Legacy single-key field (kept for backward compatibility). Prefer explicit keys below.
   documentKey        String?
   documentFrontKey   String?
@@ -472,8 +509,31 @@ model KycVerification {
   updatedAt          DateTime  @updatedAt
   reviewedBy         Admin?    @relation(fields: [reviewedById], references: [id])
   user               User      @relation(fields: [userId], references: [id])
+  auditLogs          KycAuditLog[]
 
   @@index([status, createdAt])
+}
+
+/// Immutable admin/system actions on KYC decisions (Issue 5).
+model KycAuditLog {
+  id                  String    @id @default(uuid())
+  kycVerificationId   String
+  userId              String
+  actorAdminId        String?
+  action              String
+  previousKycStatus   KycStatus
+  nextKycStatus       KycStatus
+  reason              String?
+  metadata            Json?
+  ipAddress           String?
+  userAgent           String?
+  createdAt           DateTime  @default(now())
+
+  kycVerification KycVerification @relation(fields: [kycVerificationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([kycVerificationId, createdAt])
+  @@index([actorAdminId, createdAt])
 }
 
 model VirtualAccount {
@@ -588,6 +648,25 @@ enum KycStatus {
   VERIFIED
   FAILED
   REQUIRES_REVIEW
+}
+
+enum IdentityType {
+  BVN
+  NIN
+}
+
+enum IdentityVerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  MANUAL_REVIEW
+}
+
+enum KycDocumentObjectStatus {
+  UPLOADED
+  VERIFIED
+  REJECTED
+  QUARANTINED
 }
 
 enum AdminRole {

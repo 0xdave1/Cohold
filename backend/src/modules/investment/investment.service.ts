@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { PLATFORM_USER_ID, WalletService } from '../wallet/wallet.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { KycPolicyService } from '../kyc/kyc-policy.service';
 import { CreateFractionalInvestmentDto } from './dto/create-fractional-investment.dto';
 import { toDecimal, formatMoney, formatHighPrecision } from '../../common/money/decimal.util';
 import {
@@ -43,13 +44,16 @@ export class InvestmentService {
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly notificationsService: NotificationsService,
+    private readonly kycPolicy: KycPolicyService,
   ) {}
 
   /**
-   * Create fractional investment. Assumes user wallet is already funded (e.g. via Paystack).
+   * Create fractional investment. Assumes user wallet is already funded (e.g. via Flutterwave checkout).
    * Flow: User Wallet (debit) → Property Escrow (credit) + Platform Fee (credit).
    */
   async createFractional(userId: string, dto: CreateFractionalInvestmentDto) {
+    await this.kycPolicy.assertUserKycVerifiedForMoneyMovement(userId);
+
     const shares = toDecimal(dto.shares);
     if (shares.lte(0) || !shares.isInteger()) {
       throw new BadRequestException('Shares must be a positive integer');
@@ -293,6 +297,8 @@ export class InvestmentService {
    * - escrow / platform / user wallet separation with full ledger rows (fee + netAmount).
    */
   async sellFractional(userId: string, dto: SellFractionalInvestmentDto) {
+    await this.kycPolicy.assertUserKycVerifiedForMoneyMovement(userId);
+
     const sharesToSell = toDecimal(dto.sharesToSell);
     if (sharesToSell.lte(0)) {
       throw new BadRequestException('sharesToSell must be positive');

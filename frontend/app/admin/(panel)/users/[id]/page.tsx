@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { formatDecimalMoneyForDisplay } from '@/lib/money/format-display';
+import { maskSensitiveId } from '@/lib/kyc/identity';
 
 type Tab = 'personal' | 'banks' | 'coholds' | 'transactions';
 
@@ -269,8 +270,14 @@ function InfoRow({ label, value }: { label: string; value: string | null | undef
 
 /* ── Personal Info Tab ───────────────────────────────── */
 
-function KycDocumentCard({ label, url }: { label: string; url: string | null | undefined }) {
-  if (!url) {
+function KycDocumentCard({
+  label,
+  onOpen,
+}: {
+  label: string;
+  onOpen?: () => Promise<void> | void;
+}) {
+  if (!onOpen) {
     return (
       <div className="flex min-h-[140px] flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-4 py-6 text-center">
         <p className="text-xs font-medium text-gray-600">{label}</p>
@@ -282,28 +289,16 @@ function KycDocumentCard({ label, url }: { label: string; url: string | null | u
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
       <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-3 py-2">
         <span className="text-xs font-medium text-gray-700">{label}</span>
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          onClick={() => void onOpen()}
           className="inline-flex items-center gap-1 text-xs font-medium text-[#1a3a4a] hover:underline"
         >
           Open <ExternalLink className="h-3 w-3" />
-        </a>
+        </button>
       </div>
-      <div className="relative bg-[#fafafa]">
-        {/* eslint-disable-next-line @next/next/no-img-element -- signed URL; may be non-image */}
-        <img
-          src={url}
-          alt=""
-          className="mx-auto max-h-56 w-full object-contain"
-          onError={(e) => {
-            e.currentTarget.style.display = 'none';
-          }}
-        />
-        <p className="px-3 py-2 text-center text-[11px] leading-snug text-gray-500">
-          If preview is blank, use Open — file may be a PDF or unsupported format in-browser.
-        </p>
+      <div className="relative bg-[#fafafa] px-3 py-8 text-center text-[11px] leading-snug text-gray-500">
+        Secure private document. Use Open to fetch a short-lived signed link.
       </div>
     </div>
   );
@@ -323,15 +318,38 @@ function KycReviewSection({ kyc }: { kyc: AdminUserKycVerification }) {
           {kyc.governmentIdType ?? '\u2014'}
           <span className="mx-2 text-gray-300">|</span>
           <span className="text-gray-400">ID number: </span>
-          {kyc.governmentIdNumber ?? '\u2014'}
+          {maskSensitiveId(kyc.governmentIdMasked ?? kyc.governmentIdNumber) ?? '\u2014'}
         </div>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <KycDocumentCard label="ID — front" url={kyc.documentFrontUrl} />
-        <KycDocumentCard label="ID — back" url={kyc.documentBackUrl} />
-        <KycDocumentCard label="Selfie" url={kyc.selfieUrl} />
+        <KycDocumentCard
+          label="ID — front"
+          onOpen={kyc.documentFrontUrl ? async () => {
+            const d = await adminApi.getKycSignedReadUrl(kyc.userId, 'ID_FRONT');
+            window.open(d.url, '_blank', 'noopener,noreferrer');
+          } : undefined}
+        />
+        <KycDocumentCard
+          label="ID — back"
+          onOpen={kyc.documentBackUrl ? async () => {
+            const d = await adminApi.getKycSignedReadUrl(kyc.userId, 'ID_BACK');
+            window.open(d.url, '_blank', 'noopener,noreferrer');
+          } : undefined}
+        />
+        <KycDocumentCard
+          label="Selfie"
+          onOpen={kyc.selfieUrl ? async () => {
+            const d = await adminApi.getKycSignedReadUrl(kyc.userId, 'SELFIE');
+            window.open(d.url, '_blank', 'noopener,noreferrer');
+          } : undefined}
+        />
         {showExtraLegacy && (
-          <KycDocumentCard label="Legacy / additional document" url={kyc.documentLegacyUrl} />
+          <KycDocumentCard
+            label="Legacy / additional document"
+            onOpen={async () => {
+              if (kyc.documentLegacyUrl) window.open(kyc.documentLegacyUrl, '_blank', 'noopener,noreferrer');
+            }}
+          />
         )}
       </div>
     </div>

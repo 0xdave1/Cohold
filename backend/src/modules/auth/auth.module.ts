@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { AdminRoleGuard } from '../../common/guards/admin-role.guard';
 import { EmailModule } from '../email/email.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -29,7 +30,7 @@ import { AuthAttemptsService } from './auth-attempts.service';
     NotificationsModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, AuthOtpService, AuthAttemptsService, JwtAuthGuard, AdminRoleGuard],
-  exports: [AuthService, JwtModule, JwtAuthGuard, AdminRoleGuard],
+  providers: [AuthService, AuthOtpService, AuthAttemptsService, JwtAuthGuard, AdminJwtGuard, AdminRoleGuard],
+  exports: [AuthService, JwtModule, JwtAuthGuard, AdminJwtGuard, AdminRoleGuard],
 })
 export class AuthModule {}

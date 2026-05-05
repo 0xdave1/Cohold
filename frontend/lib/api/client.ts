@@ -1,5 +1,7 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/auth.store';
+import { readCsrfCookieFromDocument } from '@/lib/csrf-cookie';
+import { attachCsrfHeaderForUnsafeMethod } from '@/lib/api/attach-csrf-header';
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -18,7 +20,7 @@ export function getApiBaseURL(): string {
   return process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_BASE_URL;
 }
 
-function extractAccessTokenFromEnvelope(body: unknown): string | undefined {
+export function extractAccessTokenFromEnvelope(body: unknown): string | undefined {
   if (!body || typeof body !== 'object') return undefined;
   const root = body as Record<string, unknown>;
   const inner = root.data;
@@ -57,6 +59,7 @@ function isAuthMutation401Allowed(config: InternalAxiosRequestConfig | undefined
     url.includes('/auth/request-otp') ||
     url.includes('/auth/resend-otp') ||
     url.includes('/auth/reset-password') ||
+    url.includes('/auth/forgot-password') ||
     url.includes('/admin-auth/login')
   );
 }
@@ -78,15 +81,20 @@ export function postWithCredentialsOnly<T = unknown>(url: string, body?: unknown
 
 api.interceptors.request.use((config) => {
   const c = config as RequestConfigWithSkip;
-  if (c.skipBearer) {
-    return config;
+  if (!c.skipBearer) {
+    const { accessToken, adminAccessToken } = useAuthStore.getState();
+    const token = isAdminRequest(config) ? adminAccessToken : accessToken;
+    if (token) {
+      config.headers = config.headers ?? {};
+      config.headers.Authorization = `Bearer ${token}`;
+    }
   }
-  const { accessToken, adminAccessToken } = useAuthStore.getState();
-  const token = isAdminRequest(config) ? adminAccessToken : accessToken;
-  if (token) {
-    config.headers = config.headers ?? {};
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  config.headers = config.headers ?? {};
+  attachCsrfHeaderForUnsafeMethod(
+    config.method,
+    config.headers as Record<string, string>,
+    readCsrfCookieFromDocument,
+  );
   return config;
 });
 
@@ -157,8 +165,13 @@ api.interceptors.response.use(
 
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    if (isRefreshRequest(originalRequest) || isAdminRefreshRequest(originalRequest)) {
-      useAuthStore.getState().clearSession();
+    if (isRefreshRequest(originalRequest)) {
+      useAuthStore.getState().clearUserSession();
+      return Promise.reject(error);
+    }
+
+    if (isAdminRefreshRequest(originalRequest)) {
+      useAuthStore.getState().clearAdminSession();
       return Promise.reject(error);
     }
 
@@ -167,7 +180,11 @@ api.interceptors.response.use(
     }
 
     if (originalRequest._retry) {
-      useAuthStore.getState().clearSession();
+      if (isAdminRequest(originalRequest)) {
+        useAuthStore.getState().clearAdminSession();
+      } else {
+        useAuthStore.getState().clearUserSession();
+      }
       return Promise.reject(error);
     }
 
@@ -184,7 +201,7 @@ api.interceptors.response.use(
       if (isAdminRequest(originalRequest)) {
         return Promise.reject(error);
       }
-      useAuthStore.getState().clearSession();
+      useAuthStore.getState().clearUserSession();
       return Promise.reject(error);
     }
   },

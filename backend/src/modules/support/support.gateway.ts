@@ -6,12 +6,12 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Server, Socket } from 'socket.io';
 import { SupportMessageType, SupportSenderType, SupportStatus } from '@prisma/client';
 import { getAccessTokenFromHandshake } from '../../common/ws/handshake-access-token';
+import { WsAuthTokenVerifier } from '../../common/ws/ws-auth-token.verifier';
+import { wsCorsOptions } from '../../common/ws/ws-cors-origins';
 
 type AuthedSocket = Socket & {
   data: {
@@ -23,71 +23,42 @@ type AuthedSocket = Socket & {
 
 @WebSocketGateway({
   namespace: '/ws/support',
-  cors: { origin: '*', credentials: true },
+  cors: wsCorsOptions(),
 })
 export class SupportGateway implements OnGatewayConnection {
   @WebSocketServer()
   server!: Server;
 
   constructor(
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly wsAuth: WsAuthTokenVerifier,
   ) {}
 
   async handleConnection(client: AuthedSocket): Promise<void> {
     const token = getAccessTokenFromHandshake(client);
-    if (!token || typeof token !== 'string') {
+    if (!token) {
       client.disconnect(true);
       return;
     }
 
-    try {
-      const secret = this.configService.get<string>('config.jwt.accessSecret');
-      if (!secret) {
-        client.disconnect(true);
-        return;
-      }
-      const payload = await this.jwtService.verifyAsync<{ sub: string; role?: string }>(token, {
-        secret,
-      });
-      const actorId = payload.sub as string;
-      const role = String(payload.role ?? 'user');
-      const actorType: 'user' | 'admin' = role === 'user' ? 'user' : 'admin';
-
-      client.data.actorId = actorId;
-      client.data.actorType = actorType;
-
-      if (actorType === 'user') {
-        const user = await this.prisma.user.findUnique({
-          where: { id: actorId },
-          select: { emailVerifiedAt: true, isFrozen: true },
-        });
-        if (!user || user.isFrozen || !user.emailVerifiedAt) {
-          client.disconnect(true);
-          return;
-        }
-        client.join(`user:${actorId}`);
-        return;
-      }
-
-      // Admin: enforce canSupport for support namespace.
-      const admin = await this.prisma.admin.findUnique({
-        where: { id: actorId },
-        select: { canSupport: true, role: true },
-      });
-      const canAccess = !!admin?.canSupport || admin?.role === 'SUPER_ADMIN';
-      if (!canAccess) {
-        client.disconnect(true);
-        return;
-      }
-
-      client.data.canSupport = true;
-      client.join(`admin:${actorId}`);
-      client.join('support:agents');
-    } catch {
+    const actor = await this.wsAuth.verifySupportAccessSocket(token);
+    if (!actor) {
       client.disconnect(true);
+      return;
     }
+
+    if (actor.kind === 'user') {
+      client.data.actorId = actor.userId;
+      client.data.actorType = 'user';
+      client.join(`user:${actor.userId}`);
+      return;
+    }
+
+    client.data.actorId = actor.adminId;
+    client.data.actorType = 'admin';
+    client.data.canSupport = actor.canSupport;
+    client.join(`admin:${actor.adminId}`);
+    client.join('support:agents');
   }
 
   @SubscribeMessage('support:ping')
@@ -267,4 +238,3 @@ export class SupportGateway implements OnGatewayConnection {
     });
   }
 }
-

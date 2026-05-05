@@ -33,6 +33,10 @@ interface AuthState {
   }) => void;
   setUser: (user: AuthUser | null) => void;
   clearSession: () => void;
+  /** Clears end-user session fields only (keeps admin access token). */
+  clearUserSession: () => void;
+  /** Clears admin JWT in memory only. */
+  clearAdminSession: () => void;
 }
 
 export const useAuthStore = create<AuthState>()((set) => ({
@@ -65,5 +69,18 @@ export const useAuthStore = create<AuthState>()((set) => ({
       adminAccessToken: null,
       authChecked: true,
     });
+  },
+
+  clearUserSession: () => {
+    set({
+      accessToken: null,
+      user: null,
+      isAuthenticated: false,
+      role: null,
+    });
+  },
+
+  clearAdminSession: () => {
+    set({ adminAccessToken: null });
   },
 }));

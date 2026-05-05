@@ -2,9 +2,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { uploadKycDocument, type KycDocType } from '@/lib/uploads/upload-file';
 import { useMe } from './use-onboarding';
+import { normalizeKycStatus, type KycStatusNormalized } from '@/lib/kyc/status';
 
 /** KYC status from backend (User.kycStatus / KycVerification.status). */
-export type KycStatus = 'PENDING' | 'VERIFIED' | 'FAILED' | 'REQUIRES_REVIEW' | null;
+export type KycStatus = KycStatusNormalized;
 
 export interface KycStatusResponse {
   status: KycStatus;
@@ -20,7 +21,7 @@ export function useKycStatus() {
   return {
     ...meQuery,
     data: meQuery.data
-      ? ({ status: (meQuery.data.kycStatus as KycStatus) ?? null } as KycStatusResponse)
+      ? ({ status: normalizeKycStatus(meQuery.data.kycStatus) } as KycStatusResponse)
       : undefined,
   };
 }

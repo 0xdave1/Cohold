@@ -11,11 +11,13 @@ type InitializePaymentInput = {
   reference: string;
 };
 
-type VerifyPaymentResult = {
+export type VerifyPaymentResult = {
   reference: string;
   amount: Decimal;
   status: string;
   txId: string | null;
+  customerEmail?: string | null;
+  meta?: Record<string, unknown>;
 };
 
 @Injectable()
@@ -93,6 +95,8 @@ export class FlutterwaveService {
           amount?: number | string;
           tx_ref?: string;
           id?: number;
+          meta?: Record<string, unknown>;
+          customer?: { email?: string };
         };
       }>('/transactions/verify_by_reference', {
         params: { tx_ref: reference },
@@ -112,6 +116,8 @@ export class FlutterwaveService {
         amount: toDecimal(tx.amount ?? 0),
         status: tx.status,
         txId: tx.id != null ? String(tx.id) : null,
+        customerEmail: tx.customer?.email ?? null,
+        meta: tx.meta,
       };
     } catch (error) {
       if (axios.isAxiosError(error)) {
