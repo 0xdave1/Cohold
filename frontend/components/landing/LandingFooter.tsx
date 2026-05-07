@@ -15,7 +15,7 @@ const FOOTER_COLUMNS = {
   support: [
     { href: '/contact', label: 'Help center' },
     { href: '/privacy', label: 'Privacy policy' },
-    { href: 'mailto:support@cohold.com', label: 'support@cohold.com' },
+    { href: 'mailto:hello@cohold.co', label: 'hello@cohold.co' },
   ],
 } as const;
 
