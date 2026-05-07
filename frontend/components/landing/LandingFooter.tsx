@@ -21,7 +21,7 @@ const FOOTER_COLUMNS = {
 
 const SOCIAL = [
   { href: 'https://twitter.com/coholdhq', label: 'X', icon: 'X' },
-  { href: 'https://linkedin.com', label: 'LinkedIn', icon: 'in' },
+  { href: 'https://www.linkedin.com/company/tranquill-wellness/', label: 'LinkedIn', icon: 'in' },
 ] as const;
 
 export function LandingFooter() {
