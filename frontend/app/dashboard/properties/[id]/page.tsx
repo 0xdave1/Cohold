@@ -156,14 +156,20 @@ export default function PropertyDetailPage() {
           <p className="text-[11px] font-medium text-dashboard-heading">Listing</p>
           <div className="grid grid-cols-2 gap-2 text-[11px]">
             <div>
-              <span className="text-dashboard-body">Annual yield (target)</span>
+              <span className="text-dashboard-body">Projected annual yield</span>
               <p className="font-semibold text-dashboard-heading">{formatAnnualYieldPercent(annualYield)}</p>
             </div>
             <div>
-              <span className="text-dashboard-body">Term</span>
+              <span className="text-dashboard-body">Estimated term</span>
               <p className="font-semibold text-dashboard-heading">{durationLabel}</p>
             </div>
           </div>
+          <p className="text-[11px] text-dashboard-body">
+            {property.expectedReturnDisclosure ?? 'Returns shown are projected estimates, not guarantees.'}
+          </p>
+          <p className="text-[11px] text-dashboard-body">
+            {property.riskDisclosure ?? 'Investments carry risk and value can move up or down.'}
+          </p>
         </div>
       )}
 
@@ -178,7 +184,7 @@ export default function PropertyDetailPage() {
               </p>
             </div>
             <div>
-              <p className="text-[10px] text-dashboard-body">Total returns</p>
+              <p className="text-[10px] text-dashboard-body">Paid distributions</p>
               <p className="text-xs font-semibold text-emerald-600 leading-tight">
                 {formatMoney(positionAgg.totalReturns, property.currency)}
               </p>
@@ -270,7 +276,7 @@ export default function PropertyDetailPage() {
             href={`/dashboard/properties/${id}/sell`}
             className="flex h-11 w-full items-center justify-center rounded-full bg-dashboard-border/60 px-4 text-sm font-medium text-dashboard-heading"
           >
-            Sell shares
+            Sell back to platform
           </Link>
           {soldOut ? (
             <span className="flex h-11 w-full items-center justify-center rounded-full bg-dashboard-border/50 px-4 text-sm font-medium text-dashboard-body">
@@ -321,12 +327,17 @@ export default function PropertyDetailPage() {
           label={isFractional ? 'Share price' : isLand ? 'Plot size' : 'Home amount'}
           value={isLand ? '300sqm' : formatMoney(sharePrice, property.currency)}
         />
-        <DetailRow label="Annual yield (target)" value={isFractional ? formatAnnualYieldPercent(annualYield) : '—'} />
+        <DetailRow label="Projected annual yield" value={isFractional ? formatAnnualYieldPercent(annualYield) : '—'} />
+        <DetailRow label="Yield basis" value={property.yieldIsProjected ? 'Projected estimate' : 'Reported by listing'} />
+        <DetailRow label="Expected return disclosure" value={property.expectedReturnDisclosure ?? 'Projected returns are estimates and not guaranteed.'} />
         <DetailRow label="Term" value={durationLabel} />
+        <DetailRow label="Title verification status" value={property.titleVerificationStatus ?? 'UNSPECIFIED'} />
+        <DetailRow label="Legal review status" value={property.legalReviewStatus ?? 'UNSPECIFIED'} />
+        <DetailRow label="Risk disclosure" value={property.riskDisclosure ?? 'Investments carry risk'} />
         {isInvested && isFractional && positionAgg ? (
           <>
-            <DetailRow label="Your total returns" value={formatMoney(positionAgg.totalReturns, property.currency)} />
-            <DetailRow label="ROI frequency" value="Monthly" />
+            <DetailRow label="Your paid distributions" value={formatMoney(positionAgg.totalReturns, property.currency)} />
+            <DetailRow label="Distribution timing" value="Paid only after income is received, approved, and posted" />
           </>
         ) : null}
         {investmentDateLabel && isFractional ? <DetailRow label="Investment date" value={investmentDateLabel} /> : null}
@@ -373,6 +384,9 @@ export default function PropertyDetailPage() {
           {(!property.documents || property.documents.length === 0) && (
             <p className="text-xs text-dashboard-body">No documents uploaded yet.</p>
           )}
+          <p className="text-[11px] text-dashboard-body">
+            Document availability: {property.documentsAvailable ? 'Available' : 'Not specified'}
+          </p>
         </div>
       </SectionCard>
 

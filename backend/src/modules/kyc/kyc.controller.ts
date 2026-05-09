@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Param,
@@ -9,6 +10,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
@@ -35,6 +37,7 @@ export class KycController {
   @ApiBearerAuth('user-jwt')
   @UseGuards(JwtAuthGuard)
   @Post('kyc/bvn')
+  @Throttle({ default: { limit: 5, ttl: 10 * 60_000 } })
   async submitBvn(
     @CurrentUser() user: { id: string },
     @Body() dto: SubmitBvnDto,
@@ -45,6 +48,7 @@ export class KycController {
   @ApiBearerAuth('user-jwt')
   @UseGuards(JwtAuthGuard)
   @Post('kyc/nin')
+  @Throttle({ default: { limit: 5, ttl: 10 * 60_000 } })
   async submitNin(
     @CurrentUser() user: { id: string },
     @Body() dto: SubmitNinDto,
@@ -55,7 +59,20 @@ export class KycController {
   @ApiBearerAuth('user-jwt')
   @UseGuards(JwtAuthGuard)
   @Post('kyc/upload-document')
-  @UseInterceptors(FileInterceptor('file'))
+  @Throttle({ default: { limit: 15, ttl: 10 * 60_000 } })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+      fileFilter: (_req, file, cb) => {
+        const allowed = new Set(['image/jpeg', 'image/png', 'application/pdf']);
+        if (!allowed.has(file.mimetype)) {
+          cb(new BadRequestException('Invalid file type for KYC upload'), false);
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
   @ApiConsumes('multipart/form-data')
   async uploadDocument(
     @CurrentUser() user: { id: string },
@@ -68,6 +85,7 @@ export class KycController {
   @ApiBearerAuth('user-jwt')
   @UseGuards(JwtAuthGuard)
   @Post('kyc/uploads/presign')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async presign(@CurrentUser() user: { id: string }, @Body() dto: PresignKycUploadDto) {
     return this.kycService.presignKycUpload(user.id, dto);
   }
@@ -75,6 +93,7 @@ export class KycController {
   @ApiBearerAuth('user-jwt')
   @UseGuards(JwtAuthGuard)
   @Post('kyc/uploads/complete')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async complete(@CurrentUser() user: { id: string }, @Body() dto: CompleteKycUploadDto) {
     return this.kycService.completeKycUpload(user.id, dto);
   }

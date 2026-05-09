@@ -18,6 +18,7 @@ import {
   TransactionDirection,
   TransactionStatus,
   TransactionType,
+  VirtualAccountStatus,
 } from '@prisma/client';
 import { toDecimal, formatMoney } from '../../common/money/decimal.util';
 import { fixMoney, moneyStr } from '../../common/money/precision.constants';
@@ -51,6 +52,7 @@ export const PLATFORM_USER_ID = 'PLATFORM_USER';
 /** In-flight payout liquidity (withdrawals) — not user-spendable. */
 export const SYSTEM_PAYOUT_USER_ID = 'SYSTEM_PAYOUT_USER';
 const PROPERTY_ESCROW_PREFIX = 'ESCROW_PROPERTY_';
+const PROPERTY_INCOME_PREFIX = 'INCOME_PROPERTY_';
 type TxClient = Pick<PrismaService, 'user' | 'wallet' | 'transaction'>;
 type LedgerTxClient = Prisma.TransactionClient;
 type LedgerLegInput = {
@@ -341,22 +343,7 @@ export class WalletService {
   }
 
   async getVirtualAccounts(userId: string) {
-    const accounts = await this.prisma.virtualAccount.findMany({
-      where: { userId },
-      select: { id: true, accountNumber: true, accountName: true, bankName: true, currency: true },
-    });
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { firstName: true, lastName: true },
-    });
-    const fallbackName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'Cohold User';
-    return accounts.map((a) => ({
-      id: a.id,
-      accountNumber: a.accountNumber,
-      bankName: a.bankName,
-      currency: a.currency,
-      accountName: a.accountName || fallbackName,
-    }));
+    return this.virtualAccountService.getVirtualAccountsForUser(userId);
   }
 
   /**
@@ -372,8 +359,8 @@ export class WalletService {
       throw new BadRequestException('Only NGN wallet account details are supported for now');
     }
     const account = await this.prisma.virtualAccount.findFirst({
-      where: { userId, currency },
-      select: { accountNumber: true, bankName: true, accountName: true, currency: true },
+      where: { userId, currency, status: VirtualAccountStatus.ACTIVE },
+      select: { accountNumber: true, bankName: true, accountName: true, currency: true, status: true },
     });
 
     if (!account) {
@@ -463,6 +450,25 @@ export class WalletService {
     return tx.wallet.upsert({
       where: { userId_currency: { userId: escrowUserId, currency } },
       create: { userId: escrowUserId, currency, balance: '0' },
+      update: {},
+    });
+  }
+
+  /** Separate realized-income wallet for rent/ROI distributions (must not use principal escrow). */
+  async getPropertyIncomeWallet(tx: TxClient, propertyId: string, currency: Currency) {
+    const incomeUserId = `${PROPERTY_INCOME_PREFIX}${propertyId}`;
+    await tx.user.upsert({
+      where: { id: incomeUserId },
+      create: {
+        id: incomeUserId,
+        email: `income-${propertyId}@internal.cohold`,
+        passwordHash: 'INCOME_NO_LOGIN',
+      },
+      update: {},
+    });
+    return tx.wallet.upsert({
+      where: { userId_currency: { userId: incomeUserId, currency } },
+      create: { userId: incomeUserId, currency, balance: '0' },
       update: {},
     });
   }

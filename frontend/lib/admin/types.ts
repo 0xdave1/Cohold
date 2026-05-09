@@ -91,12 +91,36 @@ export interface UserDetail extends PlatformUser {
   /** Signed GET URL for profile photo (private bucket). */
   profilePhotoUrl?: string | null;
   kycVerification?: AdminUserKycVerification | null;
+  virtualAccount?: {
+    id: string;
+    status: string;
+    accountNumber?: string | null;
+    bankName?: string | null;
+    accountName?: string | null;
+    bankCode?: string | null;
+    failureReason?: string | null;
+    retryCount?: number;
+    updatedAt?: string;
+  } | null;
   wallets: { id: string; currency: string; balance: string }[];
   investments: { id: string; propertyId: string; amount: string; currency: string; shares: string; status: string }[];
   linkedBanks: { id: string; accountNumber: string; bankName: string; accountName: string; currency: string }[];
   totalInvested: string;
   walletBalance: string;
   totalReferrals: number;
+}
+
+export interface AdminVirtualAccountProvisioningRow {
+  id: string;
+  userId: string;
+  status: string;
+  accountNumber?: string | null;
+  bankName?: string | null;
+  accountName?: string | null;
+  failureReason?: string | null;
+  retryCount?: number;
+  lastProvisionAttemptAt?: string | null;
+  updatedAt: string;
 }
 
 export interface UserTransaction {
@@ -149,6 +173,8 @@ export interface PropertyDetail extends PropertyListing {
   images: { id: string; url: string | null; position: number; createdAt: string; storageKey?: string | null }[];
   totalInvestors: number;
   yieldPercentage: string;
+  /** Unitless annual rate from API when present (e.g. 0.12 = 12% / year). Required server-side to publish. */
+  annualYield?: string | null;
   features: string[];
   terms: string;
 }
@@ -157,11 +183,13 @@ export interface PropertyInvestor {
   id: string;
   userName: string;
   email: string;
-  amount: string;
+  amount?: string;
+  amountInvested?: string;
   currency: string;
   shares: string;
   ownershipPercent: string;
-  createdAt: string;
+  createdAt?: string;
+  dateInvested?: string;
 }
 
 export interface WalletTransaction {

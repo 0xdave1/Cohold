@@ -25,6 +25,10 @@ import { CompletePropertyImageDto } from './dto/complete-property-image.dto';
 import { PresignPropertyDocumentDto } from './dto/presign-property-document.dto';
 import { CompletePropertyDocumentDto } from './dto/complete-property-document.dto';
 import { KycReviewDto } from '../kyc/dto/kyc-review.dto';
+import { ActionReasonDto } from './dto/action-reason.dto';
+import { CreateAdminDto } from './dto/create-admin.dto';
+import { UpdateAdminDto } from './dto/update-admin.dto';
+import { AdminRbacMatrix } from './admin-rbac.matrix';
 
 @ApiTags('admin')
 @ApiBearerAuth('admin-jwt')
@@ -33,13 +37,13 @@ import { KycReviewDto } from '../kyc/dto/kyc-review.dto';
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
-  @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Roles(...AdminRbacMatrix.users.read)
   @Get('dashboard/overview')
   async overview() {
     return this.adminService.getDashboardOverviewV2();
   }
 
-  @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Roles(...AdminRbacMatrix.users.read)
   @Get('users')
   async listUsers(
     @Query('page') page = '1',
@@ -53,13 +57,13 @@ export class AdminController {
     });
   }
 
-  @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Roles(...AdminRbacMatrix.users.read)
   @Get('users/:id')
   async userDetail(@Param('id') id: string) {
     return this.adminService.getUserDetail(id);
   }
 
-  @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Roles(...AdminRbacMatrix.users.read)
   @Get('users/:id/transactions')
   async userTransactions(
     @Param('id') id: string,
@@ -72,16 +76,48 @@ export class AdminController {
     });
   }
 
-  @Roles(AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Roles(...AdminRbacMatrix.users.freeze)
   @Post('users/:id/suspend')
-  async suspendUser(@Param('id') id: string) {
-    return this.adminService.suspendUser(id);
+  async suspendUser(
+    @Param('id') id: string,
+    @CurrentUser() admin: { id: string },
+    @Body() body: ActionReasonDto,
+  ) {
+    return this.adminService.suspendUser(id, admin.id, body.reason);
+  }
+
+  @Roles(...AdminRbacMatrix.users.freeze)
+  @Post('users/:id/freeze')
+  async freezeUser(
+    @Param('id') id: string,
+    @CurrentUser() admin: { id: string },
+    @Body() body: ActionReasonDto,
+  ) {
+    return this.adminService.freezeUser(id, admin.id, body.reason);
+  }
+
+  @Roles(...AdminRbacMatrix.users.unfreeze)
+  @Post('users/:id/unfreeze')
+  async unfreezeUser(
+    @Param('id') id: string,
+    @CurrentUser() admin: { id: string },
+    @Body() body: ActionReasonDto,
+  ) {
+    return this.adminService.unfreezeUser(id, admin.id, body.reason);
   }
 
   @Roles(AdminRole.SUPER_ADMIN)
   @Delete('users/:id')
-  async deleteUser(@Param('id') id: string) {
-    return this.adminService.deleteUser(id);
+  async deleteUser(
+    @Param('id') id: string,
+    @CurrentUser() admin: { id: string },
+    @Body() body: ActionReasonDto,
+    @Req() req: Request,
+  ) {
+    return this.adminService.deleteUser(id, admin.id, body.reason, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
   }
 
   @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
@@ -96,7 +132,7 @@ export class AdminController {
     });
   }
 
-  @Roles(AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Roles(...AdminRbacMatrix.kyc.review)
   @Post('verifications/:id/approve')
   async approveKyc(
     @Param('id') id: string,
@@ -109,7 +145,7 @@ export class AdminController {
     });
   }
 
-  @Roles(AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Roles(...AdminRbacMatrix.kyc.review)
   @Post('verifications/:id/reject')
   async rejectKyc(
     @Param('id') id: string,
@@ -138,6 +174,28 @@ export class AdminController {
       ipAddress: req.ip,
       userAgent: req.get('user-agent') ?? undefined,
     });
+  }
+
+  @Roles(...AdminRbacMatrix.virtualAccounts.retry)
+  @Post('users/:userId/virtual-account/retry')
+  async retryVirtualAccountProvisioning(
+    @Param('userId') userId: string,
+    @CurrentUser() admin: { id: string },
+    @Body() body: ActionReasonDto,
+  ) {
+    return this.adminService.adminRetryVirtualAccountProvisioning(userId, admin.id, body.reason);
+  }
+
+  @Roles(AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Get('virtual-accounts/failed')
+  async failedVirtualAccounts(@Query('limit') limit = '50') {
+    return this.adminService.adminListFailedVirtualAccounts(parseInt(limit, 10));
+  }
+
+  @Roles(AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Get('virtual-accounts/unmatched-deposits')
+  async unmatchedVirtualAccountDeposits(@Query('limit') limit = '100') {
+    return this.adminService.adminListUnmatchedVirtualAccountDeposits(parseInt(limit, 10));
   }
 
   @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
@@ -178,48 +236,58 @@ export class AdminController {
     return this.adminService.getAdminDetail(id);
   }
 
-  @Roles(AdminRole.SUPER_ADMIN)
+  @Roles(...AdminRbacMatrix.adminManagement.mutate)
   @Post('admins')
-  async createAdmin(
-    @Body()
-    body: {
-      fullName?: string;
-      email: string;
-      phoneNumber?: string | null;
-      role: 'SUPER_ADMIN' | 'FINANCE_ADMIN' | 'OPERATION_ADMIN' | 'COMPLIANCE_ADMIN';
-    },
-  ) {
-    return this.adminService.createAdmin(body);
+  async createAdmin(@CurrentUser() admin: { id: string }, @Body() body: CreateAdminDto, @Req() req: Request) {
+    return this.adminService.createAdmin(admin.id, body, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
   }
 
-  @Roles(AdminRole.SUPER_ADMIN)
+  @Roles(...AdminRbacMatrix.adminManagement.mutate)
   @Patch('admins/:id')
   async updateAdmin(
     @Param('id') id: string,
-    @Body()
-    body: {
-      fullName?: string;
-      email?: string;
-      phoneNumber?: string | null;
-      role?: 'SUPER_ADMIN' | 'FINANCE_ADMIN' | 'OPERATION_ADMIN' | 'COMPLIANCE_ADMIN';
-    },
+    @CurrentUser() admin: { id: string },
+    @Body() body: UpdateAdminDto,
+    @Req() req: Request,
   ) {
-    return this.adminService.updateAdmin(id, body);
+    return this.adminService.updateAdmin(admin.id, id, body, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
   }
 
-  @Roles(AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Roles(...AdminRbacMatrix.adminManagement.mutate)
   @Post('admins/:id/suspend')
-  async suspendAdmin(@Param('id') id: string, @CurrentUser() admin: { id: string }) {
-    return this.adminService.suspendAdmin(id, admin.id);
+  async suspendAdmin(
+    @Param('id') id: string,
+    @CurrentUser() admin: { id: string },
+    @Body() body: ActionReasonDto,
+    @Req() req: Request,
+  ) {
+    return this.adminService.suspendAdmin(id, admin.id, body.reason, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
   }
 
-  @Roles(AdminRole.SUPER_ADMIN)
+  @Roles(...AdminRbacMatrix.adminManagement.mutate)
   @Post('admins/:id/deactivate')
-  async deactivateAdmin(@Param('id') id: string, @CurrentUser() admin: { id: string }) {
-    return this.adminService.deactivateAdmin(id, admin.id);
+  async deactivateAdmin(
+    @Param('id') id: string,
+    @CurrentUser() admin: { id: string },
+    @Body() body: ActionReasonDto,
+    @Req() req: Request,
+  ) {
+    return this.adminService.deactivateAdmin(id, admin.id, body.reason, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
   }
 
-  @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  @Roles(...AdminRbacMatrix.withdrawals.read)
   @Get('withdrawals')
   async listWithdrawals(
     @Query('page') page = '1',
@@ -244,10 +312,18 @@ export class AdminController {
     });
   }
 
-  @Roles(AdminRole.SUPER_ADMIN, AdminRole.APPROVER)
+  @Roles(...AdminRbacMatrix.withdrawals.reconcile)
   @Post('withdrawals/:id/reconcile')
-  async reconcileWithdrawal(@Param('id') id: string, @CurrentUser() admin: { id: string }) {
-    return this.adminService.adminReconcileWithdrawal(id, admin.id);
+  async reconcileWithdrawal(
+    @Param('id') id: string,
+    @CurrentUser() admin: { id: string },
+    @Body() body: ActionReasonDto,
+    @Req() req: Request,
+  ) {
+    return this.adminService.adminReconcileWithdrawal(id, admin.id, body.reason, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
   }
 
   @Roles(AdminRole.SUPER_ADMIN)
@@ -256,15 +332,28 @@ export class AdminController {
     return this.adminService.getLedgerReconciliationReport();
   }
 
+  @Roles(AdminRole.SUPER_ADMIN, AdminRole.COMPLIANCE_ADMIN)
+  @Get('ops/summary')
+  async financialOpsSummary() {
+    return this.adminService.getFinancialOpsSummary();
+  }
+
   @Roles(AdminRole.SUPER_ADMIN)
   @Post('withdrawals/reconcile-stale')
   async reconcileStaleWithdrawals(
     @CurrentUser() admin: { id: string },
+    @Body() body: ActionReasonDto,
+    @Req() req: Request,
     @Query('olderThanMinutes') olderThanMinutes?: string,
   ) {
     return this.adminService.adminReconcileStaleWithdrawals(
       admin.id,
+      body.reason,
       olderThanMinutes ? parseInt(olderThanMinutes, 10) : undefined,
+      {
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent') ?? undefined,
+      },
     );
   }
 
@@ -358,8 +447,40 @@ export class AdminController {
   async closeProperty(
     @Param('id') id: string,
     @CurrentUser() admin: { id: string },
+    @Body() body: ActionReasonDto,
+    @Req() req: Request,
   ) {
-    return this.adminService.closeProperty(id, admin.id);
+    return this.adminService.closeProperty(id, admin.id, body.reason, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
+  }
+
+  @Roles(...AdminRbacMatrix.properties.publish)
+  @Post('properties/:id/publish')
+  async publishProperty(
+    @Param('id') id: string,
+    @CurrentUser() admin: { id: string },
+    @Req() req: Request,
+  ) {
+    return this.adminService.publishProperty(id, admin.id, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
+  }
+
+  @Roles(...AdminRbacMatrix.properties.unpublish)
+  @Post('properties/:id/unpublish')
+  async unpublishProperty(
+    @Param('id') id: string,
+    @CurrentUser() admin: { id: string },
+    @Body() body: ActionReasonDto,
+    @Req() req: Request,
+  ) {
+    return this.adminService.unpublishProperty(id, admin.id, body.reason, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
   }
 
   @Roles(AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
@@ -367,8 +488,13 @@ export class AdminController {
   async deleteProperty(
     @Param('id') id: string,
     @CurrentUser() admin: { id: string },
+    @Body() body: ActionReasonDto,
+    @Req() req: Request,
   ) {
-    return this.adminService.softDeleteProperty(id, admin.id);
+    return this.adminService.softDeleteProperty(id, admin.id, body.reason, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent') ?? undefined,
+    });
   }
 }
 

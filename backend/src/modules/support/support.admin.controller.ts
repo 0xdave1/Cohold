@@ -12,6 +12,7 @@ import { SetSupportPresenceDto } from './dto/presence.dto';
 import { ListAdminSupportConversationsDto } from './dto/list-admin-conversations.dto';
 import { StorageService } from '../storage/storage.service';
 import { PresignSupportAttachmentDto } from './dto/presign-attachment.dto';
+import { ResolveSupportConversationDto } from './dto/resolve-conversation.dto';
 
 @ApiTags('admin-support')
 @ApiBearerAuth('admin-jwt')
@@ -91,8 +92,12 @@ export class SupportAdminController {
   }
 
   @Post('conversations/:id/resolve')
-  async resolve(@CurrentUser() admin: { id: string }, @Param('id') id: string) {
-    return this.supportService.resolveConversation(admin.id, id);
+  async resolve(
+    @CurrentUser() admin: { id: string },
+    @Param('id') id: string,
+    @Body() body: ResolveSupportConversationDto,
+  ) {
+    return this.supportService.resolveConversation(admin.id, id, body.reason);
   }
 
   @Post('presence')

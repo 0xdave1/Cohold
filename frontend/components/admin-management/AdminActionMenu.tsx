@@ -11,6 +11,9 @@ type ActionMenuProps = {
   onEdit: () => void;
   onSuspend: () => void;
   onDeactivate: () => void;
+  showEdit?: boolean;
+  showSuspend?: boolean;
+  showDeactivate?: boolean;
 };
 
 export function AdminActionMenu({
@@ -21,6 +24,9 @@ export function AdminActionMenu({
   onEdit,
   onSuspend,
   onDeactivate,
+  showEdit = true,
+  showSuspend = true,
+  showDeactivate = true,
 }: ActionMenuProps) {
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -64,36 +70,42 @@ export function AdminActionMenu({
           >
             View details
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              onEdit();
-              onClose();
-            }}
-            className="block w-full px-4 py-2.5 text-left text-sm text-[#374151] hover:bg-[#F9FAFB]"
-          >
-            Edit admin
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onSuspend();
-              onClose();
-            }}
-            className="block w-full px-4 py-2.5 text-left text-sm text-[#374151] hover:bg-[#F9FAFB]"
-          >
-            Suspend admin
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onDeactivate();
-              onClose();
-            }}
-            className="block w-full px-4 py-2.5 text-left text-sm text-[#DC2626] hover:bg-[#FEF2F2]"
-          >
-            Deactivate admin
-          </button>
+          {showEdit ? (
+            <button
+              type="button"
+              onClick={() => {
+                onEdit();
+                onClose();
+              }}
+              className="block w-full px-4 py-2.5 text-left text-sm text-[#374151] hover:bg-[#F9FAFB]"
+            >
+              Edit admin
+            </button>
+          ) : null}
+          {showSuspend ? (
+            <button
+              type="button"
+              onClick={() => {
+                onSuspend();
+                onClose();
+              }}
+              className="block w-full px-4 py-2.5 text-left text-sm text-[#374151] hover:bg-[#F9FAFB]"
+            >
+              Suspend admin
+            </button>
+          ) : null}
+          {showDeactivate ? (
+            <button
+              type="button"
+              onClick={() => {
+                onDeactivate();
+                onClose();
+              }}
+              className="block w-full px-4 py-2.5 text-left text-sm text-[#DC2626] hover:bg-[#FEF2F2]"
+            >
+              Deactivate admin
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

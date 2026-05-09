@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Query, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, Body, UseGuards, NotImplementedException } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { InvestmentService } from './investment.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -19,11 +19,10 @@ export class InvestmentController {
     @CurrentUser() user: { id: string; email: string },
     @Body() dto: InitializeInvestmentPaymentDto,
   ) {
-    return this.investmentService.initializeInvestmentPayment(
-      user.id,
-      dto.propertyId,
-      dto.shares,
-      user.email,
+    void user;
+    void dto;
+    throw new NotImplementedException(
+      'Direct investment checkout is disabled. Fund your wallet first, then purchase via wallet-funded investment.',
     );
   }
 
@@ -45,8 +44,8 @@ export class InvestmentController {
   }
 
   @Get(':id')
-  async getById(@Param('id') id: string) {
-    return this.investmentService.getInvestment(id);
+  async getById(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    return this.investmentService.getInvestment(id, user.id);
   }
 
   @Get()

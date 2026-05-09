@@ -36,6 +36,7 @@ function TransactionRow({ transaction }: { transaction: Transaction }) {
   const statusLabel = transactionStatusLabel(parsedStatus);
   const tone = transactionStatusTone(parsedStatus);
   const statusClass = statusToneClasses(tone);
+  const isDistributionType = transaction.type === 'DISTRIBUTION' || transaction.type === 'ROI';
   return (
     <div className="flex items-center justify-between rounded-xl border border-dashboard-border bg-dashboard-card px-4 py-3">
       <div className="flex items-center gap-3 min-w-0">
@@ -45,6 +46,11 @@ function TransactionRow({ transaction }: { transaction: Transaction }) {
         <div className="min-w-0">
           <p className="font-medium text-dashboard-heading truncate">{typeLabel}</p>
           <p className="text-xs text-dashboard-body truncate">{transaction.reference}</p>
+          {isDistributionType ? (
+            <p className="text-[10px] text-dashboard-muted">
+              Distribution appears as paid only when backend ledger status is completed/posted.
+            </p>
+          ) : null}
           <p className={`text-xs mt-0.5 ${statusClass}`}>{statusLabel}</p>
           {transaction.ledgerOperationId ? (
             <p className="text-[10px] text-dashboard-muted mt-0.5 font-mono truncate" title={transaction.ledgerOperationId}>
@@ -94,6 +100,9 @@ export default function AccountTransactionsPage() {
         </div>
         <p className="text-sm text-dashboard-body">
           History reflects posted ledger legs from the server. Redirect or checkout alone does not mark wallet funding as complete.
+        </p>
+        <p className="text-xs text-dashboard-body">
+          Distribution credits are shown only from backend transaction records; no projected yield is added to wallet balance.
         </p>
 
         <button type="button" onClick={() => setShowFilters(!showFilters)} className="flex items-center gap-2 rounded-xl border border-dashboard-border bg-dashboard-card px-4 py-2.5 text-sm font-medium text-dashboard-heading">

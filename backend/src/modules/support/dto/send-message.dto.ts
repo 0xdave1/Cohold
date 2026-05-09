@@ -1,4 +1,4 @@
-import { IsArray, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { IsArray, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SupportAttachmentInputDto {
@@ -9,6 +9,10 @@ export class SupportAttachmentInputDto {
   @MaxLength(120)
   mimeType!: string;
 
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10 * 1024 * 1024)
   sizeBytes!: number;
 
   @IsOptional()
@@ -34,6 +38,7 @@ export class SendSupportMessageDto {
   attachments?: SupportAttachmentInputDto[];
 
   @IsOptional()
+  @IsObject()
   metadata?: Record<string, unknown>;
 }
 

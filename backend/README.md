@@ -64,6 +64,49 @@ Enterprise-grade backend for the Cohold fractional real estate investment platfo
 
 Ensure concurrency tests are run around property funding and wallet operations.
 
+## Investment concurrency integration test (Issue 7)
+
+This is a **real Postgres integration** spec that verifies:
+- concurrent oversell prevention
+- idempotent replay/conflict behavior
+- concurrent double-sell prevention
+
+### Disposable test DB (preferred)
+
+From `backend/`:
+
+```bash
+docker compose -f docker-compose.test.yml up -d
+```
+
+Set env vars:
+
+```bash
+DATABASE_URL=postgresql://cohold_test:cohold_test_password@localhost:55432/cohold_test?schema=public
+RUN_INVESTMENT_CONCURRENCY_INTEGRATION=1
+```
+
+Apply schema and run only this spec:
+
+```bash
+npx prisma migrate deploy
+npx prisma generate
+npm run test:investment-concurrency
+```
+
+Equivalent alias:
+
+```bash
+npm run test:integration:investment
+```
+
+### Preflight behavior
+
+The spec enforces strict preflight:
+- if `RUN_INVESTMENT_CONCURRENCY_INTEGRATION` is not `1`, suite is skipped
+- if flag is `1` but DB URL is missing/not Postgres/unreachable/schema-incompatible, suite fails loudly with a clear error
+- it also validates lock-path compatibility (`SELECT ... FOR UPDATE`) against the target DB before assertions run
+
 ## Running locally (no Docker)
 
 **Prerequisites:** PostgreSQL installed on Windows. Create the database:

@@ -4,14 +4,25 @@ import { useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { FundWalletCard } from '@/components/wallet/FundWalletCard';
-import { useWalletBalances, formatMoney, useDevWalletCredit, useVerifyWalletPayment } from '@/lib/hooks/use-wallet';
+import {
+  useWalletBalances,
+  formatMoney,
+  useDevWalletCredit,
+  useVerifyWalletPayment,
+  useMyVirtualAccount,
+  useRetryVirtualAccountProvisioning,
+} from '@/lib/hooks/use-wallet';
 import { mapFinancialIntegrityError } from '@/lib/finance/financial-errors';
+import { useKycStatus } from '@/lib/hooks/use-kyc';
 
 function WalletPageInner() {
   const searchParams = useSearchParams();
   const { data: balances, isLoading: balLoading } = useWalletBalances();
   const verifyPayment = useVerifyWalletPayment();
   const devCredit = useDevWalletCredit();
+  const virtualAccount = useMyVirtualAccount();
+  const retryProvisioning = useRetryVirtualAccountProvisioning();
+  const { data: kyc } = useKycStatus();
 
   useEffect(() => {
     if (searchParams.get('status') === 'success') {
@@ -34,6 +45,7 @@ function WalletPageInner() {
   }, [searchParams, verifyPayment]);
 
   const ngn = balances?.find((w) => w.currency === 'NGN');
+  const isVerified = kyc?.status === 'VERIFIED';
 
   const isDev = process.env.NODE_ENV !== 'production';
 
@@ -64,6 +76,73 @@ function WalletPageInner() {
         <p className="mt-2 text-[11px] text-dashboard-muted">
           Balance always comes from the server after ledger settlement — not from checkout redirect alone.
         </p>
+      </div>
+
+      <div className="rounded-2xl border border-dashboard-border bg-dashboard-card p-4">
+        <h2 className="mb-2 text-sm font-semibold text-dashboard-heading">Bank transfer (virtual account)</h2>
+        {!isVerified ? (
+          <div className="space-y-2 text-sm text-dashboard-body">
+            <p>Bank transfer funding is available only after your KYC status is VERIFIED.</p>
+            <Link href="/dashboard/kyc" className="inline-flex text-cohold-blue underline">
+              Complete KYC
+            </Link>
+          </div>
+        ) : virtualAccount.isLoading ? (
+          <p className="text-sm text-dashboard-body">Loading your transfer account status…</p>
+        ) : virtualAccount.data?.status === 'ACTIVE' ? (
+          <div className="space-y-3 text-sm">
+            <p className="text-dashboard-body">
+              Use these exact details. Transfers are credited only after provider confirmation; your balance updates
+              after verification.
+            </p>
+            <div className="rounded-xl border border-dashboard-border bg-dashboard-bg/80 p-3">
+              <p className="text-xs text-dashboard-muted">Bank</p>
+              <p className="font-medium text-dashboard-heading">{virtualAccount.data.bankName}</p>
+              <p className="mt-2 text-xs text-dashboard-muted">Account number</p>
+              <p className="font-mono font-semibold text-dashboard-heading">{virtualAccount.data.accountNumber}</p>
+              <p className="mt-2 text-xs text-dashboard-muted">Account name</p>
+              <p className="font-medium text-dashboard-heading">{virtualAccount.data.accountName}</p>
+            </div>
+            <button
+              type="button"
+              className="rounded-lg border border-dashboard-border px-3 py-2 text-xs text-dashboard-heading"
+              onClick={() => {
+                if (virtualAccount.data?.accountNumber) {
+                  void navigator.clipboard.writeText(virtualAccount.data.accountNumber);
+                }
+              }}
+            >
+              Copy account number
+            </button>
+          </div>
+        ) : virtualAccount.data?.status === 'PENDING' ? (
+          <p className="text-sm text-dashboard-body">Your bank transfer account is being prepared.</p>
+        ) : virtualAccount.data?.status === 'REQUIRES_RETRY' || virtualAccount.data?.status === 'FAILED' ? (
+          <div className="space-y-2 text-sm">
+            <p className="text-dashboard-body">
+              {virtualAccount.data.message ?? 'Virtual account provisioning failed. Retry or contact support.'}
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => retryProvisioning.mutate()}
+                disabled={retryProvisioning.isPending}
+                className="rounded-lg bg-cohold-blue px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {retryProvisioning.isPending ? 'Retrying…' : 'Retry provisioning'}
+              </button>
+              <Link href="/dashboard/support" className="rounded-lg border border-dashboard-border px-3 py-2 text-xs">
+                Contact support
+              </Link>
+            </div>
+          </div>
+        ) : virtualAccount.data?.status === 'UNAVAILABLE' ? (
+          <p className="text-sm text-dashboard-body">Bank transfer funding is currently unavailable.</p>
+        ) : (
+          <p className="text-sm text-dashboard-body">
+            We could not determine your virtual account status. Refresh this page or contact support.
+          </p>
+        )}
       </div>
 
       {searchParams.get('status') === 'success' ? (

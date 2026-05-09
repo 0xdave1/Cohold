@@ -10,6 +10,7 @@ import {
   type PropertyDocType,
 } from '@/lib/uploads/admin-presigned-upload';
 import { adminApi } from '@/lib/admin/api';
+import { getApiErrorMessage } from '@/lib/api/errors';
 import { clientUploadHint } from '@/lib/uploads/upload-validation-client';
 import {
   ArrowLeft,
@@ -203,8 +204,7 @@ export default function AddListingPage() {
 
       router.push(`/admin/property-listings/${propertyId}`);
     } catch (err) {
-      console.error(err);
-      alert(err instanceof Error ? err.message : 'Failed to create property');
+      alert(getApiErrorMessage(err, 'Failed to create property'));
     } finally {
       setSubmitting(false);
       setSubmitPhase('idle');

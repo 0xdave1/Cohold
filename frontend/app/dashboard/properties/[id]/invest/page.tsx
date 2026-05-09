@@ -38,6 +38,12 @@ export default function InvestFractionPage() {
 
   const sharePrice = property?.sharePrice ?? property?.totalValue ?? '0';
   const currency = property?.currency ?? 'NGN';
+  const sharesTotalNum = Number(property?.sharesTotal ?? '0');
+  const sharesSoldNum = Number(property?.sharesSold ?? '0');
+  const sharesLeft = Number.isFinite(sharesTotalNum) && Number.isFinite(sharesSoldNum)
+    ? Math.max(0, sharesTotalNum - sharesSoldNum)
+    : 0;
+  const soldOut = sharesTotalNum > 0 && sharesSoldNum >= sharesTotalNum;
 
   const portfolioTotalStr = useMemo(() => {
     const items = myInvestments?.items ?? [];
@@ -185,6 +191,15 @@ export default function InvestFractionPage() {
           </div>
         </SectionCard>
       )}
+      {soldOut ? (
+        <p className="text-center text-xs text-amber-800">
+          This offering is currently sold out. Refresh listings for current availability.
+        </p>
+      ) : (
+        <p className="text-center text-xs text-dashboard-body">
+          Available shares (latest listing snapshot): {sharesLeft}
+        </p>
+      )}
 
       <SectionCard title="Suggested amount">
         <div className="flex flex-wrap gap-2">
@@ -222,9 +237,17 @@ export default function InvestFractionPage() {
         </div>
       </SectionCard>
 
-      {!preview || !effectiveShares || Number(effectiveShares) <= 0 || meLoading || !kycAllowed ? (
+      {!preview || !effectiveShares || Number(effectiveShares) <= 0 || meLoading || !kycAllowed || soldOut || Number(effectiveShares) > sharesLeft ? (
         <button type="button" disabled className="h-11 w-full rounded-full bg-cohold-blue px-4 text-sm font-medium text-white opacity-50">
-          {meLoading ? 'Checking KYC…' : kycAllowed ? 'Buy shares now' : 'KYC verification required'}
+          {meLoading
+            ? 'Checking KYC…'
+            : soldOut
+              ? 'Offering sold out'
+              : Number(effectiveShares) > sharesLeft
+                ? 'Insufficient shares available'
+                : kycAllowed
+                  ? 'Buy shares now'
+                  : 'KYC verification required'}
         </button>
       ) : (
         <Link

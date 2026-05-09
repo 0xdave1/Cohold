@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { mapApiError, sanitizeBackendMessage } from '@/lib/api/security-errors';
 
 type ApiErrorBody = {
   code?: string;
@@ -25,25 +26,23 @@ export function getApiErrorCode(error: unknown): string | undefined {
   return typeof code === 'string' ? code : undefined;
 }
 
+export { mapApiError, sanitizeBackendMessage, classifySecurityError } from '@/lib/api/security-errors';
+export type { MappedApiError, SecurityErrorKind } from '@/lib/api/security-errors';
+
 /**
  * Extract a user-friendly error message from an API error (axios or backend shape).
  * Handles backend format: { success: false, error: { message: string | string[] } }
+ * Applies sanitization for Prisma/stack/PII-like patterns (Issue 9).
  */
 export function getApiErrorMessage(
   error: unknown,
   fallback = 'Something went wrong. Please try again.',
 ): string {
-  if (!axios.isAxiosError(error)) {
-    return error instanceof Error ? error.message : fallback;
+  if (axios.isAxiosError(error)) {
+    return mapApiError(error, fallback).message;
   }
-  const data = error.response?.data;
-  if (!data) return fallback;
-  const err = readErrorPayload(data) ?? data;
-  const raw =
-    typeof err === 'object' && err !== null && 'message' in err
-      ? (err as ApiErrorBody).message
-      : (data as { message?: string }).message;
-  if (Array.isArray(raw)) return raw[0] ?? fallback;
-  if (typeof raw === 'string') return raw;
+  if (error instanceof Error) {
+    return sanitizeBackendMessage(error.message) || fallback;
+  }
   return fallback;
 }

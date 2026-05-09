@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -21,6 +22,7 @@ export class PaymentsController {
   constructor(private readonly paymentService: PaymentService) {}
 
   @Post('flutterwave/initialize')
+  @Throttle({ default: { limit: 8, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Initialize Flutterwave wallet funding checkout' })
   @ApiBody({

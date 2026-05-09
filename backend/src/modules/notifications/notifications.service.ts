@@ -5,8 +5,8 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { NotificationType, Prisma } from '@prisma/client';
-import { EmailService } from '../email/email.service';
+import { NotificationChannel, NotificationType, Prisma } from '@prisma/client';
+import { OutboxService } from '../outbox/outbox.service';
 
 export interface CreateNotificationPayload {
   userId: string;
@@ -52,24 +52,45 @@ export class NotificationsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly emailService: EmailService,
+    private readonly outbox: OutboxService,
   ) {}
 
-  private async trySendEmail(
-    userId: string,
-    send: (email: string) => Promise<void>,
-    context: string,
-  ): Promise<void> {
-    try {
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { email: true },
-      });
-      if (!user?.email) return;
-      await send(user.email);
-    } catch (err) {
-      this.logger.warn(`Failed email side-effect context=${context} user=${userId}: ${err}`);
-    }
+  private enqueueDelivery(
+    idempotencyKey: string,
+    payload: Prisma.InputJsonValue,
+    aggregateId?: string,
+  ): Promise<unknown> {
+    return this.outbox.enqueue({
+      type: 'NOTIFICATION_DELIVERY',
+      aggregateType: 'Notification',
+      aggregateId,
+      idempotencyKey,
+      payload,
+      sanitizedPayload: payload,
+      priority: 5,
+    });
+  }
+
+  private enqueueDeliveryInTransaction(
+    tx: Prisma.TransactionClient,
+    idempotencyKey: string,
+    payload: Prisma.InputJsonValue,
+    aggregateId?: string,
+  ): Promise<unknown> {
+    return this.outbox.enqueueInTransaction(tx, {
+      type: 'NOTIFICATION_DELIVERY',
+      aggregateType: 'Notification',
+      aggregateId,
+      idempotencyKey,
+      payload,
+      sanitizedPayload: payload,
+      priority: 5,
+    });
+  }
+
+  private sanitizeReason(reason?: string): string | undefined {
+    if (!reason) return reason;
+    return reason.replace(/\b\d{6,16}\b/g, '***');
   }
 
   /**
@@ -287,14 +308,19 @@ export class NotificationsService {
       link: `/dashboard/investments/${investmentId}`,
       metadata: { investmentId, propertyTitle, amount, currency },
     });
-    await this.trySendEmail(
-      userId,
-      (email) =>
-        this.emailService.sendTransactionEmail(email, 'investment_success', amount, currency, {
-          reference: investmentId,
-          propertyTitle,
-        }),
-      'investment_success',
+    await this.enqueueDelivery(
+      `EMAIL:INVESTMENT_SUCCESS:${investmentId}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'transaction',
+        transactionKind: 'investment_success',
+        amount,
+        currency,
+        details: { reference: investmentId, propertyTitle },
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }
@@ -317,14 +343,19 @@ export class NotificationsService {
       link: `/dashboard/investments/${investmentId}`,
       metadata: { investmentId, propertyTitle, amount, currency },
     });
-    await this.trySendEmail(
-      userId,
-      (email) =>
-        this.emailService.sendTransactionEmail(email, 'investment_sale', amount, currency, {
-          reference: investmentId,
-          propertyTitle,
-        }),
-      'investment_sale',
+    await this.enqueueDelivery(
+      `EMAIL:INVESTMENT_SOLD:${investmentId}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'transaction',
+        transactionKind: 'investment_sale',
+        amount,
+        currency,
+        details: { reference: investmentId, propertyTitle },
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }
@@ -346,13 +377,69 @@ export class NotificationsService {
       link: '/dashboard/wallet',
       metadata: { amount, currency, transactionId },
     });
-    await this.trySendEmail(
-      userId,
-      (email) =>
-        this.emailService.sendTransactionEmail(email, 'deposit', amount, currency, {
-          reference: transactionId,
-        }),
-      'wallet_funded',
+    await this.enqueueDelivery(
+      `EMAIL:WALLET_FUNDED:${transactionId ?? notification.id}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'transaction',
+        transactionKind: 'deposit',
+        amount,
+        currency,
+        details: { reference: transactionId },
+      } as Prisma.InputJsonValue,
+      notification.id,
+    );
+    return notification;
+  }
+
+  /**
+   * Transactional variant for durable wallet-funding side effects:
+   * writes both Notification and OutboxEvent in the same DB transaction.
+   */
+  async notifyWalletFundedInTransaction(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    amount: string,
+    currency: string,
+    transactionId?: string,
+  ): Promise<NotificationResponse> {
+    const notification = await tx.notification.create({
+      data: {
+        userId,
+        type: NotificationType.WALLET_FUNDED,
+        title: 'Wallet Funded',
+        message: `Your wallet has been credited with ${currency} ${amount}.`,
+        link: '/dashboard/wallet',
+        metadata: { amount, currency, transactionId } as Prisma.InputJsonValue,
+      },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        message: true,
+        isRead: true,
+        readAt: true,
+        link: true,
+        metadata: true,
+        createdAt: true,
+      },
+    });
+    await this.enqueueDeliveryInTransaction(
+      tx,
+      `EMAIL:WALLET_FUNDED:${transactionId ?? notification.id}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'transaction',
+        transactionKind: 'deposit',
+        amount,
+        currency,
+        details: { reference: transactionId },
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }
@@ -374,13 +461,19 @@ export class NotificationsService {
       link: '/dashboard/wallet',
       metadata: { amount, currency, transactionId },
     });
-    await this.trySendEmail(
-      userId,
-      (email) =>
-        this.emailService.sendTransactionEmail(email, 'withdrawal_request', amount, currency, {
-          reference: transactionId,
-        }),
-      'withdrawal_initiated',
+    await this.enqueueDelivery(
+      `EMAIL:WITHDRAWAL_REQUESTED:${transactionId ?? notification.id}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'transaction',
+        transactionKind: 'withdrawal_request',
+        amount,
+        currency,
+        details: { reference: transactionId },
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }
@@ -402,13 +495,19 @@ export class NotificationsService {
       link: '/dashboard/wallet',
       metadata: { amount, currency, transactionId },
     });
-    await this.trySendEmail(
-      userId,
-      (email) =>
-        this.emailService.sendTransactionEmail(email, 'withdrawal_success', amount, currency, {
-          reference: transactionId,
-        }),
-      'withdrawal_completed',
+    await this.enqueueDelivery(
+      `EMAIL:WITHDRAWAL_COMPLETED:${transactionId ?? notification.id}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'transaction',
+        transactionKind: 'withdrawal_success',
+        amount,
+        currency,
+        details: { reference: transactionId },
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }
@@ -433,14 +532,19 @@ export class NotificationsService {
       link: '/dashboard/wallet',
       metadata: { amount, currency, transactionId, reason },
     });
-    await this.trySendEmail(
-      userId,
-      (email) =>
-        this.emailService.sendTransactionEmail(email, 'withdrawal_failure', amount, currency, {
-          reference: transactionId,
-          reason: reason ?? null,
-        }),
-      'withdrawal_failed',
+    await this.enqueueDelivery(
+      `EMAIL:WITHDRAWAL_FAILED:${transactionId ?? notification.id}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'transaction',
+        transactionKind: 'withdrawal_failure',
+        amount,
+        currency,
+        details: { reference: transactionId, reason: reason ?? null },
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }
@@ -456,10 +560,16 @@ export class NotificationsService {
       message: 'Your identity verification has been approved. You can now access all features.',
       link: '/dashboard/account',
     });
-    await this.trySendEmail(
-      userId,
-      (email) => this.emailService.sendKycStatusEmail(email, 'approved'),
-      'kyc_approved',
+    await this.enqueueDelivery(
+      `EMAIL:KYC_APPROVED:${userId}:${notification.id}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'kyc',
+        kycStatus: 'approved',
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }
@@ -468,20 +578,28 @@ export class NotificationsService {
    * Notify user of KYC rejection.
    */
   async notifyKycRejected(userId: string, reason?: string): Promise<NotificationResponse> {
+    const safeReason = this.sanitizeReason(reason);
     const notification = await this.createNotification({
       userId,
       type: NotificationType.KYC_REJECTED,
       title: 'KYC Verification Failed',
-      message: reason
-        ? `Your identity verification was not approved: ${reason}. Please update your documents.`
+      message: safeReason
+        ? `Your identity verification was not approved: ${safeReason}. Please update your documents.`
         : 'Your identity verification was not approved. Please review your documents and try again.',
       link: '/dashboard/account/kyc',
-      metadata: { reason },
+      metadata: { reason: safeReason },
     });
-    await this.trySendEmail(
-      userId,
-      (email) => this.emailService.sendKycStatusEmail(email, 'rejected', reason),
-      'kyc_rejected',
+    await this.enqueueDelivery(
+      `EMAIL:KYC_REJECTED:${userId}:${notification.id}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'kyc',
+        kycStatus: 'rejected',
+        kycReason: safeReason,
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }
@@ -517,14 +635,19 @@ export class NotificationsService {
       link: '/dashboard/investments',
       metadata: { propertyTitle, amount, currency, period },
     });
-    await this.trySendEmail(
-      userId,
-      (email) =>
-        this.emailService.sendTransactionEmail(email, 'roi_payout', amount, currency, {
-          reference: period,
-          propertyTitle,
-        }),
-      'roi_credited',
+    await this.enqueueDelivery(
+      `EMAIL:ROI_CREDITED:${userId}:${period}:${notification.id}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'transaction',
+        transactionKind: 'roi_payout',
+        amount,
+        currency,
+        details: { reference: period, propertyTitle },
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }
@@ -568,6 +691,69 @@ export class NotificationsService {
     });
   }
 
+  async notifyWithdrawalReconciliationRequired(
+    userId: string,
+    amount: string,
+    currency: string,
+    transactionId: string,
+    reason?: string,
+  ): Promise<NotificationResponse> {
+    return this.notifySystemMessage(
+      userId,
+      'Withdrawal requires reconciliation',
+      reason
+        ? `Your withdrawal of ${currency} ${amount} requires manual reconciliation: ${this.sanitizeReason(reason)}`
+        : `Your withdrawal of ${currency} ${amount} requires manual reconciliation.`,
+      '/dashboard/wallet',
+      {
+        event: 'WITHDRAWAL_RECONCILIATION_REQUIRED',
+        amount,
+        currency,
+        transactionId,
+      } as Prisma.InputJsonValue,
+    );
+  }
+
+  async notifyVirtualAccountProvisioned(
+    userId: string,
+    accountId: string,
+    accountNumber: string | null,
+  ): Promise<NotificationResponse> {
+    return this.notifySystemMessage(
+      userId,
+      'Virtual account ready',
+      accountNumber
+        ? `Your virtual account ${accountNumber} is active and ready for wallet funding.`
+        : 'Your virtual account is active and ready for wallet funding.',
+      '/dashboard/wallet',
+      {
+        event: 'VIRTUAL_ACCOUNT_ACTIVE',
+        accountId,
+        accountNumber,
+      } as Prisma.InputJsonValue,
+    );
+  }
+
+  async notifyVirtualAccountProvisioningFailed(
+    userId: string,
+    accountId: string,
+    reason?: string | null,
+  ): Promise<NotificationResponse> {
+    return this.notifySystemMessage(
+      userId,
+      'Virtual account provisioning failed',
+      reason
+        ? `We could not provision your virtual account yet: ${this.sanitizeReason(reason) ?? 'Unknown reason'}. Please retry shortly.`
+        : 'We could not provision your virtual account yet. Please retry shortly.',
+      '/dashboard/wallet',
+      {
+        event: 'VIRTUAL_ACCOUNT_PROVISIONING_FAILED',
+        accountId,
+        reason: this.sanitizeReason(reason ?? undefined) ?? null,
+      } as Prisma.InputJsonValue,
+    );
+  }
+
   /**
    * Send welcome notification to new user.
    */
@@ -580,10 +766,16 @@ export class NotificationsService {
       message: `Welcome${name}! Complete your profile and start investing in premium real estate.`,
       link: '/dashboard',
     });
-    await this.trySendEmail(
-      userId,
-      (email) => this.emailService.sendWelcomeEmail(email, firstName),
-      'welcome',
+    await this.enqueueDelivery(
+      `EMAIL:WELCOME:${userId}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'welcome',
+        firstName,
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }
@@ -612,14 +804,19 @@ export class NotificationsService {
         event: 'P2P_INCOMING',
       },
     });
-    await this.trySendEmail(
-      userId,
-      (email) =>
-        this.emailService.sendTransactionEmail(email, 'transfer_incoming', amount, currency, {
-          reference: transferId,
-          senderUsername,
-        }),
-      'p2p_incoming',
+    await this.enqueueDelivery(
+      `EMAIL:P2P_INCOMING:${transferId}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'transaction',
+        transactionKind: 'transfer_incoming',
+        amount,
+        currency,
+        details: { reference: transferId, senderUsername },
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }
@@ -645,14 +842,19 @@ export class NotificationsService {
         event: 'P2P_OUTGOING',
       },
     });
-    await this.trySendEmail(
-      userId,
-      (email) =>
-        this.emailService.sendTransactionEmail(email, 'transfer_outgoing', amount, currency, {
-          reference: transferId,
-          recipientUsername,
-        }),
-      'p2p_outgoing',
+    await this.enqueueDelivery(
+      `EMAIL:P2P_OUTGOING:${transferId}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'transaction',
+        transactionKind: 'transfer_outgoing',
+        amount,
+        currency,
+        details: { reference: transferId, recipientUsername },
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }
@@ -682,14 +884,19 @@ export class NotificationsService {
         event: 'WALLET_CREDIT',
       },
     });
-    await this.trySendEmail(
-      userId,
-      (email) =>
-        this.emailService.sendTransactionEmail(email, 'deposit', amount, currency, {
-          reference: referenceId,
-          reason,
-        }),
-      'wallet_credited',
+    await this.enqueueDelivery(
+      `EMAIL:WALLET_CREDIT:${referenceId ?? notification.id}`,
+      {
+        channel: NotificationChannel.EMAIL,
+        notificationId: notification.id,
+        userId,
+        template: 'transaction',
+        transactionKind: 'deposit',
+        amount,
+        currency,
+        details: { reference: referenceId, reason },
+      } as Prisma.InputJsonValue,
+      notification.id,
     );
     return notification;
   }

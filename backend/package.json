@@ -14,6 +14,8 @@
     "lint": "node --max-old-space-size=4096 ./node_modules/eslint/bin/eslint.js \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "node --max-old-space-size=4096 ./node_modules/jest/bin/jest.js --config jest.config.cjs --maxWorkers=50%",
+    "test:investment-concurrency": "node --max-old-space-size=4096 ./node_modules/jest/bin/jest.js --config jest.config.cjs --runInBand src/modules/investment/investment-concurrency.integration.spec.ts",
+    "test:integration:investment": "npm run test:investment-concurrency",
     "test:watch": "node --max-old-space-size=4096 ./node_modules/jest/bin/jest.js --config jest.config.cjs --watch",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "prisma:migrate": "prisma migrate dev",

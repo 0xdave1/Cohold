@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -33,8 +34,6 @@ import { SellFractionalInvestmentDto } from './dto/sell-fractional-investment.dt
 
 const INVESTMENT_FEE_RATE = 0.02; // 2% — fee on top of principal (buy)
 const SELL_PROFIT_FEE_RATE = 0.1; // 10% of realised profit only (sell)
-/** 3% platform cut on automated monthly ROI (matches distributeROI / InvestmentReturn fee). */
-const MONTHLY_ROI_PLATFORM_FEE_RATE = 0.03;
 
 @Injectable()
 export class InvestmentService {
@@ -258,7 +257,7 @@ export class InvestmentService {
       const updatedUserWallet = await tx.wallet.findUniqueOrThrow({
         where: { id: userWallet.id },
       });
-      return { investment, updatedUserWallet };
+      return { investment, updatedUserWallet, txRef };
     });
 
     // Send notification after successful investment (outside transaction)
@@ -276,6 +275,9 @@ export class InvestmentService {
 
     return {
       investmentId: result.investment.id,
+      reference: result.txRef,
+      status: 'COMPLETED',
+      createdAt: result.investment.createdAt,
       propertyId: dto.propertyId,
       amount: formatMoney(toDecimal(result.investment.amount.toString())),
       investmentFee: formatMoney(toDecimal(result.investment.amount.toString()).mul(INVESTMENT_FEE_RATE)),
@@ -519,6 +521,8 @@ export class InvestmentService {
 
       const uw = await tx.wallet.findUniqueOrThrow({ where: { id: userWallet.id } });
       return {
+        reference: txRef,
+        status: 'COMPLETED',
         sellAmount: formatMoney(sellAmount),
         fee: formatMoney(platformFee),
         netToUser: formatMoney(netToUser),
@@ -561,276 +565,11 @@ export class InvestmentService {
    * Persisted source of truth: `InvestmentReturn` rows + `Transaction` type ROI (same atomic tx).
    */
   async distributeROI(propertyId: string, options?: { adminId?: string; period?: string }) {
-    const property = await this.prisma.property.findFirst({
-      where: { id: propertyId, deletedAt: null },
-    });
-    if (!property) {
-      throw new NotFoundException('Property not found');
-    }
-    if (property.annualYield == null) {
-      throw new BadRequestException('Property has no annualYield set (cannot auto-distribute)');
-    }
-
-    const annualYield = toDecimal(property.annualYield.toString());
-    if (annualYield.lte(0)) {
-      throw new BadRequestException('annualYield must be positive');
-    }
-
-    const monthlyYield = annualYield.div(12).toDecimalPlaces(12, Decimal.ROUND_DOWN);
-    const period =
-      options?.period ??
-      `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
-
-    const txResult = await this.prisma.$transaction(async (tx) => {
-      const [locked] = await tx.$queryRawUnsafe<Array<{ id: string }>>(
-        `SELECT id FROM "Property" WHERE id = $1 FOR UPDATE`,
-        propertyId,
-      );
-      if (!locked) {
-        throw new NotFoundException('Property not found');
-      }
-
-      const investments = await tx.investment.findMany({
-        where: { propertyId, status: InvestmentStatus.ACTIVE },
-        orderBy: { id: 'asc' },
-      });
-
-      type Payout = {
-        investmentId: string;
-        userId: string;
-        currency: typeof property.currency;
-        roiGross: Decimal;
-        platformFee: Decimal;
-        netRoi: Decimal;
-      };
-
-      const payouts: Payout[] = [];
-      for (const inv of investments) {
-        const principal = toDecimal(inv.amount.toString());
-        if (principal.lte(0)) {
-          continue;
-        }
-        const dup = await tx.investmentReturn.findFirst({
-          where: { investmentId: inv.id, period },
-        });
-        if (dup) {
-          this.logger.debug(`Skipping ROI for ${inv.id} — already paid for ${period}`);
-          continue;
-        }
-        const roiGross = fixMoney(principal.mul(monthlyYield));
-        if (roiGross.lte(0)) {
-          continue;
-        }
-        const platformFee = fixMoney(roiGross.mul(MONTHLY_ROI_PLATFORM_FEE_RATE));
-        const netRoi = fixMoney(roiGross.minus(platformFee));
-        payouts.push({
-          investmentId: inv.id,
-          userId: inv.userId,
-          currency: property.currency,
-          roiGross,
-          platformFee,
-          netRoi,
-        });
-      }
-
-      type Eligible = Payout & { walletId: string };
-      const eligible: Eligible[] = [];
-      for (const p of payouts) {
-        const w = await tx.wallet.findUnique({
-          where: { userId_currency: { userId: p.userId, currency: p.currency } },
-        });
-        if (!w) {
-          this.logger.warn(`Skipping ROI for user ${p.userId} — no ${p.currency} wallet`);
-          continue;
-        }
-        eligible.push({ ...p, walletId: w.id });
-      }
-
-      const totalGross = eligible.reduce((a, p) => a.plus(p.roiGross), new Decimal(0));
-      const totalPlatformFees = eligible.reduce((a, p) => a.plus(p.platformFee), new Decimal(0));
-
-      if (totalGross.lte(0)) {
-        return {
-          propertyId,
-          investorsPaid: 0,
-          totalGrossRoi: moneyStr(new Decimal(0)),
-          platformFees: moneyStr(new Decimal(0)),
-          currency: property.currency,
-          period,
-          message: 'No payouts (nothing to distribute or already processed for this period)',
-        };
-      }
-
-      const escrowWallet = await this.walletService.getPropertyEscrowWallet(tx, propertyId, property.currency);
-      const platformWallet = await this.walletService.getPlatformWallet(tx, property.currency);
-
-      await tx.$queryRawUnsafe(`SELECT id FROM "Wallet" WHERE id = $1 FOR UPDATE`, escrowWallet.id);
-      await tx.$queryRawUnsafe(`SELECT id FROM "Wallet" WHERE id = $1 FOR UPDATE`, platformWallet.id);
-
-      const escrowBal = toDecimal(
-        (await tx.wallet.findUniqueOrThrow({ where: { id: escrowWallet.id } })).balance.toString(),
-      );
-      if (escrowBal.lt(totalGross)) {
-        throw new BadRequestException('Insufficient property escrow to fund monthly ROI');
-      }
-
-      const groupId = `ROI-${propertyId}-${period}`;
-
-      for (const p of eligible) {
-        await tx.$queryRawUnsafe(`SELECT id FROM "Wallet" WHERE id = $1 FOR UPDATE`, p.walletId);
-
-        const invRow = await tx.investment.findUniqueOrThrow({ where: { id: p.investmentId } });
-        const newTotalReturns = fixMoney(toDecimal(invRow.totalReturns.toString()).plus(p.netRoi));
-        await tx.investment.update({
-          where: { id: p.investmentId },
-          data: { totalReturns: moneyStr(newTotalReturns) },
-        });
-
-        await tx.investmentReturn.create({
-          data: {
-            userId: p.userId,
-            propertyId,
-            investmentId: p.investmentId,
-            amount: moneyStr(p.roiGross),
-            fee: moneyStr(p.platformFee),
-            netAmount: moneyStr(p.netRoi),
-            period,
-            status: 'PAID',
-          },
-        });
-
-        const payoutRef = `${groupId}-${p.investmentId}`;
-        await this.walletService.postDoubleEntry(tx, payoutRef, [
-          {
-            walletId: escrowWallet.id,
-            userId: null,
-            type: TransactionType.PROPERTY_FUNDING,
-            direction: TransactionDirection.DEBIT,
-            amount: p.roiGross,
-            currency: p.currency,
-            netAmount: p.roiGross,
-            propertyId,
-            investmentId: p.investmentId,
-            metadata: {
-              propertyId,
-              investmentId: p.investmentId,
-              period,
-              ledgerRole: 'ESCROW_FUND_MONTHLY_ROI',
-              groupId,
-            } as Prisma.InputJsonValue,
-          },
-          {
-            walletId: p.walletId,
-            userId: p.userId,
-            type: TransactionType.ROI,
-            direction: TransactionDirection.CREDIT,
-            amount: p.netRoi,
-            currency: p.currency,
-            fee: p.platformFee,
-            netAmount: p.netRoi,
-            propertyId,
-            investmentId: p.investmentId,
-            metadata: {
-              propertyId,
-              investmentId: p.investmentId,
-              period,
-              ledgerRole: 'monthly_yield_roi',
-              groupId,
-            } as Prisma.InputJsonValue,
-          },
-          {
-            walletId: platformWallet.id,
-            userId: PLATFORM_USER_ID,
-            type: TransactionType.FEE,
-            direction: TransactionDirection.CREDIT,
-            amount: p.platformFee,
-            currency: p.currency,
-            fee: p.platformFee,
-            netAmount: p.platformFee,
-            propertyId,
-            investmentId: p.investmentId,
-            metadata: {
-              propertyId,
-              feeType: 'MONTHLY_ROI_PLATFORM',
-              period,
-              ledgerRole: 'PLATFORM_FEE_AGGREGATE',
-              groupId,
-            } as Prisma.InputJsonValue,
-          },
-        ], {
-          operationType: LedgerOperationType.ROI_DISTRIBUTION,
-          sourceModule: 'investment.distributeROI',
-          sourceId: p.investmentId,
-        });
-      }
-
-      if (options?.adminId) {
-        await tx.adminActivityLog.create({
-          data: {
-            adminId: options.adminId,
-            action: 'DISTRIBUTE_MONTHLY_ROI',
-            entityType: 'PROPERTY',
-            entityId: propertyId,
-            metadata: {
-              totalGross: moneyStr(totalGross),
-              platformFees: moneyStr(totalPlatformFees),
-              investorsPaid: eligible.length,
-              currency: property.currency,
-              period,
-              groupId,
-            },
-          },
-        });
-      }
-
-      return {
-        propertyId,
-        investorsPaid: eligible.length,
-        totalGrossRoi: formatMoney(totalGross),
-        platformFees: formatMoney(totalPlatformFees),
-        currency: property.currency,
-        batchReference: groupId,
-        period,
-        // Pass eligible payouts for notification (userId, netRoi, currency)
-        _eligiblePayouts: eligible.map((p) => ({
-          userId: p.userId,
-          netRoi: moneyStr(p.netRoi),
-          currency: p.currency,
-        })),
-        _propertyTitle: property.title,
-      };
-    });
-
-    // Send ROI notifications after transaction completes (fire-and-forget pattern)
-    if ((txResult as any)._eligiblePayouts?.length > 0) {
-      const payouts = (txResult as any)._eligiblePayouts as Array<{
-        userId: string;
-        netRoi: string;
-        currency: string;
-      }>;
-      const propertyTitle = (txResult as any)._propertyTitle as string;
-
-      // Send notifications asynchronously to not block the response
-      setImmediate(async () => {
-        for (const payout of payouts) {
-          try {
-            await this.notificationsService.notifyRoiCredited(
-              payout.userId,
-              propertyTitle,
-              payout.netRoi,
-              payout.currency,
-              txResult.period,
-            );
-          } catch (err) {
-            this.logger.warn(`Failed to send ROI notification for user ${payout.userId}: ${err}`);
-          }
-        }
-      });
-    }
-
-    // Remove internal fields from response
-    const { _eligiblePayouts, _propertyTitle, ...cleanResult } = txResult as any;
-    return cleanResult;
+    void propertyId;
+    void options;
+    throw new BadRequestException(
+      'Projected annual yield payouts are disabled. Use realized income events and distribution batches.',
+    );
   }
 
   /**
@@ -888,13 +627,16 @@ export class InvestmentService {
     };
   }
 
-  async getInvestment(id: string) {
+  async getInvestment(id: string, userId?: string) {
     const investment = await this.prisma.investment.findUnique({
       where: { id },
       include: { property: true },
     });
     if (!investment) {
       throw new NotFoundException('Investment not found');
+    }
+    if (userId && investment.userId !== userId) {
+      throw new ForbiddenException('Not allowed to view this investment');
     }
     return investment;
   }
@@ -925,8 +667,8 @@ export class InvestmentService {
     const investmentFee = fixMoney(investmentAmount.mul(INVESTMENT_FEE_RATE));
     void fixMoney(investmentAmount.plus(investmentFee));
     void email;
-    throw new BadRequestException(
-      'Investment checkout is temporarily unavailable while payment provider migration completes.',
+    throw new ConflictException(
+      'Direct investment checkout is disabled. Fund wallet first, then use wallet-funded purchase.',
     );
   }
 

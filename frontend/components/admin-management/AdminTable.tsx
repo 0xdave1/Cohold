@@ -32,6 +32,9 @@ type AdminTableProps = {
   onSuspend: (admin: AdminUser) => void;
   onDeactivate: (admin: AdminUser) => void;
   onPageChange: (page: number) => void;
+  showEditAdmin?: boolean;
+  showSuspendAdmin?: boolean;
+  showDeactivateAdmin?: boolean;
 };
 
 export function AdminTable({
@@ -51,6 +54,9 @@ export function AdminTable({
   onSuspend,
   onDeactivate,
   onPageChange,
+  showEditAdmin = true,
+  showSuspendAdmin = true,
+  showDeactivateAdmin = true,
 }: AdminTableProps) {
   const allSelected = data.length > 0 && data.every((i) => selectedIds.includes(i.id));
 
@@ -158,6 +164,9 @@ export function AdminTable({
                         onEdit={() => onEdit(admin)}
                         onSuspend={() => onSuspend(admin)}
                         onDeactivate={() => onDeactivate(admin)}
+                        showEdit={showEditAdmin}
+                        showSuspend={showSuspendAdmin}
+                        showDeactivate={showDeactivateAdmin}
                       />
                     </td>
                   </tr>

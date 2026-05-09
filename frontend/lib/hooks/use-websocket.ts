@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '@/stores/auth.store';
 import { getApiBaseURL } from '@/lib/api/client';
+import { safeDebugLog } from '@/lib/logging/safe-debug';
 
 function socketOriginFromApiUrl(): string {
   try {
@@ -23,6 +24,10 @@ export function useWebSocket(namespace: '/ws/user' | '/ws/admin' | '/ws/support'
   onSupportMessage?: (data: any) => void;
   onSupportPresence?: (data: any) => void;
   onSupportTyping?: (data: any) => void;
+  onConnectionStateChange?: (
+    state: 'connected' | 'disconnected' | 'reconnecting' | 'error',
+    details?: { attempt?: number; reason?: string },
+  ) => void;
 }) {
   const socketRef = useRef<Socket | null>(null);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -52,11 +57,21 @@ export function useWebSocket(namespace: '/ws/user' | '/ws/admin' | '/ws/support'
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log(`Connected to ${namespace}`);
+      safeDebugLog(`ws:${namespace}:connect`);
+      callbacks.onConnectionStateChange?.('connected');
     });
 
-    socket.on('disconnect', () => {
-      console.log(`Disconnected from ${namespace}`);
+    socket.on('disconnect', (reason) => {
+      safeDebugLog(`ws:${namespace}:disconnect`);
+      callbacks.onConnectionStateChange?.('disconnected', { reason });
+    });
+
+    socket.on('reconnect_attempt', (attempt) => {
+      callbacks.onConnectionStateChange?.('reconnecting', { attempt });
+    });
+
+    socket.on('connect_error', (error) => {
+      callbacks.onConnectionStateChange?.('error', { reason: error?.message ?? 'connect_error' });
     });
 
     if (callbacks.onKycStatus) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Bell, CheckCheck, Loader2 } from 'lucide-react';
@@ -9,8 +9,10 @@ import {
   useNotifications,
   useMarkNotificationRead,
   useMarkAllNotificationsRead,
+  getNotificationDeliveryView,
   type Notification,
 } from '@/lib/hooks/use-notifications';
+import { useWebSocket } from '@/lib/hooks/use-websocket';
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -106,6 +108,7 @@ function NotificationCard({
   const router = useRouter();
   const icon = getNotificationIcon(notification);
   const timeAgo = formatRelativeTime(notification.createdAt);
+  const delivery = getNotificationDeliveryView(notification);
 
   const handleClick = useCallback(async () => {
     try {
@@ -166,6 +169,7 @@ function NotificationCard({
           </p>
 
           <p className="mt-1.5 text-xs text-dashboard-body/60">{timeAgo}</p>
+          <p className="mt-1 text-xs text-dashboard-body/80">{delivery.label}</p>
         </div>
       </div>
     </button>
@@ -173,6 +177,7 @@ function NotificationCard({
 }
 
 export default function NotificationsPage() {
+  const [socketState, setSocketState] = useState<'connected' | 'disconnected' | 'reconnecting' | 'error'>('disconnected');
   const {
     data,
     isLoading,
@@ -180,6 +185,15 @@ export default function NotificationsPage() {
     error,
     refetch,
   } = useNotifications({ limit: 50 });
+  useWebSocket('/ws/user', {
+    onConnectionStateChange: (state) => setSocketState(state),
+    onAlert: () => {
+      void refetch();
+    },
+    onTransaction: () => {
+      void refetch();
+    },
+  });
 
   const markReadMutation = useMarkNotificationRead();
   const markAllReadMutation = useMarkAllNotificationsRead();
@@ -243,6 +257,22 @@ export default function NotificationsPage() {
               <span>Mark all read</span>
             </button>
           )}
+        </div>
+        <div className="flex items-center justify-between rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-2 text-xs text-dashboard-body">
+          <p>
+            {socketState === 'connected'
+              ? 'Live updates connected.'
+              : socketState === 'reconnecting'
+                ? 'Reconnecting live updates. Use refresh for latest status.'
+                : 'Live updates disconnected. Use refresh to fetch latest notifications.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="font-medium text-cohold-blue underline"
+          >
+            Refresh
+          </button>
         </div>
 
         {isLoading ? (

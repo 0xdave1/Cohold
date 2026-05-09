@@ -695,7 +695,12 @@ export class KycService {
     });
 
     try {
-      await this.walletService.createVirtualAccount(userId);
+      const provisioning = await this.walletService.createVirtualAccount(userId);
+      if (provisioning?.status && provisioning.status !== 'ACTIVE') {
+        this.logger.warn(
+          `Virtual account provisioning not active for user=${userId} status=${provisioning.status}`,
+        );
+      }
     } catch (err) {
       this.logger.warn(`Failed to create virtual account for user ${userId}:`, err);
     }

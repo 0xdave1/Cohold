@@ -19,6 +19,11 @@ export interface Property {
   /** When backend adds investment term metadata */
   duration?: string | null;
   annualYield?: string | null;
+  yieldIsProjected?: boolean;
+  expectedReturnDisclosure?: string | null;
+  titleVerificationStatus?: string | null;
+  legalReviewStatus?: string | null;
+  riskDisclosure?: string | null;
   status: string;
   createdAt: string;
   coverImageUrl?: string | null;
@@ -46,6 +51,7 @@ export interface PropertyDetails extends Property {
   annualYield?: string | null;
   /** Optional human-readable term — add to API when available */
   duration?: string | null;
+  documentsAvailable?: boolean;
 }
 
 export function useProperties(page = 1, limit = 20) {
@@ -112,11 +118,21 @@ export function useCreateInvestment() {
       shares: string;
       clientReference: string;
     }) => {
-      const res = await apiClient.post<unknown>('/investments/fractional', data);
+      const res = await apiClient.post<{
+        investmentId?: string;
+        propertyId?: string;
+        amount?: string;
+        totalCharge?: string;
+        shares?: string;
+        sharePrice?: string;
+        reference?: string;
+        status?: string;
+        createdAt?: string;
+      }>('/investments/fractional', data);
       if (!res.success) {
         throw new Error(res.error ?? 'Investment could not be completed');
       }
-      return res.data;
+      return res.data ?? {};
     },
     onSuccess: async () => {
       await invalidateInvestmentRelatedQueries(queryClient);

@@ -16,9 +16,10 @@ import {
 type AdminDetailCardProps = {
   admin: AdminUser;
   onSuspend: () => void;
+  suspendDisabled?: boolean;
 };
 
-export function AdminDetailCard({ admin, onSuspend }: AdminDetailCardProps) {
+export function AdminDetailCard({ admin, onSuspend, suspendDisabled = false }: AdminDetailCardProps) {
   const role = normalizeRole(admin.role);
   const status = normalizeStatus(admin.status);
   const name = displayAdminName(admin);
@@ -43,8 +44,9 @@ export function AdminDetailCard({ admin, onSuspend }: AdminDetailCardProps) {
         </div>
         <button
           type="button"
+          disabled={suspendDisabled}
           onClick={onSuspend}
-          className="shrink-0 rounded-full bg-[#DC2626] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#B91C1C]"
+          className="shrink-0 rounded-full bg-[#DC2626] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#B91C1C] disabled:opacity-50"
         >
           Suspend admin
         </button>

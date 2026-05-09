@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { safeDebugLog } from '@/lib/logging/safe-debug';
 
 const EPS = new Decimal('0.0001');
 
@@ -47,6 +48,6 @@ export function logSellPreviewVsBackendMismatch(
   }
 
   if (mismatches.length > 0) {
-    console.warn('[Cohold] Sell preview vs backend mismatch', { propertyId, mismatches });
+    safeDebugLog('sell:preview-vs-backend-mismatch', { propertyId, mismatches });
   }
 }

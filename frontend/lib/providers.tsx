@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import { AuthBootstrap } from '@/lib/auth-bootstrap';
+import { axiosQueryRetryPredicate } from '@/lib/api/security-errors';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -14,6 +15,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
             staleTime: 0,
             refetchOnMount: true,
             refetchOnWindowFocus: false,
+            /** Do not hammer the API after auth, CSRF, rate-limit, or validation failures (Issue 9). */
+            retry: (failureCount, error) => axiosQueryRetryPredicate(failureCount, error),
+          },
+          mutations: {
+            retry: false,
           },
         },
       }),

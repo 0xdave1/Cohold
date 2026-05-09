@@ -1,10 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { adminApi } from '@/lib/admin/api';
+import { canFreezeUser, canManageAdmins } from '@/lib/admin/permissions';
+import { maskBankAccountNumber } from '@/lib/admin/mask';
+import { mapApiError } from '@/lib/api/security-errors';
 import type { PlatformUser } from '@/lib/admin/types';
+import { useAuthStore } from '@/stores/auth.store';
 import {
   ChevronLeft,
   ChevronRight,
@@ -43,20 +48,27 @@ function fmtDate(iso: string) {
 
 export default function AdminUsersPage() {
   const router = useRouter();
+  const adminRole = useAuthStore((s) => s.adminRole);
+  const allowSuspend = canFreezeUser(adminRole);
+  const allowDelete = canManageAdmins(adminRole);
   const [users, setUsers] = useState<PlatformUser[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
   const [kycFilter, setKycFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [statusDropdown, setStatusDropdown] = useState<string | null>(null);
+  const [suspendUserId, setSuspendUserId] = useState<string | null>(null);
+  const [disableUserId, setDisableUserId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const totalPages = Math.ceil(total / LIMIT) || 1;
 
-  useEffect(() => {
+  const fetchUsers = useCallback(() => {
     setLoading(true);
+    setListError(null);
     const params = new URLSearchParams({ page: String(page), limit: String(LIMIT) });
     if (kycFilter) params.set('kycStatus', kycFilter);
     adminApi
@@ -68,9 +80,17 @@ export default function AdminUsersPage() {
         setUsers(items);
         setTotal(d.meta?.total ?? 0);
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        setUsers([]);
+        setTotal(0);
+        setListError(mapApiError(e).message);
+      })
       .finally(() => setLoading(false));
   }, [page, kycFilter, statusFilter]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -83,20 +103,32 @@ export default function AdminUsersPage() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  const handleSuspend = async (userId: string) => {
+  const confirmSuspend = async (reason: string) => {
+    if (!suspendUserId) return;
     try {
-      await adminApi.suspendUser(userId);
-      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isFrozen: true } : u)));
-    } catch { /* ignore */ }
-    setMenuOpen(null);
+      await adminApi.suspendUser(suspendUserId, { reason });
+      setSuspendUserId(null);
+      fetchUsers();
+    } catch (e: unknown) {
+      throw new Error(mapApiError(e).message);
+    }
   };
 
-  const handleDelete = async (userId: string) => {
-    try {
-      await adminApi.deleteUser(userId);
-      setUsers((prev) => prev.filter((u) => u.id !== userId));
-    } catch { /* ignore */ }
+  const openDisableUser = (userId: string) => {
+    if (!allowDelete) return;
     setMenuOpen(null);
+    setDisableUserId(userId);
+  };
+
+  const confirmDisableUser = async (reason: string) => {
+    if (!disableUserId) return;
+    try {
+      await adminApi.deleteUser(disableUserId, { reason });
+      setDisableUserId(null);
+      fetchUsers();
+    } catch (e: unknown) {
+      throw new Error(mapApiError(e).message);
+    }
   };
 
   const activeFilters = [kycFilter, statusFilter].filter(Boolean).length;
@@ -163,6 +195,12 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
+      {listError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+          {listError}
+        </div>
+      ) : null}
+
       {/* Table */}
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
         <div className="overflow-x-auto">
@@ -214,7 +252,7 @@ export default function AdminUsersPage() {
                             </Link>
                           </td>
                           <td className="px-5 py-4 text-sm text-gray-700 font-mono">
-                            {u.accountNumber ?? '—'}
+                            {maskBankAccountNumber(u.accountNumber)}
                           </td>
                           <td className="px-5 py-4 text-sm text-gray-500">
                             {fmtDate(u.createdAt)}
@@ -247,22 +285,27 @@ export default function AdminUsersPage() {
                                   >
                                     View details
                                   </button>
-                                  {!u.isFrozen && (
+                                  {allowSuspend && !u.isFrozen ? (
                                     <button
                                       type="button"
-                                      onClick={() => handleSuspend(u.id)}
+                                      onClick={() => {
+                                        setMenuOpen(null);
+                                        setSuspendUserId(u.id);
+                                      }}
                                       className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
                                     >
                                       Suspend account
                                     </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDelete(u.id)}
-                                    className="block w-full px-4 py-2 text-left text-sm text-red-500 hover:bg-gray-50"
-                                  >
-                                    Delete user
-                                  </button>
+                                  ) : null}
+                                  {allowDelete ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openDisableUser(u.id)}
+                                      className="block w-full px-4 py-2 text-left text-sm text-red-500 hover:bg-gray-50"
+                                    >
+                                      Disable account
+                                    </button>
+                                  ) : null}
                                 </div>
                               )}
                             </div>
@@ -314,6 +357,23 @@ export default function AdminUsersPage() {
           </div>
         )}
       </div>
+
+      <AdminReasonDialog
+        open={suspendUserId != null}
+        title="Suspend user account"
+        description="Suspension requires a reason (server-enforced). The list refreshes after success — state is not updated optimistically."
+        confirmLabel="Suspend"
+        onClose={() => setSuspendUserId(null)}
+        onConfirm={confirmSuspend}
+      />
+      <AdminReasonDialog
+        open={disableUserId != null}
+        title="Disable user account"
+        description="Super-admin only. The account is frozen and a reason is required for audit."
+        confirmLabel="Disable account"
+        onClose={() => setDisableUserId(null)}
+        onConfirm={confirmDisableUser}
+      />
     </div>
   );
 }

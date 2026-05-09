@@ -103,6 +103,7 @@ export default function SellSummaryPage() {
           Platform fee is {SELL_PROFIT_FEE_RATE * 100}% of <span className="font-medium">profit only</span> (not on
           principal). Settlement matches this preview when prices align.
         </p>
+        <p className="text-xs text-dashboard-body">This is a platform buyback flow, not an open secondary market.</p>
       </div>
 
       {preview === null && Number(shares) > 0 ? (

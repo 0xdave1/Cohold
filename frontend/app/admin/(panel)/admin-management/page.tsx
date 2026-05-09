@@ -5,18 +5,21 @@ import { useRouter } from 'next/navigation';
 import { AdminToolbar } from '@/components/admin-management/AdminToolbar';
 import { AdminTable } from '@/components/admin-management/AdminTable';
 import type { UiPeriod } from '@/components/admin-management/constants';
+import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { AddAdminModal } from '@/components/admin-management/modals/AddAdminModal';
 import { EditAdminModal } from '@/components/admin-management/modals/EditAdminModal';
-import { SuspendAdminModal } from '@/components/admin-management/modals/SuspendAdminModal';
-import { DeactivateAdminModal } from '@/components/admin-management/modals/DeactivateAdminModal';
 import { adminApi } from '@/lib/admin/api';
+import { canManageAdmins } from '@/lib/admin/permissions';
 import type { AdminUser } from '@/lib/admin/types';
 import type { UiAdminRole } from '@/components/admin-management/constants';
+import { useAuthStore } from '@/stores/auth.store';
 
 const LIMIT = 10;
 
 export default function AdminManagementPage() {
   const router = useRouter();
+  const adminRole = useAuthStore((s) => s.adminRole);
+  const allowCreateOrPatch = canManageAdmins(adminRole);
   const [items, setItems] = useState<AdminUser[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -31,8 +34,7 @@ export default function AdminManagementPage() {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [suspendOpen, setSuspendOpen] = useState(false);
-  const [deactivateOpen, setDeactivateOpen] = useState(false);
+  const [reasonDialog, setReasonDialog] = useState<null | 'suspend' | 'deactivate'>(null);
   const [working, setWorking] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [activeAdmin, setActiveAdmin] = useState<AdminUser | null>(null);
@@ -98,6 +100,7 @@ export default function AdminManagementPage() {
     email: string;
     phoneNumber?: string;
     role: UiAdminRole;
+    reason: string;
   }) => {
     setActionError(null);
     setWorking(true);
@@ -114,7 +117,7 @@ export default function AdminManagementPage() {
 
   const onEditAdmin = async (
     id: string,
-    payload: { fullName?: string; email?: string; phoneNumber?: string; role?: UiAdminRole },
+    payload: { fullName?: string; email?: string; phoneNumber?: string; role?: UiAdminRole; reason: string },
   ) => {
     setActionError(null);
     setWorking(true);
@@ -129,31 +132,20 @@ export default function AdminManagementPage() {
     }
   };
 
-  const onSuspendAdmin = async () => {
-    if (!activeAdmin) return;
+  const confirmAdminStatusReason = async (reason: string) => {
+    if (!activeAdmin || !reasonDialog) return;
     setActionError(null);
     setWorking(true);
     try {
-      await adminApi.suspendAdmin(activeAdmin.id);
-      setSuspendOpen(false);
+      if (reasonDialog === 'suspend') {
+        await adminApi.suspendAdmin(activeAdmin.id, { reason });
+      } else {
+        await adminApi.deactivateAdmin(activeAdmin.id, { reason });
+      }
       await refreshCurrent();
     } catch (e: unknown) {
-      setActionError(e instanceof Error ? e.message : 'Could not suspend admin');
-    } finally {
-      setWorking(false);
-    }
-  };
-
-  const onDeactivateAdmin = async () => {
-    if (!activeAdmin) return;
-    setActionError(null);
-    setWorking(true);
-    try {
-      await adminApi.deactivateAdmin(activeAdmin.id);
-      setDeactivateOpen(false);
-      await refreshCurrent();
-    } catch (e: unknown) {
-      setActionError(e instanceof Error ? e.message : 'Could not deactivate admin');
+      setActionError(e instanceof Error ? e.message : 'Could not update admin');
+      throw e;
     } finally {
       setWorking(false);
     }
@@ -198,6 +190,7 @@ export default function AdminManagementPage() {
           setPage(1);
         }}
         onAddAdmin={() => setAddOpen(true)}
+        showAddAdmin={allowCreateOrPatch}
       />
 
       <AdminTable
@@ -222,15 +215,18 @@ export default function AdminManagementPage() {
         }}
         onSuspend={(admin) => {
           setActiveAdmin(admin);
-          setSuspendOpen(true);
+          setReasonDialog('suspend');
           setMenuOpenId(null);
         }}
         onDeactivate={(admin) => {
           setActiveAdmin(admin);
-          setDeactivateOpen(true);
+          setReasonDialog('deactivate');
           setMenuOpenId(null);
         }}
         onPageChange={setPage}
+        showEditAdmin={allowCreateOrPatch}
+        showSuspendAdmin={allowCreateOrPatch}
+        showDeactivateAdmin={allowCreateOrPatch}
       />
 
       <AddAdminModal open={addOpen} loading={working} onClose={() => setAddOpen(false)} onSubmit={onAddAdmin} />
@@ -241,17 +237,16 @@ export default function AdminManagementPage() {
         onClose={() => setEditOpen(false)}
         onSubmit={onEditAdmin}
       />
-      <SuspendAdminModal
-        open={suspendOpen}
-        loading={working}
-        onClose={() => setSuspendOpen(false)}
-        onConfirm={onSuspendAdmin}
-      />
-      <DeactivateAdminModal
-        open={deactivateOpen}
-        loading={working}
-        onClose={() => setDeactivateOpen(false)}
-        onConfirm={onDeactivateAdmin}
+      <AdminReasonDialog
+        open={reasonDialog != null && activeAdmin != null}
+        title={reasonDialog === 'deactivate' ? 'Deactivate admin' : 'Suspend admin'}
+        description="Super-admin only. A reason is required for audit."
+        confirmLabel={reasonDialog === 'deactivate' ? 'Deactivate' : 'Suspend'}
+        onClose={() => {
+          setReasonDialog(null);
+          setActiveAdmin(null);
+        }}
+        onConfirm={confirmAdminStatusReason}
       />
     </div>
   );

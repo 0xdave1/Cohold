@@ -1,5 +1,18 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { AdminAccountStatus, AdminRole, Prisma, WithdrawalStatus } from '@prisma/client';
+import {
+  AdminAccountStatus,
+  AdminRole,
+  DistributionBatchStatus,
+  KycStatus,
+  Prisma,
+  PrismaClient,
+  PropertyStatus,
+  TransactionStatus,
+  TransactionType,
+  VirtualAccountStatus,
+  WithdrawalStatus,
+} from '@prisma/client';
+import { redactJsonForAuditPersistence } from '../../common/logging/security-redaction.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { toDecimal, formatMoney } from '../../common/money/decimal.util';
 import { LedgerReconciliationService } from '../wallet/ledger-reconciliation.service';
@@ -8,10 +21,20 @@ import { WithdrawalService } from '../withdrawal/withdrawal.service';
 import { assertValidUpload, extensionFromFileName } from '../storage/upload-validation';
 import { KycService } from '../kyc/kyc.service';
 import { KycReviewDto } from '../kyc/dto/kyc-review.dto';
+import { VirtualAccountService } from '../virtual-account/virtual-account.service';
 import * as bcrypt from 'bcrypt';
 
 type AdminUiRole = 'SUPER_ADMIN' | 'FINANCE_ADMIN' | 'OPERATION_ADMIN' | 'COMPLIANCE_ADMIN';
 type AdminUiStatus = 'ACTIVE' | 'SUSPENDED' | 'INACTIVE';
+const MAX_ADMIN_LIST_LIMIT = 100;
+
+/** Prisma interactive transaction client (subset of PrismaClient). */
+type PrismaTransaction = Omit<
+  PrismaClient,
+  '$connect' | '$disconnect' | '$on' | '$transaction' | '$extends' | '$use'
+>;
+
+type AdminRequestAudit = { ipAddress?: string | null; userAgent?: string | null };
 
 @Injectable()
 export class AdminService {
@@ -21,7 +44,114 @@ export class AdminService {
     private readonly withdrawalService: WithdrawalService,
     private readonly ledgerReconciliation: LedgerReconciliationService,
     private readonly kycService: KycService,
+    private readonly virtualAccountService: VirtualAccountService,
   ) {}
+
+  private normalizePagination(page: number, limit: number, defaultLimit = 20) {
+    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+    const rawLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : defaultLimit;
+    const safeLimit = Math.max(1, Math.min(MAX_ADMIN_LIST_LIMIT, rawLimit));
+    return { page: safePage, limit: safeLimit, skip: (safePage - 1) * safeLimit };
+  }
+
+  private ensureReason(reason?: string) {
+    const normalized = reason?.trim();
+    if (!normalized) {
+      throw new BadRequestException('Reason is required.');
+    }
+    if (normalized.length < 5) {
+      throw new BadRequestException('Reason must be at least 5 characters.');
+    }
+    if (normalized.length > 500) {
+      throw new BadRequestException('Reason must be at most 500 characters.');
+    }
+    return normalized;
+  }
+
+  private maskAccountNumber(value?: string | null): string | null {
+    if (!value) return null;
+    const digits = value.replace(/\D/g, '');
+    if (!digits) return null;
+    const last4 = digits.slice(-4);
+    return `****${last4}`;
+  }
+
+  private toJsonValue(v: unknown): Prisma.InputJsonValue | undefined {
+    if (v === undefined) return undefined;
+    return redactJsonForAuditPersistence(v) as Prisma.InputJsonValue;
+  }
+
+  /**
+   * Central audit writer — metadata/previous/next are always redacted before persistence (Issue 11).
+   * Call inside the same DB transaction as the mutation when the action must roll back if audit fails.
+   */
+  private async writeAdminActivityLog(
+    tx: PrismaTransaction,
+    params: {
+      adminId: string;
+      action: string;
+      entityType: string;
+      entityId?: string | null;
+      targetType?: string | null;
+      targetId?: string | null;
+      reason?: string | null;
+      metadata?: unknown;
+      previousValue?: unknown;
+      nextValue?: unknown;
+      ipAddress?: string | null;
+      userAgent?: string | null;
+    },
+  ) {
+    const actor = await tx.admin.findUnique({
+      where: { id: params.adminId },
+      select: { role: true },
+    });
+    await tx.adminActivityLog.create({
+      data: {
+        adminId: params.adminId,
+        action: params.action,
+        entityType: params.entityType,
+        entityId: params.entityId ?? null,
+        metadata: params.metadata !== undefined ? this.toJsonValue(params.metadata) : undefined,
+        previousValue: params.previousValue !== undefined ? this.toJsonValue(params.previousValue) : undefined,
+        nextValue: params.nextValue !== undefined ? this.toJsonValue(params.nextValue) : undefined,
+        actorAdminId: params.adminId,
+        actorRole: actor?.role ?? null,
+        targetType: params.targetType ?? params.entityType,
+        targetId: params.targetId ?? params.entityId ?? null,
+        reason: params.reason ?? null,
+        ipAddress: params.ipAddress ?? null,
+        userAgent: params.userAgent ?? null,
+      },
+    });
+  }
+
+  private dbTx(): PrismaTransaction {
+    return this.prisma as unknown as PrismaTransaction;
+  }
+
+  /** Ensures at least one other ACTIVE SUPER_ADMIN remains if `affectedId` is currently an active super admin. */
+  private async assertRetainsSuperAdminCoverage(tx: PrismaTransaction, affectedAdminId: string) {
+    const target = await tx.admin.findUnique({
+      where: { id: affectedAdminId },
+      select: { role: true, accountStatus: true },
+    });
+    if (!target || target.role !== AdminRole.SUPER_ADMIN || target.accountStatus !== AdminAccountStatus.ACTIVE) {
+      return;
+    }
+    const others = await tx.admin.count({
+      where: {
+        role: AdminRole.SUPER_ADMIN,
+        accountStatus: AdminAccountStatus.ACTIVE,
+        id: { not: affectedAdminId },
+      },
+    });
+    if (others < 1) {
+      throw new BadRequestException(
+        'Cannot remove or demote the last active Super admin. Activate or promote another Super admin first.',
+      );
+    }
+  }
 
   async getDashboardOverview() {
     const [totalInvestmentsAmount, usersCount, activeInvestorsCount, properties] =
@@ -63,11 +193,14 @@ export class AdminService {
     limit: number;
     kycStatus?: string;
   }) {
-    const { page, limit, kycStatus } = params;
-    const skip = (page - 1) * limit;
+    const { kycStatus } = params;
+    const { page, limit, skip } = this.normalizePagination(params.page, params.limit);
 
     const where: any = {};
     if (kycStatus) {
+      if (!Object.values(KycStatus).includes(kycStatus as KycStatus)) {
+        throw new BadRequestException('Invalid kycStatus filter');
+      }
       where.kycStatus = kycStatus;
     }
 
@@ -92,6 +225,7 @@ export class AdminService {
           createdAt: true,
           updatedAt: true,
           virtualAccounts: {
+            where: { status: VirtualAccountStatus.ACTIVE },
             select: { accountNumber: true },
             take: 1,
           },
@@ -103,7 +237,7 @@ export class AdminService {
     return {
       items: items.map((u) => ({
         ...u,
-        accountNumber: u.virtualAccounts?.[0]?.accountNumber ?? null,
+        accountNumber: this.maskAccountNumber(u.virtualAccounts?.[0]?.accountNumber ?? null),
         virtualAccounts: undefined,
       })),
       meta: { page, limit, total },
@@ -115,16 +249,41 @@ export class AdminService {
       usersCount,
       verifiedUsers,
       pendingKyc,
+      rejectedOrReviewKyc,
+      frozenUsers,
       propertiesByStatus,
       walletAggregates,
       investmentAggregates,
+      totalInvestmentsCount,
+      walletFundingVolumeAggregate,
+      withdrawalsByStatus,
+      virtualAccountsByStatus,
+      distributionByStatus,
+      outboxByStatus,
+      supportByStatus,
+      disputesCount,
+      ledgerReport,
     ] = await Promise.all([
       this.prisma.user.count(),
-      this.prisma.user.count({ where: { kycStatus: 'VERIFIED' } }),
-      this.prisma.user.count({ where: { kycStatus: 'PENDING' } }),
+      this.prisma.user.count({ where: { kycStatus: KycStatus.VERIFIED } }),
+      this.prisma.user.count({ where: { kycStatus: KycStatus.PENDING } }),
+      this.prisma.user.count({ where: { kycStatus: { in: [KycStatus.FAILED, KycStatus.REQUIRES_REVIEW] } } }),
+      this.prisma.user.count({ where: { isFrozen: true } }),
       this.prisma.property.groupBy({ by: ['status'], _count: true }),
       this.prisma.wallet.groupBy({ by: ['currency'], _sum: { balance: true } }),
       this.prisma.investment.groupBy({ by: ['currency'], _sum: { amount: true } }),
+      this.prisma.investment.count(),
+      this.prisma.transaction.aggregate({
+        where: { type: TransactionType.WALLET_TOP_UP, status: TransactionStatus.COMPLETED },
+        _sum: { amount: true },
+      }),
+      this.prisma.withdrawal.groupBy({ by: ['status'], _count: true }),
+      this.prisma.virtualAccount.groupBy({ by: ['status'], _count: true }),
+      this.prisma.distributionBatch.groupBy({ by: ['status'], _count: true }),
+      this.prisma.outboxEvent.groupBy({ by: ['status'], _count: true }),
+      this.prisma.supportConversation.groupBy({ by: ['status'], _count: true }),
+      this.prisma.supportConversation.count({ where: { isDispute: true, status: { in: ['OPEN', 'LIVE', 'WAITING_FOR_ADMIN', 'WAITING_FOR_USER'] } } }),
+      this.ledgerReconciliation.buildReport(),
     ]);
 
     const walletBalances: Record<string, string> = {};
@@ -137,22 +296,78 @@ export class AdminService {
       totalInvestments[inv.currency] = inv._sum.amount?.toString() ?? '0';
     }
 
-    const published = propertiesByStatus.find((p) => p.status === 'PUBLISHED')?._count ?? 0;
+    const byStatusCount = <T extends string>(rows: Array<{ status: T; _count: number }>, key: T) =>
+      rows.find((row) => row.status === key)?._count ?? 0;
+
+    const activeListings = byStatusCount(propertiesByStatus as any, PropertyStatus.PUBLISHED as any);
+    const pendingListings = byStatusCount(propertiesByStatus as any, PropertyStatus.DRAFT as any);
+    const withdrawalPending = byStatusCount(withdrawalsByStatus as any, WithdrawalStatus.PENDING as any);
+    const withdrawalProcessing =
+      byStatusCount(withdrawalsByStatus as any, WithdrawalStatus.INITIATING as any) +
+      byStatusCount(withdrawalsByStatus as any, WithdrawalStatus.PROCESSING as any);
+    const withdrawalRecon = byStatusCount(withdrawalsByStatus as any, WithdrawalStatus.RECONCILIATION_REQUIRED as any);
+    const withdrawalFailed = byStatusCount(withdrawalsByStatus as any, WithdrawalStatus.FAILED as any);
+    const vaActive = byStatusCount(virtualAccountsByStatus as any, VirtualAccountStatus.ACTIVE as any);
+    const vaFailed =
+      byStatusCount(virtualAccountsByStatus as any, VirtualAccountStatus.FAILED as any) +
+      byStatusCount(virtualAccountsByStatus as any, VirtualAccountStatus.REQUIRES_RETRY as any);
+    const outboxPending = byStatusCount(outboxByStatus as any, 'PENDING' as any);
+    const outboxDeadLetter = byStatusCount(outboxByStatus as any, 'DEAD_LETTER' as any);
+    const supportOpen = supportByStatus
+      .filter((row) => ['OPEN', 'LIVE', 'WAITING_FOR_ADMIN', 'WAITING_FOR_USER'].includes(String(row.status)))
+      .reduce((sum, row) => sum + row._count, 0);
+    const distributionPending = byStatusCount(distributionByStatus as any, DistributionBatchStatus.DRAFT as any);
+    const distributionProcessing = byStatusCount(distributionByStatus as any, DistributionBatchStatus.PROCESSING as any);
+    const distributionPartialFailed = byStatusCount(distributionByStatus as any, DistributionBatchStatus.PARTIALLY_FAILED as any);
+    const ledgerMismatchCount =
+      ledgerReport.walletBalanceMismatches.length +
+      ledgerReport.unbalancedLedgerOperations.length +
+      ledgerReport.shortLedgerOperations.length +
+      ledgerReport.transactionsWithoutLedgerOperation;
 
     return {
       totalUsers: usersCount,
       totalVerifiedUsers: verifiedUsers,
       totalUnverifiedUsers: usersCount - verifiedUsers,
-      totalCoholds: 0,
+      pendingKyc,
+      rejectedOrReviewKyc,
+      frozenUsers,
+      totalCoholds: null,
       totalInvestments: { NGN: '0', USD: '0', GBP: '0', EUR: '0', ...totalInvestments },
       walletBalances: { NGN: '0', USD: '0', GBP: '0', EUR: '0', ...walletBalances },
-      activeListings: published,
-      fractionalListings: 0,
-      landListings: 0,
-      ownAHomeListings: 0,
-      coholdRevenue: '0',
-      pendingKyc,
-      openDisputes: 0,
+      totalInvestmentsCount,
+      totalInvestedAmount: Object.values(totalInvestments).reduce((acc, v) => acc.plus(toDecimal(v)), toDecimal(0)).toString(),
+      walletFundingVolume: walletFundingVolumeAggregate._sum.amount?.toString() ?? '0',
+      activeListings,
+      pendingListings,
+      fractionalListings: null,
+      landListings: null,
+      ownAHomeListings: null,
+      coholdRevenue: null,
+      withdrawals: {
+        pending: withdrawalPending,
+        processing: withdrawalProcessing,
+        reconciliationRequired: withdrawalRecon,
+        failed: withdrawalFailed,
+      },
+      virtualAccounts: {
+        active: vaActive,
+        failedOrRetryRequired: vaFailed,
+      },
+      ledgerReconciliationMismatchCount: ledgerMismatchCount,
+      outbox: { pending: outboxPending, deadLetter: outboxDeadLetter },
+      distributions: {
+        pending: distributionPending,
+        processing: distributionProcessing,
+        partiallyFailed: distributionPartialFailed,
+      },
+      supportOpenConversations: supportOpen,
+      openDisputes: disputesCount,
+      unsupported: {
+        totalCoholds: 'No cohold aggregate model available.',
+        coholdRevenue: 'No durable fee/revenue ledger aggregate available in admin overview.',
+        listingTypeBreakdown: 'Property type taxonomy is not modeled explicitly.',
+      },
     };
   }
 
@@ -165,6 +380,18 @@ export class AdminService {
           select: { id: true, propertyId: true, amount: true, currency: true, shares: true, status: true },
         },
         kycVerification: true,
+        virtualAccounts: {
+          select: {
+            id: true,
+            status: true,
+            accountNumber: true,
+            bankName: true,
+            accountName: true,
+            currency: true,
+            failureReason: true,
+            updatedAt: true,
+          },
+        },
       },
     });
     if (!user) throw new Error('User not found');
@@ -184,18 +411,14 @@ export class AdminService {
       ? await this.storage.createSignedReadUrl(safeUser.profilePhotoKey, 300).catch(() => null)
       : null;
 
-    const sign = async (key: string | null | undefined) =>
-      key ? await this.storage.createSignedReadUrl(key, 300).catch(() => null) : null;
-
     const kycForAdmin = kycVerification
       ? {
           ...this.kycService.sanitizeKycRecordForResponse(kycVerification),
-          documentFrontUrl: await sign(kycVerification.documentFrontKey ?? kycVerification.documentKey),
-          documentBackUrl: await sign(kycVerification.documentBackKey),
-          selfieUrl: await sign(kycVerification.selfieKey),
-          documentLegacyUrl: kycVerification.documentKey
-            ? await sign(kycVerification.documentKey)
-            : null,
+          // Sensitive media object keys/urls are exposed via dedicated signed-read endpoint only.
+          documentFrontUrl: null,
+          documentBackUrl: null,
+          selfieUrl: null,
+          documentLegacyUrl: null,
         }
       : null;
 
@@ -210,6 +433,12 @@ export class AdminService {
       })),
       linkedBanks: [],
       kycVerification: kycForAdmin,
+      virtualAccount: user.virtualAccounts?.[0]
+        ? {
+            ...user.virtualAccounts[0],
+            accountNumber: this.maskAccountNumber(user.virtualAccounts[0].accountNumber),
+          }
+        : null,
       totalInvested: totalInvested.toString(),
       walletBalance: walletBalance.toString(),
       totalReferrals: 0,
@@ -217,8 +446,7 @@ export class AdminService {
   }
 
   async listUserTransactions(userId: string, params: { page: number; limit: number }) {
-    const { page, limit } = params;
-    const skip = (page - 1) * limit;
+    const { page, limit, skip } = this.normalizePagination(params.page, params.limit);
     const where = { userId };
     const [items, total] = await Promise.all([
       this.prisma.transaction.findMany({
@@ -241,25 +469,88 @@ export class AdminService {
     };
   }
 
-  async suspendUser(userId: string) {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { isFrozen: true },
+  async freezeUser(userId: string, adminId: string, reason: string, audit?: AdminRequestAudit) {
+    const normalizedReason = this.ensureReason(reason);
+    await this.prisma.$transaction(async (tx) => {
+      const prev = await tx.user.findUnique({ where: { id: userId }, select: { isFrozen: true } });
+      if (!prev) throw new NotFoundException('User not found');
+      await tx.user.update({
+        where: { id: userId },
+        data: { isFrozen: true },
+      });
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
+        adminId,
+        action: 'USER_FROZEN',
+        entityType: 'User',
+        entityId: userId,
+        reason: normalizedReason,
+        previousValue: { isFrozen: prev.isFrozen },
+        nextValue: { isFrozen: true },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
     });
-    return { message: 'User suspended' };
+    return { message: 'User frozen', userId, reason: normalizedReason };
   }
 
-  async deleteUser(userId: string) {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { isFrozen: true },
+  async unfreezeUser(userId: string, adminId: string, reason: string, audit?: AdminRequestAudit) {
+    const normalizedReason = this.ensureReason(reason);
+    await this.prisma.$transaction(async (tx) => {
+      const prev = await tx.user.findUnique({ where: { id: userId }, select: { isFrozen: true } });
+      if (!prev) throw new NotFoundException('User not found');
+      await tx.user.update({
+        where: { id: userId },
+        data: { isFrozen: false },
+      });
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
+        adminId,
+        action: 'USER_UNFROZEN',
+        entityType: 'User',
+        entityId: userId,
+        reason: normalizedReason,
+        previousValue: { isFrozen: prev.isFrozen },
+        nextValue: { isFrozen: false },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
     });
-    return { message: 'User account disabled' };
+    return { message: 'User unfrozen', userId, reason: normalizedReason };
+  }
+
+  async suspendUser(userId: string, adminId: string, reason: string, audit?: AdminRequestAudit) {
+    return this.freezeUser(userId, adminId, reason, audit);
+  }
+
+  async deleteUser(userId: string, adminId: string, reason: string, audit?: AdminRequestAudit) {
+    const normalizedReason = this.ensureReason(reason);
+    await this.prisma.$transaction(async (tx) => {
+      const prev = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, isFrozen: true, email: true },
+      });
+      if (!prev) throw new NotFoundException('User not found');
+      await tx.user.update({
+        where: { id: userId },
+        data: { isFrozen: true },
+      });
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
+        adminId,
+        action: 'USER_DISABLED',
+        entityType: 'User',
+        entityId: userId,
+        reason: normalizedReason,
+        previousValue: { isFrozen: prev.isFrozen, email: prev.email },
+        nextValue: { isFrozen: true },
+        metadata: { note: 'Super-admin disable (soft)' },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
+    });
+    return { message: 'User account disabled', userId, reason: normalizedReason };
   }
 
   async listVerifications(params: { page: number; limit: number }) {
-    const { page, limit } = params;
-    const skip = (page - 1) * limit;
+    const { page, limit, skip } = this.normalizePagination(params.page, params.limit);
     const [rows, total] = await Promise.all([
       this.prisma.kycVerification.findMany({
         skip,
@@ -283,7 +574,20 @@ export class AdminService {
     adminId: string,
     audit?: { ipAddress?: string | null; userAgent?: string | null },
   ) {
-    await this.kycService.approveKycByVerificationId(adminId, verificationId, {}, audit);
+    await this.kycService.approveKycByVerificationId(
+      adminId,
+      verificationId,
+      { failureReason: 'Approved by admin review' },
+      audit,
+    );
+    await this.writeAdminActivityLog(this.dbTx(), {
+      adminId,
+      action: 'KYC_APPROVED',
+      entityType: 'KycVerification',
+      entityId: verificationId,
+      ipAddress: audit?.ipAddress ?? null,
+      userAgent: audit?.userAgent ?? null,
+    });
     return { message: 'Verification approved' };
   }
 
@@ -293,7 +597,17 @@ export class AdminService {
     dto: KycReviewDto,
     audit?: { ipAddress?: string | null; userAgent?: string | null },
   ) {
+    const reason = this.ensureReason(dto.failureReason);
     await this.kycService.rejectKycByVerificationId(adminId, verificationId, dto, audit);
+    await this.writeAdminActivityLog(this.dbTx(), {
+      adminId,
+      action: 'KYC_REJECTED',
+      entityType: 'KycVerification',
+      entityId: verificationId,
+      reason,
+      ipAddress: audit?.ipAddress ?? null,
+      userAgent: audit?.userAgent ?? null,
+    });
     return { message: 'Verification rejected' };
   }
 
@@ -306,9 +620,29 @@ export class AdminService {
     return this.kycService.getAdminKycDocumentSignedReadUrl(adminId, userId, slot, audit);
   }
 
+  async adminRetryVirtualAccountProvisioning(userId: string, adminId: string, reason: string) {
+    const normalizedReason = this.ensureReason(reason);
+    const out = await this.virtualAccountService.adminRetryProvisioningForUser(userId);
+    await this.writeAdminActivityLog(this.dbTx(), {
+      adminId,
+      action: 'RETRY_VIRTUAL_ACCOUNT_PROVISIONING',
+      entityType: 'User',
+      entityId: userId,
+      reason: normalizedReason,
+    });
+    return out;
+  }
+
+  async adminListFailedVirtualAccounts(limit = 50) {
+    return this.virtualAccountService.listFailedProvisioning(limit);
+  }
+
+  async adminListUnmatchedVirtualAccountDeposits(limit = 100) {
+    return this.virtualAccountService.listUnmatchedDeposits(limit);
+  }
+
   async listWalletTransactions(params: { page: number; limit: number }) {
-    const { page, limit } = params;
-    const skip = (page - 1) * limit;
+    const { page, limit, skip } = this.normalizePagination(params.page, params.limit);
     const [items, total] = await Promise.all([
       this.prisma.transaction.findMany({
         skip,
@@ -372,8 +706,8 @@ export class AdminService {
     period?: 'today' | '7d' | '30d' | '180d';
     search?: string;
   }) {
-    const { page, limit, role, status, period, search } = params;
-    const skip = (page - 1) * limit;
+    const { role, status, period, search } = params;
+    const { page, limit, skip } = this.normalizePagination(params.page, params.limit);
     const andParts: Prisma.AdminWhereInput[] = [];
     if (role) {
       andParts.push({ role: this.toDbRole(role) });
@@ -479,32 +813,57 @@ export class AdminService {
     };
   }
 
-  async createAdmin(dto: { fullName?: string; email: string; phoneNumber?: string | null; role: AdminUiRole }) {
+  async createAdmin(
+    actorId: string,
+    dto: { fullName?: string; email: string; phoneNumber?: string | null; role: AdminUiRole; reason: string },
+    audit?: AdminRequestAudit,
+  ) {
+    const normalizedReason = this.ensureReason(dto.reason);
     const email = dto.email.trim().toLowerCase();
     const exists = await this.prisma.admin.findUnique({ where: { email } });
     if (exists) throw new ConflictException('Admin with this email already exists');
     const tempPassword = `Admin-${Math.random().toString(36).slice(2, 10)}!`;
     const passwordHash = await bcrypt.hash(tempPassword, 10);
-    const created = await this.prisma.admin.create({
-      data: {
-        email,
-        passwordHash,
-        role: this.toDbRole(dto.role),
-        fullName: dto.fullName?.trim() || null,
-        phoneNumber: dto.phoneNumber?.trim() || null,
-        accountStatus: AdminAccountStatus.ACTIVE,
-      },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        phoneNumber: true,
-        role: true,
-        lastLoginAt: true,
-        createdAt: true,
-        accountStatus: true,
-      },
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.admin.create({
+        data: {
+          email,
+          passwordHash,
+          role: this.toDbRole(dto.role),
+          fullName: dto.fullName?.trim() || null,
+          phoneNumber: dto.phoneNumber?.trim() || null,
+          accountStatus: AdminAccountStatus.ACTIVE,
+        },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          phoneNumber: true,
+          role: true,
+          lastLoginAt: true,
+          createdAt: true,
+          accountStatus: true,
+        },
+      });
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
+        adminId: actorId,
+        action: 'ADMIN_CREATED',
+        entityType: 'ADMIN',
+        entityId: row.id,
+        reason: normalizedReason,
+        nextValue: {
+          email: row.email,
+          role: this.toUiRole(row.role),
+          accountStatus: this.toUiStatus(row.accountStatus),
+        },
+        metadata: { createdAdminId: row.id },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
+      return row;
     });
+
     return {
       id: created.id,
       adminId: this.displayAdminId(created.id),
@@ -520,35 +879,70 @@ export class AdminService {
   }
 
   async updateAdmin(
+    actorId: string,
     id: string,
-    dto: { fullName?: string; email?: string; phoneNumber?: string | null; role?: AdminUiRole },
+    dto: { fullName?: string; email?: string; phoneNumber?: string | null; role?: AdminUiRole; reason: string },
+    audit?: AdminRequestAudit,
   ) {
-    const existing = await this.prisma.admin.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Admin not found');
-    const nextEmail = dto.email?.trim().toLowerCase();
-    if (nextEmail && nextEmail !== existing.email) {
-      const duplicate = await this.prisma.admin.findUnique({ where: { email: nextEmail } });
-      if (duplicate) throw new ConflictException('Admin with this email already exists');
-    }
-    const updated = await this.prisma.admin.update({
-      where: { id },
-      data: {
-        email: nextEmail ?? undefined,
-        role: dto.role ? this.toDbRole(dto.role) : undefined,
-        fullName: dto.fullName !== undefined ? dto.fullName.trim() || null : undefined,
-        phoneNumber: dto.phoneNumber !== undefined ? dto.phoneNumber?.trim() || null : undefined,
-      },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        phoneNumber: true,
-        role: true,
-        lastLoginAt: true,
-        createdAt: true,
-        accountStatus: true,
-      },
+    const normalizedReason = this.ensureReason(dto.reason);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.admin.findUnique({ where: { id } });
+      if (!existing) throw new NotFoundException('Admin not found');
+      const nextEmail = dto.email?.trim().toLowerCase();
+      if (nextEmail && nextEmail !== existing.email) {
+        const duplicate = await tx.admin.findUnique({ where: { email: nextEmail } });
+        if (duplicate) throw new ConflictException('Admin with this email already exists');
+      }
+      const nextDbRole = dto.role ? this.toDbRole(dto.role) : undefined;
+      if (nextDbRole !== undefined && nextDbRole !== existing.role) {
+        if (existing.role === AdminRole.SUPER_ADMIN && nextDbRole !== AdminRole.SUPER_ADMIN) {
+          await this.assertRetainsSuperAdminCoverage(tx, id);
+        }
+      }
+      const previousValue = {
+        email: existing.email,
+        role: this.toUiRole(existing.role),
+        accountStatus: this.toUiStatus(existing.accountStatus),
+        fullName: existing.fullName,
+      };
+      const row = await tx.admin.update({
+        where: { id },
+        data: {
+          email: nextEmail ?? undefined,
+          role: nextDbRole,
+          fullName: dto.fullName !== undefined ? dto.fullName.trim() || null : undefined,
+          phoneNumber: dto.phoneNumber !== undefined ? dto.phoneNumber?.trim() || null : undefined,
+        },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          phoneNumber: true,
+          role: true,
+          lastLoginAt: true,
+          createdAt: true,
+          accountStatus: true,
+        },
+      });
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
+        adminId: actorId,
+        action: 'ADMIN_UPDATED',
+        entityType: 'ADMIN',
+        entityId: id,
+        reason: normalizedReason,
+        previousValue,
+        nextValue: {
+          email: row.email,
+          role: this.toUiRole(row.role),
+          accountStatus: this.toUiStatus(row.accountStatus),
+          fullName: row.fullName,
+        },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
+      return row;
     });
+
     return {
       id: updated.id,
       adminId: this.displayAdminId(updated.id),
@@ -562,46 +956,57 @@ export class AdminService {
     };
   }
 
-  async suspendAdmin(id: string, actorId: string) {
-    await this.prisma.admin.findUniqueOrThrow({ where: { id } });
-    await this.prisma.$transaction([
-      this.prisma.admin.update({
+  async suspendAdmin(id: string, actorId: string, reason: string, audit?: AdminRequestAudit) {
+    const normalizedReason = this.ensureReason(reason);
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.admin.findUniqueOrThrow({ where: { id } });
+      await this.assertRetainsSuperAdminCoverage(tx, id);
+      await tx.admin.update({
         where: { id },
         data: { accountStatus: AdminAccountStatus.SUSPENDED },
-      }),
-      this.prisma.adminActivityLog.create({
-        data: {
-          adminId: actorId,
-          action: 'ADMIN_SUSPENDED',
-          entityType: 'ADMIN',
-          entityId: id,
-        },
-      }),
-    ]);
+      });
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
+        adminId: actorId,
+        action: 'ADMIN_SUSPENDED',
+        entityType: 'ADMIN',
+        entityId: id,
+        reason: normalizedReason,
+        previousValue: { accountStatus: this.toUiStatus(existing.accountStatus), role: this.toUiRole(existing.role) },
+        nextValue: { accountStatus: 'SUSPENDED' as AdminUiStatus },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
+    });
     return { id, status: 'SUSPENDED' as AdminUiStatus };
   }
 
-  async deactivateAdmin(id: string, actorId: string) {
-    await this.prisma.admin.findUniqueOrThrow({ where: { id } });
-    await this.prisma.$transaction([
-      this.prisma.admin.update({
+  async deactivateAdmin(id: string, actorId: string, reason: string, audit?: AdminRequestAudit) {
+    const normalizedReason = this.ensureReason(reason);
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.admin.findUniqueOrThrow({ where: { id } });
+      await this.assertRetainsSuperAdminCoverage(tx, id);
+      await tx.admin.update({
         where: { id },
         data: { accountStatus: AdminAccountStatus.INACTIVE },
-      }),
-      this.prisma.adminActivityLog.create({
-        data: {
-          adminId: actorId,
-          action: 'ADMIN_DEACTIVATED',
-          entityType: 'ADMIN',
-          entityId: id,
-        },
-      }),
-    ]);
+      });
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
+        adminId: actorId,
+        action: 'ADMIN_DEACTIVATED',
+        entityType: 'ADMIN',
+        entityId: id,
+        reason: normalizedReason,
+        previousValue: { accountStatus: this.toUiStatus(existing.accountStatus), role: this.toUiRole(existing.role) },
+        nextValue: { accountStatus: 'INACTIVE' as AdminUiStatus },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
+    });
     return { id, status: 'INACTIVE' as AdminUiStatus };
   }
 
   async getActivityLog(page = 1, limit = 50) {
-    const skip = (page - 1) * limit;
+    const normalized = this.normalizePagination(page, limit, 50);
+    const skip = normalized.skip;
     const [items, total] = await Promise.all([
       this.prisma.adminActivityLog.findMany({
         skip,
@@ -614,16 +1019,15 @@ export class AdminService {
     return {
       items,
       meta: {
-        page,
-        limit,
+        page: normalized.page,
+        limit: normalized.limit,
         total,
       },
     };
   }
 
   async listDisputes(params: { page: number; limit: number }) {
-    const { page, limit } = params;
-    const skip = (page - 1) * limit;
+    const { page, limit, skip } = this.normalizePagination(params.page, params.limit);
     const where: Prisma.SupportConversationWhereInput = { isDispute: true };
     const [items, total] = await Promise.all([
       this.prisma.supportConversation.findMany({
@@ -648,12 +1052,15 @@ export class AdminService {
     type?: string;
     period?: string;
   }) {
-    const { page, limit, status, type, period } = params;
-    const skip = (page - 1) * limit;
+    const { status, type, period } = params;
+    const { page, limit, skip } = this.normalizePagination(params.page, params.limit);
 
     const where: any = { deletedAt: null };
 
     if (status) {
+      if (!Object.values(PropertyStatus).includes(status as PropertyStatus)) {
+        throw new BadRequestException('Invalid property status filter');
+      }
       where.status = status;
     }
 
@@ -761,7 +1168,6 @@ export class AdminService {
         const signedUrl = key ? await this.storage.createSignedReadUrl(key, 300).catch(() => null) : null;
         return {
           id: img.id,
-          storageKey: key,
           url: signedUrl ?? img.url ?? null,
           altText: img.altText ?? null,
           position: img.position,
@@ -776,7 +1182,6 @@ export class AdminService {
         return {
           id: doc.id,
           type: doc.type,
-          s3Key: doc.s3Key,
           url: signedUrl,
           createdAt: doc.createdAt,
         };
@@ -802,8 +1207,7 @@ export class AdminService {
     propertyId: string,
     params: { page: number; limit: number },
   ) {
-    const { page, limit } = params;
-    const skip = (page - 1) * limit;
+    const { page, limit, skip } = this.normalizePagination(params.page, params.limit);
     const where = { propertyId };
 
     const [items, total] = await Promise.all([
@@ -836,37 +1240,159 @@ export class AdminService {
     };
   }
 
-  async closeProperty(propertyId: string, adminId: string) {
-    await this.prisma.property.update({
-      where: { id: propertyId },
-      data: { status: 'CLOSED' },
-    });
-
-    await this.prisma.adminActivityLog.create({
-      data: {
+  async closeProperty(propertyId: string, adminId: string, reason: string, audit?: AdminRequestAudit) {
+    const normalizedReason = this.ensureReason(reason);
+    await this.prisma.$transaction(async (tx) => {
+      const prop = await tx.property.findFirst({ where: { id: propertyId, deletedAt: null } });
+      if (!prop) throw new NotFoundException('Property not found');
+      await tx.property.update({
+        where: { id: propertyId },
+        data: { status: PropertyStatus.CLOSED },
+      });
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
         adminId,
         action: 'CLOSE_PROPERTY',
         entityType: 'Property',
         entityId: propertyId,
-      },
+        reason: normalizedReason,
+        previousValue: { status: prop.status },
+        nextValue: { status: PropertyStatus.CLOSED },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
     });
 
     return { message: 'Property closed' };
   }
 
-  async softDeleteProperty(propertyId: string, adminId: string) {
-    await this.prisma.property.update({
-      where: { id: propertyId },
-      data: { deletedAt: new Date() },
+  async publishProperty(propertyId: string, adminId: string, audit?: AdminRequestAudit) {
+    await this.prisma.$transaction(async (tx) => {
+      const property = await tx.property.findFirst({
+        where: { id: propertyId, deletedAt: null },
+        include: {
+          _count: { select: { images: true, documents: true } },
+        },
+      });
+      if (!property) throw new NotFoundException('Property not found');
+      if (property.status !== PropertyStatus.DRAFT) {
+        throw new BadRequestException('Only listings in DRAFT can be published. Unpublish or correct status first.');
+      }
+      const title = property.title?.trim() ?? '';
+      const desc = property.description?.trim() ?? '';
+      if (title.length < 2) {
+        throw new BadRequestException('Property title is too short to publish.');
+      }
+      if (desc.length < 20) {
+        throw new BadRequestException('Property description must be at least 20 characters to publish.');
+      }
+      const location = property.location?.trim() ?? '';
+      if (location.length < 2) {
+        throw new BadRequestException('Property location is too short to publish.');
+      }
+      if (property.annualYield == null) {
+        throw new BadRequestException('Property cannot be published without annualYield disclosure.');
+      }
+      if (toDecimal(property.annualYield.toString()).lte(0)) {
+        throw new BadRequestException('annualYield must be a positive disclosed rate.');
+      }
+      if (
+        toDecimal(property.minInvestment.toString()).lte(0) ||
+        toDecimal(property.sharePrice.toString()).lte(0) ||
+        toDecimal(property.totalValue.toString()).lte(0)
+      ) {
+        throw new BadRequestException('minInvestment, sharePrice, and totalValue must be positive before publish.');
+      }
+      const mediaCount = property._count.images + property._count.documents;
+      if (mediaCount < 1) {
+        throw new BadRequestException('At least one image or document is required before publishing.');
+      }
+      if (toDecimal(property.sharesTotal.toString()).lte(0)) {
+        throw new BadRequestException('sharesTotal must be positive before publish.');
+      }
+      if (toDecimal(property.sharesSold.toString()).lt(0)) {
+        throw new BadRequestException('sharesSold cannot be negative.');
+      }
+      if (toDecimal(property.sharesSold.toString()).gt(toDecimal(property.sharesTotal.toString()))) {
+        throw new BadRequestException('Property inventory inconsistency: sharesSold exceeds sharesTotal.');
+      }
+      if (toDecimal(property.currentRaised.toString()).gt(toDecimal(property.totalValue.toString()))) {
+        throw new BadRequestException('currentRaised exceeds totalValue — unsafe listing state.');
+      }
+      await tx.property.update({
+        where: { id: propertyId },
+        data: { status: PropertyStatus.PUBLISHED },
+      });
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
+        adminId,
+        action: 'PROPERTY_PUBLISH',
+        entityType: 'Property',
+        entityId: propertyId,
+        previousValue: { status: property.status },
+        nextValue: { status: PropertyStatus.PUBLISHED },
+        metadata: {
+          publishGate: {
+            annualYieldSet: true,
+            titleLength: title.length,
+            descriptionLength: desc.length,
+            locationLength: location.length,
+            mediaCountAtPublish: mediaCount,
+            inventorySharesOk: true,
+            raisedVsTotalOk: true,
+            currency: String(property.currency),
+          },
+        },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
     });
+    return { id: propertyId, status: PropertyStatus.PUBLISHED };
+  }
 
-    await this.prisma.adminActivityLog.create({
-      data: {
+  async unpublishProperty(propertyId: string, adminId: string, reason: string, audit?: AdminRequestAudit) {
+    const normalizedReason = this.ensureReason(reason);
+    await this.prisma.$transaction(async (tx) => {
+      const prop = await tx.property.findFirst({ where: { id: propertyId, deletedAt: null } });
+      if (!prop) throw new NotFoundException('Property not found');
+      await tx.property.update({
+        where: { id: propertyId },
+        data: { status: PropertyStatus.DRAFT },
+      });
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
+        adminId,
+        action: 'PROPERTY_UNPUBLISH',
+        entityType: 'Property',
+        entityId: propertyId,
+        reason: normalizedReason,
+        previousValue: { status: prop.status },
+        nextValue: { status: PropertyStatus.DRAFT },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
+    });
+    return { id: propertyId, status: PropertyStatus.DRAFT, reason: normalizedReason };
+  }
+
+  async softDeleteProperty(propertyId: string, adminId: string, reason: string, audit?: AdminRequestAudit) {
+    const normalizedReason = this.ensureReason(reason);
+    const deletedAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      const prop = await tx.property.findFirst({ where: { id: propertyId, deletedAt: null } });
+      if (!prop) throw new NotFoundException('Property not found');
+      await tx.property.update({
+        where: { id: propertyId },
+        data: { deletedAt },
+      });
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
         adminId,
         action: 'DELETE_PROPERTY',
         entityType: 'Property',
         entityId: propertyId,
-      },
+        reason: normalizedReason,
+        previousValue: { deletedAt: null, status: prop.status },
+        nextValue: { deletedAt: deletedAt.toISOString(), status: prop.status },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
     });
 
     return { message: 'Property deleted' };
@@ -987,34 +1513,107 @@ export class AdminService {
     return this.withdrawalService.adminListWithdrawals(params);
   }
 
-  async adminReconcileWithdrawal(withdrawalId: string, adminId: string) {
+  async adminReconcileWithdrawal(
+    withdrawalId: string,
+    adminId: string,
+    reason: string,
+    audit?: AdminRequestAudit,
+  ) {
+    const normalizedReason = this.ensureReason(reason);
+    const before = await this.prisma.withdrawal.findUnique({
+      where: { id: withdrawalId },
+      select: { status: true },
+    });
+    if (!before) throw new NotFoundException('Withdrawal not found');
     const row = await this.withdrawalService.reconcileWithdrawalById(withdrawalId);
-    await this.prisma.adminActivityLog.create({
-      data: {
+    await this.prisma.$transaction(async (tx) => {
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
         adminId,
         action: 'RECONCILE_WITHDRAWAL',
         entityType: 'Withdrawal',
         entityId: withdrawalId,
-      },
+        reason: normalizedReason,
+        previousValue: { status: before.status },
+        nextValue: { status: row.status },
+        metadata: { source: 'admin-reconcile' },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
     });
     return row;
   }
 
-  async adminReconcileStaleWithdrawals(adminId: string, olderThanMinutes?: number) {
+  async adminReconcileStaleWithdrawals(
+    adminId: string,
+    reason: string,
+    olderThanMinutes?: number,
+    audit?: AdminRequestAudit,
+  ) {
+    const normalizedReason = this.ensureReason(reason);
     const out = await this.withdrawalService.reconcileStaleWithdrawals(olderThanMinutes ?? 30, 50);
-    await this.prisma.adminActivityLog.create({
-      data: {
+    await this.prisma.$transaction(async (tx) => {
+      await this.writeAdminActivityLog(tx as PrismaTransaction, {
         adminId,
         action: 'RECONCILE_STALE_WITHDRAWALS',
         entityType: 'Withdrawal',
         entityId: 'batch',
-      },
+        reason: normalizedReason,
+        metadata: {
+          scanned: out.scanned,
+          olderThanMinutes: olderThanMinutes ?? 30,
+          results: out.results.map((r) => ({
+            id: r.id,
+            ok: r.ok,
+            ...(r.error ? { error: r.error } : {}),
+          })),
+        },
+        ipAddress: audit?.ipAddress ?? null,
+        userAgent: audit?.userAgent ?? null,
+      });
     });
     return out;
   }
 
   async getLedgerReconciliationReport() {
     return this.ledgerReconciliation.buildReport();
+  }
+
+  async getFinancialOpsSummary() {
+    const [withdrawalsRecon, withdrawalsFailed, failedVa, unmatchedDeposits, distributionPartial, outboxSummary, ledger] =
+      await Promise.all([
+        this.prisma.withdrawal.count({ where: { status: WithdrawalStatus.RECONCILIATION_REQUIRED } }),
+        this.prisma.withdrawal.count({ where: { status: WithdrawalStatus.FAILED } }),
+        this.virtualAccountService.listFailedProvisioning(50),
+        this.virtualAccountService.listUnmatchedDeposits(50),
+        this.prisma.distributionBatch.count({ where: { status: DistributionBatchStatus.PARTIALLY_FAILED } }),
+        this.prisma.outboxEvent.groupBy({ by: ['status'], _count: true }),
+        this.ledgerReconciliation.buildReport(),
+      ]);
+    const outboxPending = outboxSummary.find((r) => r.status === 'PENDING')?._count ?? 0;
+    const outboxDeadLetter = outboxSummary.find((r) => r.status === 'DEAD_LETTER')?._count ?? 0;
+    return {
+      withdrawals: {
+        reconciliationRequired: withdrawalsRecon,
+        failed: withdrawalsFailed,
+      },
+      virtualAccounts: {
+        failedOrRetryRequired: failedVa.length,
+        unmatchedDeposits: unmatchedDeposits.length,
+      },
+      distributions: {
+        partiallyFailed: distributionPartial,
+      },
+      outbox: {
+        pending: outboxPending,
+        deadLetter: outboxDeadLetter,
+      },
+      ledger: {
+        walletMismatchCount: ledger.walletBalanceMismatches.length,
+        unbalancedOperationCount: ledger.unbalancedLedgerOperations.length,
+        shortOperationCount: ledger.shortLedgerOperations.length,
+        transactionsWithoutLedgerOperation: ledger.transactionsWithoutLedgerOperation,
+      },
+    };
   }
 }
 

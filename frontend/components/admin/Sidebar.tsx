@@ -2,32 +2,94 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { adminLogout } from '@/lib/admin/auth';
 import {
-  LayoutDashboard, Users, ShieldCheck, Building2, Boxes,
-  Wallet, Receipt, AlertTriangle, UserCog, LogOut, MessageSquare, Banknote, Scale,
+  canManageSupport,
+  canViewLedgerReconciliation,
+  canViewOps,
+  canViewVirtualAccountOps,
+  type AdminDbRole,
+} from '@/lib/admin/permissions';
+import { useAuthStore } from '@/stores/auth.store';
+import {
+  LayoutDashboard,
+  Users,
+  ShieldCheck,
+  Building2,
+  Boxes,
+  Wallet,
+  Receipt,
+  AlertTriangle,
+  UserCog,
+  LogOut,
+  MessageSquare,
+  Banknote,
+  Scale,
+  Landmark,
+  ScrollText,
+  Coins,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
-const NAV_ITEMS = [
-  { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
-  { label: 'User management', href: '/admin/users', icon: Users },
-  { label: 'Verifications', href: '/admin/verifications', icon: ShieldCheck },
-  { label: 'PropertyListings', href: '/admin/property-listings', icon: Building2 },
-  { label: 'Cohold management', href: '/admin/coholds', icon: Boxes },
-  { label: 'Withdrawals', href: '/admin/withdrawals', icon: Banknote },
-  { label: 'Ledger reconciliation', href: '/admin/ledger-reconciliation', icon: Scale },
-  { label: 'Wallet transactions', href: '/admin/wallet-transactions', icon: Wallet },
-  { label: 'Fee logs', href: '/admin/fees', icon: Receipt },
-  { label: 'Disputes', href: '/admin/disputes', icon: AlertTriangle },
-  { label: 'Support', href: '/admin/support', icon: MessageSquare },
-  { label: 'Admin management', href: '/admin/admin-management', icon: UserCog },
+type NavItem = {
+  label: string;
+  href: string;
+  icon: LucideIcon;
+  visible: (role: AdminDbRole | null) => boolean;
+};
+
+const NAV_ITEMS: NavItem[] = [
+  { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, visible: () => true },
+  { label: 'User management', href: '/admin/users', icon: Users, visible: () => true },
+  { label: 'Verifications', href: '/admin/verifications', icon: ShieldCheck, visible: () => true },
+  { label: 'Property listings', href: '/admin/property-listings', icon: Building2, visible: () => true },
+  {
+    label: 'Cohold management',
+    href: '/admin/coholds',
+    icon: Boxes,
+    visible: () => true,
+  },
+  { label: 'Withdrawals', href: '/admin/withdrawals', icon: Banknote, visible: () => true },
+  {
+    label: 'Virtual accounts',
+    href: '/admin/virtual-accounts',
+    icon: Landmark,
+    visible: (r) => canViewVirtualAccountOps(r),
+  },
+  {
+    label: 'Ledger reconciliation',
+    href: '/admin/ledger-reconciliation',
+    icon: Scale,
+    visible: (r) => canViewLedgerReconciliation(r),
+  },
+  { label: 'Wallet transactions', href: '/admin/wallet-transactions', icon: Wallet, visible: () => true },
+  { label: 'Distributions', href: '/admin/distributions', icon: Receipt, visible: () => true },
+  {
+    label: 'Ops / Outbox',
+    href: '/admin/dashboard',
+    icon: AlertTriangle,
+    visible: (r) => canViewOps(r),
+  },
+  { label: 'Fee logs', href: '/admin/fees', icon: Coins, visible: () => true },
+  { label: 'Disputes', href: '/admin/disputes', icon: AlertTriangle, visible: () => true },
+  { label: 'Support', href: '/admin/support', icon: MessageSquare, visible: (r) => canManageSupport(r) },
+  { label: 'Activity log', href: '/admin/activity-log', icon: ScrollText, visible: () => true },
+  {
+    label: 'Admin management',
+    href: '/admin/admin-management',
+    icon: UserCog,
+    visible: () => true,
+  },
 ];
 
 export function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [showLogout, setShowLogout] = useState(false);
+  const adminRole = useAuthStore((s) => s.adminRole);
+
+  const items = useMemo(() => NAV_ITEMS.filter((item) => item.visible(adminRole)), [adminRole]);
 
   const handleLogout = async () => {
     await adminLogout();
@@ -41,12 +103,12 @@ export function AdminSidebar() {
           <span className="text-lg font-bold text-gray-900">Cohold</span>
         </div>
 
-        <nav className="flex-1 space-y-0.5 px-3 overflow-y-auto">
-          {NAV_ITEMS.map((item) => {
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3">
+          {items.map((item) => {
             const active = pathname === item.href || pathname.startsWith(item.href + '/');
             return (
               <Link
-                key={item.href}
+                key={item.label + item.href}
                 href={item.href}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors ${
                   active

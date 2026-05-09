@@ -5,13 +5,17 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { adminApi } from '@/lib/admin/api';
 import type { AdminUserKycVerification, UserDetail, UserTransaction } from '@/lib/admin/types';
+import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
+import { canFreezeUser } from '@/lib/admin/permissions';
+import { mapApiError } from '@/lib/api/security-errors';
+import { maskBankAccountNumber } from '@/lib/admin/mask';
+import { useAuthStore } from '@/stores/auth.store';
 import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
   MoreHorizontal,
-  User as UserIcon,
   X,
 } from 'lucide-react';
 import { formatDecimalMoneyForDisplay } from '@/lib/money/format-display';
@@ -56,12 +60,14 @@ const BANK_COLORS = ['#C53030', '#DD6B20', '#2B6CB0', '#2F855A', '#6B46C1', '#D5
 
 export default function AdminUserDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const adminRole = useAuthStore((s) => s.adminRole);
+  const canFreeze = canFreezeUser(adminRole);
   const [user, setUser] = useState<UserDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>('personal');
 
-  const [showSuspendModal, setShowSuspendModal] = useState(false);
-  const [acting, setActing] = useState(false);
+  const [freezeDlg, setFreezeDlg] = useState<'freeze' | 'unfreeze' | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -72,19 +78,6 @@ export default function AdminUserDetailPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [id]);
-
-  const handleSuspend = async () => {
-    if (!id) return;
-    setActing(true);
-    try {
-      await adminApi.suspendUser(id);
-      setUser((u) => (u ? { ...u, isFrozen: true } : u));
-    } catch {
-      /* ignore */
-    }
-    setActing(false);
-    setShowSuspendModal(false);
-  };
 
   if (loading) {
     return (
@@ -163,19 +156,46 @@ export default function AdminUserDetailPage() {
               <p className="text-xs text-gray-400">{user.email}</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowSuspendModal(true)}
-            disabled={user.isFrozen}
-            className={`rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-colors ${
-              user.isFrozen
-                ? 'cursor-not-allowed bg-gray-300'
-                : 'bg-red-500 hover:bg-red-600'
-            }`}
-          >
-            {user.isFrozen ? 'Account suspended' : 'Suspend account'}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {!user.isFrozen ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setActionError(null);
+                  setFreezeDlg('freeze');
+                }}
+                disabled={!canFreeze}
+                className={`rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-colors ${
+                  !canFreeze ? 'cursor-not-allowed bg-gray-300' : 'bg-red-500 hover:bg-red-600'
+                }`}
+              >
+                Freeze account
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setActionError(null);
+                  setFreezeDlg('unfreeze');
+                }}
+                disabled={!canFreeze}
+                className={`rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-colors ${
+                  !canFreeze ? 'cursor-not-allowed bg-gray-300' : 'bg-[#1a3a4a] hover:opacity-90'
+                }`}
+              >
+                Unfreeze account
+              </button>
+            )}
+          </div>
         </div>
+        {actionError ? (
+          <p className="mt-2 text-sm text-red-700" role="alert">
+            {actionError}
+          </p>
+        ) : null}
+        {!canFreeze ? (
+          <p className="mt-2 text-xs text-amber-800">Freeze/unfreeze requires Compliance or Super admin.</p>
+        ) : null}
 
         {/* Metric cards */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -211,37 +231,33 @@ export default function AdminUserDetailPage() {
         {tab === 'transactions' && <TransactionsTab userId={user.id} userName={name} />}
       </div>
 
-      {/* Suspend confirmation modal */}
-      {showSuspendModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
-            <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
-              <UserIcon className="h-6 w-6 text-gray-400" />
-            </div>
-            <h2 className="text-lg font-semibold text-gray-900">Suspend account</h2>
-            <p className="mt-1.5 text-sm text-gray-500">
-              Are you sure you want to suspend this account?
-            </p>
-            <div className="mt-7 flex gap-3">
-              <button
-                type="button"
-                onClick={handleSuspend}
-                disabled={acting}
-                className="flex-1 rounded-lg border border-gray-300 bg-white py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              >
-                {acting ? 'Suspending...' : 'Yes, suspend'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowSuspendModal(false)}
-                className="flex-1 rounded-lg bg-[#1a3a4a] py-3 text-sm font-medium text-white hover:opacity-90"
-              >
-                No, keep active
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AdminReasonDialog
+        open={freezeDlg != null}
+        title={freezeDlg === 'unfreeze' ? 'Unfreeze account' : 'Freeze account'}
+        description={
+          freezeDlg === 'unfreeze'
+            ? 'Unfreezing restores money actions per policy. A reason is required for audit.'
+            : 'Freezing blocks money actions. A reason is required for audit.'
+        }
+        confirmLabel={freezeDlg === 'unfreeze' ? 'Unfreeze' : 'Freeze'}
+        onClose={() => setFreezeDlg(null)}
+        onConfirm={async (reason) => {
+          if (!id) return;
+          try {
+            if (freezeDlg === 'unfreeze') {
+              await adminApi.unfreezeUser(id, { reason });
+            } else {
+              await adminApi.freezeUser(id, { reason });
+            }
+            const d = await adminApi.userDetail(id);
+            setUser(d as UserDetail);
+            setActionError(null);
+          } catch (e: unknown) {
+            setActionError(mapApiError(e).message);
+            throw e;
+          }
+        }}
+      />
     </>
   );
 }
@@ -324,24 +340,24 @@ function KycReviewSection({ kyc }: { kyc: AdminUserKycVerification }) {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <KycDocumentCard
           label="ID — front"
-          onOpen={kyc.documentFrontUrl ? async () => {
+          onOpen={async () => {
             const d = await adminApi.getKycSignedReadUrl(kyc.userId, 'ID_FRONT');
             window.open(d.url, '_blank', 'noopener,noreferrer');
-          } : undefined}
+          }}
         />
         <KycDocumentCard
           label="ID — back"
-          onOpen={kyc.documentBackUrl ? async () => {
+          onOpen={async () => {
             const d = await adminApi.getKycSignedReadUrl(kyc.userId, 'ID_BACK');
             window.open(d.url, '_blank', 'noopener,noreferrer');
-          } : undefined}
+          }}
         />
         <KycDocumentCard
           label="Selfie"
-          onOpen={kyc.selfieUrl ? async () => {
+          onOpen={async () => {
             const d = await adminApi.getKycSignedReadUrl(kyc.userId, 'SELFIE');
             window.open(d.url, '_blank', 'noopener,noreferrer');
-          } : undefined}
+          }}
         />
         {showExtraLegacy && (
           <KycDocumentCard
@@ -415,6 +431,8 @@ function PersonalInfoTab({ user }: { user: UserDetail }) {
           />
           <InfoRow label="Account status" value={user.isFrozen ? 'Restricted' : 'Active'} />
           <InfoRow label="Date of registration" value={fmtDate(user.createdAt)} />
+          <InfoRow label="Virtual account status" value={user.virtualAccount?.status ?? '—'} />
+          <InfoRow label="Virtual account number" value={maskBankAccountNumber(user.virtualAccount?.accountNumber ?? '')} />
         </div>
       </div>
 
@@ -456,7 +474,7 @@ function LinkedBanksTab({ user }: { user: UserDetail }) {
                 {b.bankName.slice(0, 2).toUpperCase()}
               </div>
               <div className="min-w-0">
-                <p className="font-mono text-sm font-semibold text-gray-900">{b.accountNumber}</p>
+                <p className="font-mono text-sm font-semibold text-gray-900">{maskBankAccountNumber(b.accountNumber)}</p>
                 <p className="truncate text-xs text-gray-400">
                   {b.bankName} &middot; {b.accountName}
                 </p>

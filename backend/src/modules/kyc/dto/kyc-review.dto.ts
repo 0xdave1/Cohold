@@ -1,8 +1,9 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 
 export class KycReviewDto {
-  @IsOptional()
   @IsString()
+  @MinLength(5)
+  @MaxLength(500)
   failureReason?: string;
 }
 

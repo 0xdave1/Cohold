@@ -39,6 +39,52 @@ export interface Notification {
   createdAt: string;
 }
 
+export type NotificationDeliveryState =
+  | 'IN_APP_CREATED'
+  | 'EMAIL_PENDING'
+  | 'EMAIL_SENT'
+  | 'EMAIL_FAILED'
+  | 'WEBSOCKET_DELIVERED'
+  | 'DELIVERY_RETRYING'
+  | 'DEAD_LETTER'
+  | 'UNKNOWN';
+
+export type NotificationDeliveryView = {
+  state: NotificationDeliveryState;
+  label: string;
+};
+
+function getDeliveryStatusRaw(metadata: unknown): string | undefined {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  const row = metadata as Record<string, unknown>;
+  const direct = row.deliveryStatus;
+  if (typeof direct === 'string') return direct;
+  const nested = row.delivery;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    const status = (nested as Record<string, unknown>).status;
+    if (typeof status === 'string') return status;
+  }
+  return undefined;
+}
+
+/**
+ * Truthful delivery state mapper: never claims email is sent unless backend status says SENT.
+ */
+export function getNotificationDeliveryView(notification: Notification): NotificationDeliveryView {
+  const raw = (getDeliveryStatusRaw(notification.metadata) ?? '').toUpperCase();
+  if (raw === 'PENDING' || raw === 'EMAIL_PENDING') return { state: 'EMAIL_PENDING', label: 'Email pending' };
+  if (raw === 'SENT' || raw === 'EMAIL_SENT') return { state: 'EMAIL_SENT', label: 'Email sent' };
+  if (raw === 'FAILED' || raw === 'EMAIL_FAILED') return { state: 'EMAIL_FAILED', label: 'Delivery failed' };
+  if (raw === 'PROCESSING' || raw === 'RETRYING') {
+    return { state: 'DELIVERY_RETRYING', label: 'Delivery retrying' };
+  }
+  if (raw === 'DEAD_LETTER') return { state: 'DEAD_LETTER', label: 'Manual attention required' };
+  if (raw === 'WEBSOCKET_DELIVERED') {
+    return { state: 'WEBSOCKET_DELIVERED', label: 'Notification saved' };
+  }
+  return { state: 'IN_APP_CREATED', label: 'Notification saved' };
+}
+
 export interface NotificationsResponse {
   data: Notification[];
   meta: {
@@ -128,7 +174,8 @@ export function useUnreadNotificationCount() {
     },
     enabled: authReady,
     staleTime: 30000,
-    refetchInterval: 60000, // Refresh every minute
+    /** Pause polling after failures (e.g. 429) so the bell badge does not hammer the API (Issue 9). */
+    refetchInterval: (query) => (query.state.fetchFailureCount > 0 ? false : 60_000),
     refetchOnWindowFocus: true,
   });
 }

@@ -2,6 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isAdminProxyAuthorized } from '@/lib/admin-proxy-auth';
 import { buildAdminProxyUpstreamHeaders } from '@/lib/admin-proxy-upstream';
 import { CSRF_COOKIE } from '@/lib/constants/auth-cookies';
+import { sanitizeBackendMessage } from '@/lib/api/security-errors';
+
+function extractUpstreamErrorMessage(data: unknown): string {
+  if (!data || typeof data !== 'object') return '';
+  const d = data as Record<string, unknown>;
+  if (typeof d.error === 'string') return d.error;
+  if (d.error && typeof d.error === 'object' && d.error !== null) {
+    const e = d.error as Record<string, unknown>;
+    if (typeof e.message === 'string') return e.message;
+    if (Array.isArray(e.message) && typeof e.message[0] === 'string') return e.message[0];
+  }
+  if (typeof d.message === 'string') return d.message;
+  return '';
+}
 
 export async function GET(
   request: NextRequest,
@@ -80,18 +94,20 @@ async function proxy(
 
   const data = await backendRes.json().catch(() => ({}));
   if (!backendRes.ok) {
-    const errMessage =
-      typeof data?.error === 'string'
-        ? data.error
-        : typeof data?.error?.message === 'string'
-          ? data.error.message
-          : typeof data?.message === 'string'
-            ? data.message
-            : `Proxy request failed (${backendRes.status})`;
+    const raw = extractUpstreamErrorMessage(data);
+    const safeMessage = sanitizeBackendMessage(raw) || `Request failed (${backendRes.status})`;
+    const code =
+      typeof data === 'object' &&
+      data &&
+      typeof (data as Record<string, unknown>).error === 'object' &&
+      (data as Record<string, unknown>).error !== null &&
+      typeof ((data as Record<string, unknown>).error as Record<string, unknown>).code === 'string'
+        ? String(((data as Record<string, unknown>).error as Record<string, unknown>).code)
+        : undefined;
     return NextResponse.json(
       {
-        ...(typeof data === 'object' && data ? data : {}),
-        error: errMessage,
+        success: false,
+        error: code ? { message: safeMessage, code } : { message: safeMessage },
       },
       { status: backendRes.status },
     );

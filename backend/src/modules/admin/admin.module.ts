@@ -4,9 +4,10 @@ import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 import { WithdrawalModule } from '../withdrawal/withdrawal.module';
 import { KycModule } from '../kyc/kyc.module';
+import { VirtualAccountModule } from '../virtual-account/virtual-account.module';
 
 @Module({
-  imports: [AuthModule, WithdrawalModule, KycModule],
+  imports: [AuthModule, WithdrawalModule, KycModule, VirtualAccountModule],
   controllers: [AdminController],
   providers: [AdminService],
   exports: [AdminService],

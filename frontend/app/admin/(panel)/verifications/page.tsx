@@ -2,9 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { DataTable, type Column } from '@/components/admin/DataTable';
+import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { adminApi } from '@/lib/admin/api';
 import type { KycVerification } from '@/lib/admin/types';
 import { maskSensitiveId } from '@/lib/kyc/identity';
+import { canReviewKyc } from '@/lib/admin/permissions';
+import { mapApiError } from '@/lib/api/security-errors';
+import { useAuthStore } from '@/stores/auth.store';
 
 const STATUS_BADGE: Record<string, string> = {
   VERIFIED: 'bg-green-100 text-green-700',
@@ -20,44 +24,46 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default function VerificationsPage() {
+  const adminRole = useAuthStore((s) => s.adminRole);
+  const canAct = canReviewKyc(adminRole);
   const [items, setItems] = useState<KycVerification[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
+  const [rejectId, setRejectId] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
   const limit = 20;
 
   const load = () => {
     setLoading(true);
-    adminApi.verifications(`page=${page}&limit=${limit}`)
-      .then((d: any) => { setItems(d.items ?? d ?? []); setTotal(d.meta?.total ?? 0); })
-      .catch(() => {})
+    setListError(null);
+    adminApi
+      .verifications(`page=${page}&limit=${limit}`)
+      .then((d: any) => {
+        setItems(d.items ?? d ?? []);
+        setTotal(d.meta?.total ?? 0);
+      })
+      .catch((e) => {
+        setItems([]);
+        setListError(mapApiError(e).message);
+      })
       .finally(() => setLoading(false));
   };
 
   useEffect(load, [page]);
 
-  const handleAction = async (id: string, action: 'approve' | 'reject') => {
-    const confirmed = window.confirm(
-      action === 'approve'
-        ? 'Approve this KYC verification?'
-        : 'Reject this KYC verification?',
-    );
+  const handleApprove = async (id: string) => {
+    if (!canAct) return;
+    const confirmed = window.confirm('Approve this KYC verification?');
     if (!confirmed) return;
-
     setActing(id);
     try {
-      if (action === 'approve') await adminApi.approveKyc(id);
-      else {
-        const reason = window.prompt('Enter rejection reason');
-        if (!reason || !reason.trim()) {
-          setActing(null);
-          return;
-        }
-        await adminApi.rejectKyc(id, { reason: reason.trim() });
-      }
+      await adminApi.approveKyc(id);
       load();
-    } catch { /* ignore */ }
+    } catch (e: unknown) {
+      setListError(mapApiError(e).message);
+    }
     setActing(null);
   };
 
@@ -85,8 +91,8 @@ export default function VerificationsPage() {
       key: 'actions', header: 'Actions',
       render: (r) => ['PENDING', 'PENDING_REVIEW', 'SUBMITTED', 'REQUIRES_REVIEW', 'MANUAL_REVIEW', 'RESUBMITTED'].includes(r.status) ? (
         <div className="flex gap-2">
-          <button type="button" disabled={acting === r.id} onClick={() => handleAction(r.id, 'approve')} className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50">Approve</button>
-          <button type="button" disabled={acting === r.id} onClick={() => handleAction(r.id, 'reject')} className="rounded-lg bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50">Reject</button>
+          <button type="button" disabled={!canAct || acting === r.id} onClick={() => void handleApprove(r.id)} className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50">Approve</button>
+          <button type="button" disabled={!canAct || acting === r.id} onClick={() => setRejectId(r.id)} className="rounded-lg bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50">Reject</button>
         </div>
       ) : <span className="text-xs text-gray-400">—</span>,
     },
@@ -95,7 +101,30 @@ export default function VerificationsPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-semibold text-gray-900">Verifications</h1>
-      <DataTable columns={columns} data={items} page={page} totalPages={Math.ceil(total / limit) || 1} onPageChange={setPage} loading={loading} />
+      {!canAct ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          You do not have permission to approve or reject KYC for this account role.
+        </p>
+      ) : null}
+      {listError ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+          {listError}
+        </p>
+      ) : null}
+      <DataTable columns={columns} data={items} page={page} totalPages={Math.ceil(total / limit) || 1} onPageChange={setPage} loading={loading} emptyMessage="No verifications found." />
+      <AdminReasonDialog
+        open={rejectId != null}
+        title="Reject KYC verification"
+        description="Provide a clear rejection reason (sent to the server as failureReason)."
+        confirmLabel="Reject"
+        onClose={() => setRejectId(null)}
+        onConfirm={async (failureReason) => {
+          if (!rejectId) return;
+          await adminApi.rejectKyc(rejectId, { failureReason });
+          setRejectId(null);
+          load();
+        }}
+      />
     </div>
   );
 }

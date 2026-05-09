@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { adminApi } from '@/lib/admin/api';
+import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
+import { mapApiError } from '@/lib/api/security-errors';
 import type { AdminSupportConversation, AdminSupportMessage } from '@/lib/admin/support-types';
 import { SupportPresenceToggle } from './SupportPresenceToggle';
 import {
@@ -34,6 +36,7 @@ export function SupportInbox() {
   const [reply, setReply] = useState('');
   const [note, setNote] = useState('');
   const [working, setWorking] = useState(false);
+  const [resolveOpen, setResolveOpen] = useState(false);
   const [online, setOnline] = useState(false);
   const [presenceWorking, setPresenceWorking] = useState(false);
   // reserved for future: admin WS connection once token is available client-side
@@ -70,7 +73,7 @@ export function SupportInbox() {
       .catch((e: unknown) => {
         if (cancelled) return;
         setItems([]);
-        setError(e instanceof Error ? e.message : 'Failed to load support inbox');
+        setError(mapApiError(e).message);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -97,7 +100,7 @@ export function SupportInbox() {
         });
       if (active?.id) {
         adminApi
-          .supportMessages(active.id, 'page=1&limit=200')
+          .supportMessages(active.id, 'page=1&limit=100')
           .then((d: { items?: AdminSupportMessage[] }) => setMessages(d.items ?? []))
           .catch(() => {
             // ignore intermittent refresh failures
@@ -132,7 +135,7 @@ export function SupportInbox() {
     setMsgLoading(true);
     setMsgError(null);
     try {
-      const d = await adminApi.supportMessages(conversationId, 'page=1&limit=200');
+      const d = await adminApi.supportMessages(conversationId, 'page=1&limit=100');
       setMessages(d.items ?? []);
     } catch (e: unknown) {
       setMessages([]);
@@ -169,22 +172,24 @@ export function SupportInbox() {
       await adminApi.supportConversations(queryString).then((d: any) => setItems(d.items ?? []));
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Could not assign conversation');
+      setError(mapApiError(e).message);
     } finally {
       setWorking(false);
     }
   };
 
-  const resolve = async () => {
+  const confirmResolve = async (reason: string) => {
     if (!active) return;
     setWorking(true);
     try {
-      await adminApi.resolveSupportConversation(active.id);
+      await adminApi.resolveSupportConversation(active.id, { reason });
       await adminApi.supportConversation(active.id).then((d: AdminSupportConversation) => setActive(d));
       await adminApi.supportConversations(queryString).then((d: any) => setItems(d.items ?? []));
       setError(null);
+      setResolveOpen(false);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Could not resolve conversation');
+      setError(mapApiError(e).message);
+      throw e;
     } finally {
       setWorking(false);
     }
@@ -200,7 +205,7 @@ export function SupportInbox() {
       await adminApi.supportConversations(queryString).then((d: any) => setItems(d.items ?? []));
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Could not send reply');
+      setError(mapApiError(e).message);
     } finally {
       setWorking(false);
     }
@@ -215,7 +220,7 @@ export function SupportInbox() {
       await loadMessages(active.id);
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Could not save note');
+      setError(mapApiError(e).message);
     } finally {
       setWorking(false);
     }
@@ -320,7 +325,7 @@ export function SupportInbox() {
                     </button>
                     <button
                       type="button"
-                      onClick={resolve}
+                      onClick={() => setResolveOpen(true)}
                       disabled={working}
                       className="rounded-full bg-[#1a3a4a] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                     >
@@ -403,6 +408,15 @@ export function SupportInbox() {
           </div>
         </div>
       </div>
+
+      <AdminReasonDialog
+        open={resolveOpen}
+        title="Resolve conversation"
+        description="Provide a resolution summary. This may be stored for audit on supported endpoints."
+        confirmLabel="Resolve"
+        onClose={() => setResolveOpen(false)}
+        onConfirm={confirmResolve}
+      />
     </div>
   );
 }

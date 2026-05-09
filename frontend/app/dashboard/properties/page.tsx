@@ -96,8 +96,8 @@ export default function PropertiesPage() {
                     <span className="rounded-md bg-[#D6EDF8] px-2 py-0.5 text-[10px] font-medium text-[#0A4A74]">
                       {modeLabel(category)}
                     </span>
-                    <span className="rounded-md bg-[#D9F5E5] px-2 py-0.5 text-[10px] font-medium text-[#127C4B]">
-                      Cof O Verified
+                    <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-900">
+                      Title status: {p.titleVerificationStatus ?? 'UNSPECIFIED'}
                     </span>
                   </div>
                 </div>
@@ -122,6 +122,11 @@ export default function PropertiesPage() {
                       {cta}
                     </p>
                   </div>
+                  {category === 'fractional' ? (
+                    <p className="mt-2 text-[10px] text-dashboard-body">
+                      Returns are projected estimates. Investments carry risk.
+                    </p>
+                  ) : null}
                 </div>
               </Link>
             );

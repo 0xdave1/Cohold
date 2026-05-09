@@ -28,23 +28,91 @@ export interface Transaction {
 }
 
 export interface VirtualAccount {
-  id: string;
-  accountNumber: string;
-  bankName: string;
-  currency: string;
-  accountName: string;
+  id?: string;
+  status:
+    | 'PENDING'
+    | 'ACTIVE'
+    | 'FAILED'
+    | 'SUSPENDED'
+    | 'CLOSED'
+    | 'REQUIRES_RETRY'
+    | 'UNAVAILABLE'
+    | 'UNKNOWN';
+  accountNumber: string | null;
+  bankName: string | null;
+  currency: string | null;
+  accountName: string | null;
+  bankCode?: string | null;
+  message?: string | null;
+  retryCount?: number | null;
+  provisionedAt?: string | null;
+  updatedAt?: string | null;
 }
 
-export function useVirtualAccounts() {
+function normalizeVirtualAccount(raw: unknown): VirtualAccount {
+  const row = (raw ?? {}) as Record<string, unknown>;
+  const status = String(row.status ?? 'UNKNOWN').toUpperCase();
+  const allowed = new Set([
+    'PENDING',
+    'ACTIVE',
+    'FAILED',
+    'SUSPENDED',
+    'CLOSED',
+    'REQUIRES_RETRY',
+    'UNAVAILABLE',
+    'UNKNOWN',
+  ]);
+  return {
+    id: typeof row.id === 'string' ? row.id : undefined,
+    status: (allowed.has(status) ? status : 'UNKNOWN') as VirtualAccount['status'],
+    accountNumber: typeof row.accountNumber === 'string' ? row.accountNumber : null,
+    bankName: typeof row.bankName === 'string' ? row.bankName : null,
+    currency: typeof row.currency === 'string' ? row.currency : null,
+    accountName: typeof row.accountName === 'string' ? row.accountName : null,
+    bankCode: typeof row.bankCode === 'string' ? row.bankCode : null,
+    message: typeof row.message === 'string' ? row.message : null,
+    retryCount: typeof row.retryCount === 'number' ? row.retryCount : null,
+    provisionedAt: typeof row.provisionedAt === 'string' ? row.provisionedAt : null,
+    updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : null,
+  };
+}
+
+export function useMyVirtualAccount() {
   const authReady = useAuthReady();
   return useQuery({
-    queryKey: ['wallets', 'virtual-accounts'],
+    queryKey: ['wallets', 'virtual-account'],
     queryFn: async () => {
-      const res = await apiClient.get<VirtualAccount[]>('/wallets/virtual-accounts');
-      return res.success ? res.data : [];
+      const res = await apiClient.get<unknown>('/virtual-accounts/me');
+      if (!res.success) {
+        return normalizeVirtualAccount({ status: 'UNKNOWN', message: res.error ?? 'Could not load account.' });
+      }
+      return normalizeVirtualAccount(res.data);
     },
     enabled: authReady,
     staleTime: 60000,
+  });
+}
+
+export function useVirtualAccounts() {
+  const meVa = useMyVirtualAccount();
+  return {
+    ...meVa,
+    data: meVa.data ? [meVa.data] : [],
+  };
+}
+
+export function useRetryVirtualAccountProvisioning() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.post<VirtualAccount>('/virtual-accounts/me/retry');
+      if (!res.success) throw new Error(res.error ?? 'Could not retry virtual account provisioning.');
+      return normalizeVirtualAccount(res.data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['wallets', 'virtual-account'] });
+      queryClient.invalidateQueries({ queryKey: ['wallets', 'virtual-accounts'] });
+    },
   });
 }
 

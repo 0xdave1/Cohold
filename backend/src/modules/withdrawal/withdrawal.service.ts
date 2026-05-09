@@ -445,7 +445,7 @@ export class WithdrawalService {
       });
     }
     this.assertTransition(row.status, WithdrawalStatus.RECONCILIATION_REQUIRED);
-    return this.prisma.withdrawal.update({
+    const updated = await this.prisma.withdrawal.update({
       where: { id: withdrawalId },
       data: {
         status: WithdrawalStatus.RECONCILIATION_REQUIRED,
@@ -460,6 +460,18 @@ export class WithdrawalService {
         } as Prisma.InputJsonValue,
       },
     });
+    try {
+      await this.notificationsService.notifyWithdrawalReconciliationRequired(
+        updated.userId,
+        updated.amount.toString(),
+        updated.currency,
+        updated.id,
+        reason,
+      );
+    } catch (error) {
+      this.logger.warn(`withdrawal notify reconciliation-required failed: ${error}`);
+    }
+    return updated;
   }
 
   /**

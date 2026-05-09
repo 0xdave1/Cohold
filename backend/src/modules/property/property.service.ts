@@ -328,6 +328,15 @@ export class PropertyService {
           sharesTotal: p.sharesTotal.toString(),
           sharesSold: p.sharesSold.toString(),
           annualYield: p.annualYield != null ? p.annualYield.toString() : null,
+          yieldIsProjected: p.annualYield != null,
+          expectedReturnDisclosure:
+            p.annualYield != null
+              ? 'Projected return estimate only; not guaranteed and subject to property performance.'
+              : 'No projected return is currently available.',
+          titleVerificationStatus: 'UNSPECIFIED',
+          legalReviewStatus: 'UNSPECIFIED',
+          riskDisclosure:
+            'Property investment carries risk, including liquidity and market risk. Review documents before investing.',
         };
       }),
     );
@@ -390,6 +399,12 @@ export class PropertyService {
       currentRaised: property.currentRaised.toString(),
       sharesTotal: property.sharesTotal.toString(),
       sharesSold: property.sharesSold.toString(),
+      titleVerificationStatus: 'UNSPECIFIED',
+      legalReviewStatus: 'UNSPECIFIED',
+      expectedReturnDisclosure:
+        'Projected returns (if shown) are estimates only and do not represent guaranteed income.',
+      riskDisclosure:
+        'Real-estate investment is not risk-free. Liquidity and market outcomes can vary.',
     };
 
     await this.cacheSet(cacheKey, result, 30);
@@ -429,6 +444,13 @@ export class PropertyService {
       images,
       documents,
       fundingProgressPercent: formatHighPrecision(progress),
+      yieldIsProjected: property.annualYield != null,
+      titleVerificationStatus: 'UNSPECIFIED',
+      legalReviewStatus: 'UNSPECIFIED',
+      expectedReturnDisclosure:
+        'Any annual yield shown is projected and not guaranteed. Distributions depend on realized property income.',
+      riskDisclosure:
+        'Investments are subject to market, liquidity, and operational risks.',
     };
 
     await this.cacheSet(cacheKey, result, 30);

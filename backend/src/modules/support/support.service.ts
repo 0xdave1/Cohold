@@ -267,8 +267,8 @@ export class SupportService {
     page?: number;
     limit?: number;
   }) {
-    const page = filters.page ?? 1;
-    const limit = filters.limit ?? 20;
+    const page = Math.max(1, Math.floor(filters.page ?? 1));
+    const limit = Math.min(100, Math.max(1, Math.floor(filters.limit ?? 20)));
     const skip = (page - 1) * limit;
 
     const where: Prisma.SupportConversationWhereInput = {};
@@ -321,19 +321,21 @@ export class SupportService {
     });
     if (!conv) throw new NotFoundException('Conversation not found');
 
-    const skip = (page - 1) * limit;
+    const safePage = Math.max(1, Math.floor(page));
+    const safeLimit = Math.min(100, Math.max(1, Math.floor(limit)));
+    const skip = (safePage - 1) * safeLimit;
     const where: Prisma.SupportMessageWhereInput = { conversationId };
     const [items, total] = await Promise.all([
       this.prisma.supportMessage.findMany({
         where,
         skip,
-        take: limit,
+        take: safeLimit,
         orderBy: { createdAt: 'asc' },
         include: { attachments: true },
       }),
       this.prisma.supportMessage.count({ where }),
     ]);
-    return { items, meta: { page, limit, total } };
+    return { items, meta: { page: safePage, limit: safeLimit, total } };
   }
 
   async sendAdminMessage(adminId: string, conversationId: string, content: string, metadata?: Prisma.JsonValue) {
@@ -432,7 +434,11 @@ export class SupportService {
     return updated;
   }
 
-  async resolveConversation(actorAdminId: string, conversationId: string) {
+  async resolveConversation(actorAdminId: string, conversationId: string, reason: string) {
+    const normalizedReason = reason.trim();
+    if (normalizedReason.length < 5) {
+      throw new BadRequestException('Reason must be at least 5 characters');
+    }
     const now = new Date();
     const updated = await this.prisma.supportConversation.update({
       where: { id: conversationId },
@@ -444,8 +450,20 @@ export class SupportService {
         senderType: SupportSenderType.SYSTEM,
         content: `Conversation resolved`,
         messageType: SupportMessageType.SYSTEM_EVENT,
-        metadata: { actorAdminId } as any,
+        metadata: { actorAdminId, reason: normalizedReason } as any,
         createdAt: now,
+      },
+    });
+    await this.prisma.adminActivityLog.create({
+      data: {
+        adminId: actorAdminId,
+        action: 'SUPPORT_CONVERSATION_RESOLVED',
+        entityType: 'SupportConversation',
+        entityId: conversationId,
+        reason: normalizedReason,
+        actorAdminId,
+        targetType: 'SupportConversation',
+        targetId: conversationId,
       },
     });
     return updated;

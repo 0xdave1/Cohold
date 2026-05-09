@@ -1,23 +1,50 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { usePropertyDetails } from '@/lib/hooks/use-properties';
 import { formatMoney } from '@/lib/hooks/use-wallet';
 import { DetailRow, SectionCard } from '../../../_components/listing-ui';
+import { readInvestmentReceipt, type StoredInvestmentReceipt } from '@/lib/investment/investment-receipt-storage';
 
 export default function InvestSuccessPage() {
   const params = useParams();
-  const search = useSearchParams();
   const id = params.id as string;
   const { data: property } = usePropertyDetails(id);
+  const [receipt, setReceipt] = useState<StoredInvestmentReceipt | null>(null);
 
-  const shares = search.get('shares') ?? '1';
-  const amount = search.get('amount') ?? '0';
-  const fee = search.get('fee') ?? '0';
-  const total = search.get('total') ?? amount;
+  useEffect(() => {
+    setReceipt(readInvestmentReceipt(id));
+  }, [id]);
 
   if (!property) return <div className="h-64 animate-pulse rounded-xl bg-dashboard-border/60" />;
+  if (!receipt) {
+    return (
+      <div className="space-y-4 pt-8">
+        <p className="text-center text-sm text-dashboard-body px-2">
+          Investment receipt details are not available here yet. Open transactions for posted ledger entries.
+        </p>
+        <p className="text-center text-xs text-dashboard-body">
+          Certificate generation coming soon.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <Link
+            href="/dashboard/account/transactions"
+            className="flex h-11 w-full items-center justify-center rounded-full bg-dashboard-border/60 px-4 text-sm font-medium text-dashboard-heading"
+          >
+            View transactions
+          </Link>
+          <Link
+            href="/dashboard/investments"
+            className="flex h-11 w-full items-center justify-center rounded-full bg-cohold-blue px-4 text-sm font-medium text-white"
+          >
+            Portfolio
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 pt-8">
@@ -27,16 +54,21 @@ export default function InvestSuccessPage() {
         </svg>
       </div>
       <p className="text-center text-sm text-dashboard-body">
-        You have successfully bought {shares} {Number(shares) === 1 ? 'share' : 'shares'} in {property.title}
+        Investment confirmed for {receipt.shares} {Number(receipt.shares) === 1 ? 'share' : 'shares'} in {property.title}.
       </p>
 
       <SectionCard title="Receipt">
         <DetailRow label="Property name" value={property.title} />
-        <DetailRow label="Principal" value={formatMoney(amount, property.currency)} />
-        <DetailRow label="No. of shares" value={shares} />
-        <DetailRow label="Investment fee" value={formatMoney(fee, property.currency)} />
-        <DetailRow label="Total charged" value={formatMoney(total, property.currency)} />
+        <DetailRow label="Investment ID" value={receipt.investmentId || 'Pending assignment'} />
+        <DetailRow label="Principal charged" value={formatMoney(receipt.amount, property.currency)} />
+        <DetailRow label="No. of shares" value={receipt.shares} />
+        <DetailRow label="Status" value={receipt.status} />
+        <DetailRow label="Ledger/reference" value={receipt.reference || 'Pending reference'} />
+        <DetailRow label="Timestamp" value={new Date(receipt.createdAt).toLocaleString()} />
       </SectionCard>
+      <p className="text-center text-xs text-dashboard-body">
+        Certificate generation coming soon. Investments carry risk and returns are not guaranteed.
+      </p>
 
       <div className="grid grid-cols-2 gap-2">
         <Link
@@ -49,7 +81,7 @@ export default function InvestSuccessPage() {
           href="/dashboard/investments"
           className="flex h-11 w-full items-center justify-center rounded-full bg-cohold-blue px-4 text-sm font-medium text-white"
         >
-          Back to investment
+          Back to investments
         </Link>
       </div>
     </div>

@@ -28,6 +28,12 @@ export class WalletController {
     return this.walletService.getVirtualAccounts(user.id);
   }
 
+  @Get('virtual-account')
+  async getVirtualAccount(@CurrentUser() user: { id: string }) {
+    const accounts = await this.walletService.getVirtualAccounts(user.id);
+    return accounts[0] ?? { status: 'PENDING', message: 'Virtual account has not been provisioned yet.' };
+  }
+
   @Post('swap')
   async swap(@CurrentUser() user: { id: string }, @Body() dto: WalletSwapDto) {
     return this.walletService.swap(user.id, dto);

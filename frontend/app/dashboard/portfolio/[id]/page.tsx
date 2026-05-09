@@ -6,15 +6,18 @@ import { useMemo } from 'react';
 import { useInvestmentById } from '@/lib/hooks/use-investments';
 import { usePropertyDetails } from '@/lib/hooks/use-properties';
 import { formatMoney } from '@/lib/hooks/use-wallet';
+import { useUserDistributionHistory } from '@/lib/hooks/use-distributions';
 import { investmentPositionValue } from '@/lib/money/portfolio';
 import { formatAnnualYieldPercent } from '@/lib/format/yield';
 import { detectListingMode } from '@/lib/listings/category';
 import { BackIconButton, DetailRow, SectionCard } from '../../properties/_components/listing-ui';
+import { distributionStatusLabel, normalizeDistributionStatus } from '@/lib/distributions/status';
 
 export default function PortfolioInvestmentPage() {
   const params = useParams();
   const id = params.id as string;
   const { data: investment, isLoading: invLoading } = useInvestmentById(id);
+  const { data: distributions } = useUserDistributionHistory(1, 50);
   const propertyId = investment?.propertyId ?? '';
   const { data: property } = usePropertyDetails(propertyId);
 
@@ -65,8 +68,16 @@ export default function PortfolioInvestmentPage() {
 
   const soldOut = Number(sharesSold) >= Number(sharesTotal) && Number(sharesTotal) > 0;
 
-  if (invLoading || !investment) {
+  if (invLoading) {
     return <div className="animate-pulse rounded-xl bg-dashboard-border/60 h-64" />;
+  }
+  if (!investment) {
+    return (
+      <div className="space-y-4 pt-4">
+        <BackIconButton href="/dashboard/investments" />
+        <p className="text-sm text-dashboard-body">Investment not found or not accessible.</p>
+      </div>
+    );
   }
 
   const currency = investment.currency;
@@ -92,7 +103,9 @@ export default function PortfolioInvestmentPage() {
           <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">
             {formatMoney(totalReturns, currency)}
           </p>
-          <p className="text-[10px] text-dashboard-body mt-1">Paid monthly when distributed — based on your principal.</p>
+          <p className="text-[10px] text-dashboard-body mt-1">
+            Paid only when a distribution item is backend-posted. Projected yield is not paid income.
+          </p>
         </div>
       )}
 
@@ -149,7 +162,7 @@ export default function PortfolioInvestmentPage() {
             href={`/dashboard/properties/${investment.propertyId}/sell`}
             className="flex h-11 w-full items-center justify-center rounded-full bg-dashboard-border/60 px-4 text-sm font-medium text-dashboard-heading"
           >
-            Sell shares
+            Sell back to platform
           </Link>
           {soldOut ? (
             <span className="flex h-11 w-full cursor-not-allowed items-center justify-center rounded-full bg-dashboard-border/40 px-4 text-sm font-medium text-dashboard-body">
@@ -169,11 +182,41 @@ export default function PortfolioInvestmentPage() {
       <SectionCard title="Property details">
         <DetailRow label="Share price" value={formatMoney(sharePrice, currency)} />
         <DetailRow label="Annual yield (target)" value={formatAnnualYieldPercent(annualYield)} />
+        <DetailRow label="Yield basis" value={property?.yieldIsProjected ? 'Projected estimate' : 'Reported by listing'} />
+        <DetailRow label="Expected return disclosure" value={property?.expectedReturnDisclosure ?? 'Projected returns are estimates, not guaranteed.'} />
+        <DetailRow label="Title verification status" value={property?.titleVerificationStatus ?? 'UNSPECIFIED'} />
+        <DetailRow label="Legal review status" value={property?.legalReviewStatus ?? 'UNSPECIFIED'} />
+        <DetailRow label="Risk disclosure" value={property?.riskDisclosure ?? 'Investments carry risk'} />
         <DetailRow
           label="Term"
           value={property?.duration && property.duration !== '' ? String(property.duration) : '—'}
         />
         <DetailRow label="ROI frequency" value="Monthly" />
+      </SectionCard>
+
+      <SectionCard title="Distribution status">
+        <div className="space-y-2">
+          {(distributions?.items ?? [])
+            .filter((d) => d.investment?.id === investment.id || d.batch?.propertyId === investment.propertyId)
+            .slice(0, 10)
+            .map((d) => {
+              const status = normalizeDistributionStatus(d.status ?? d.batch?.status);
+              return (
+                <div key={d.id} className="rounded-lg border border-dashboard-border px-3 py-2">
+                  <p className="text-xs font-medium text-dashboard-heading">
+                    {formatMoney(d.amount, d.currency)} · {distributionStatusLabel(status)}
+                  </p>
+                  <p className="text-[11px] text-dashboard-body">
+                    {d.batch?.periodStart?.slice(0, 10) ?? '—'} to {d.batch?.periodEnd?.slice(0, 10) ?? '—'}
+                  </p>
+                  {d.failureReason ? <p className="text-[11px] text-red-700">Failure: {d.failureReason}</p> : null}
+                </div>
+              );
+            })}
+          {(distributions?.items ?? []).filter((d) => d.investment?.id === investment.id || d.batch?.propertyId === investment.propertyId).length === 0 ? (
+            <p className="text-xs text-dashboard-body">No paid distributions yet.</p>
+          ) : null}
+        </div>
       </SectionCard>
 
       <SectionCard title="Documents">

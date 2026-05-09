@@ -54,7 +54,7 @@ export default function SellSharesPage() {
       <BackIconButton href={`/dashboard/properties/${id}?mode=fractional`} />
       <div>
         <h1 className="text-xl font-semibold text-dashboard-heading">Sell</h1>
-        <p className="text-xs text-dashboard-body">Enter shares you want to sell</p>
+        <p className="text-xs text-dashboard-body">Sell back to platform using your available shares.</p>
       </div>
 
       <SectionCard title="Shares to sell">

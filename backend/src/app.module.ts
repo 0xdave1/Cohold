@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -26,11 +27,13 @@ import { FxModule } from './modules/fx/fx.module';
 import { SupportModule } from './modules/support/support.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
+import { OutboxModule } from './modules/outbox/outbox.module';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { CsrfGuard } from './common/guards/csrf.guard';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -39,12 +42,15 @@ import { CsrfGuard } from './common/guards/csrf.guard';
       load: [configuration],
       validationSchema,
     }),
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60,
-        limit: 100,
-      },
-    ]),
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => [
+        {
+          ttl: configService.get<number>('config.security.rateLimitTtlMs') ?? 60_000,
+          limit: configService.get<number>('config.security.rateLimitLimit') ?? 100,
+        },
+      ],
+    }),
     ScheduleModule.forRoot(),
     PrismaModule,
     RedisModule,
@@ -59,6 +65,7 @@ import { CsrfGuard } from './common/guards/csrf.guard';
     AuthModule,
     AdminAuthModule,
     SupportModule,
+    OutboxModule,
     NotificationsModule,
     WithdrawalModule,
     UsersModule,
@@ -72,6 +79,7 @@ import { CsrfGuard } from './common/guards/csrf.guard';
     AdminModule,
     DistributionModule,
     WebhookModule,
+    HealthModule,
   ],
   providers: [
     {

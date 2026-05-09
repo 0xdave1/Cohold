@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { AdminDetailCard } from '@/components/admin-management/AdminDetailCard';
-import { SuspendAdminModal } from '@/components/admin-management/modals/SuspendAdminModal';
+import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { adminApi } from '@/lib/admin/api';
 import type { AdminUser } from '@/lib/admin/types';
 
@@ -34,17 +34,17 @@ export default function AdminManagementDetailPage() {
     load();
   }, [load]);
 
-  const onSuspend = async () => {
+  const confirmSuspend = async (reason: string) => {
     if (!admin) return;
     setActionError(null);
     setWorking(true);
     try {
-      await adminApi.suspendAdmin(admin.id);
-      setSuspendOpen(false);
+      await adminApi.suspendAdmin(admin.id, { reason });
       load();
       router.refresh();
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Could not suspend admin');
+      throw e;
     } finally {
       setWorking(false);
     }
@@ -106,13 +106,15 @@ export default function AdminManagementDetailPage() {
         </div>
       ) : null}
 
-      <AdminDetailCard admin={admin} onSuspend={() => setSuspendOpen(true)} />
+      <AdminDetailCard admin={admin} onSuspend={() => setSuspendOpen(true)} suspendDisabled={working} />
 
-      <SuspendAdminModal
+      <AdminReasonDialog
         open={suspendOpen}
-        loading={working}
+        title="Suspend admin"
+        description="Super-admin only. A reason is required for audit."
+        confirmLabel="Suspend"
         onClose={() => setSuspendOpen(false)}
-        onConfirm={onSuspend}
+        onConfirm={confirmSuspend}
       />
     </div>
   );

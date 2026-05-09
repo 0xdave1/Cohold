@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { adminApi } from '@/lib/admin/api';
+import { canDeleteProperty } from '@/lib/admin/permissions';
+import { useAuthStore } from '@/stores/auth.store';
 import type { PropertyListing } from '@/lib/admin/types';
 import {
   ChevronLeft,
@@ -48,6 +51,8 @@ function inferType(p: PropertyListing) {
 
 export default function PropertyListingsPage() {
   const router = useRouter();
+  const adminRole = useAuthStore((s) => s.adminRole);
+  const allowDelete = canDeleteProperty(adminRole);
   const [items, setItems] = useState<PropertyListing[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -57,6 +62,7 @@ export default function PropertyListingsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [periodFilter, setPeriodFilter] = useState('');
+  const [deletePropertyId, setDeletePropertyId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const totalPages = Math.ceil(total / LIMIT) || 1;
@@ -89,12 +95,10 @@ export default function PropertyListingsPage() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  const handleDelete = async (id: string) => {
-    try {
-      await adminApi.deleteProperty(id);
-      setItems((prev) => prev.filter((p) => p.id !== id));
-    } catch { /* ignore */ }
+  const openDeleteProperty = (id: string) => {
+    if (!allowDelete) return;
     setMenuOpen(null);
+    setDeletePropertyId(id);
   };
 
   const pageNumbers: (number | '...')[] = [];
@@ -261,13 +265,15 @@ export default function PropertyListingsPage() {
                                   >
                                     View details
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDelete(p.id)}
-                                    className="block w-full px-4 py-2 text-left text-sm text-red-500 hover:bg-gray-50"
-                                  >
-                                    Delete verification
-                                  </button>
+                                  {allowDelete ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openDeleteProperty(p.id)}
+                                      className="block w-full px-4 py-2 text-left text-sm text-red-500 hover:bg-gray-50"
+                                    >
+                                      Delete listing
+                                    </button>
+                                  ) : null}
                                 </div>
                               )}
                             </div>
@@ -299,6 +305,21 @@ export default function PropertyListingsPage() {
           </div>
         )}
       </div>
+
+      <AdminReasonDialog
+        open={deletePropertyId != null}
+        title="Delete listing"
+        description="Soft-deletes the property. A reason is required for audit."
+        confirmLabel="Delete listing"
+        onClose={() => setDeletePropertyId(null)}
+        onConfirm={async (reason) => {
+          const id = deletePropertyId;
+          if (!id) return;
+          await adminApi.deleteProperty(id, { reason });
+          setItems((prev) => prev.filter((p) => p.id !== id));
+          setDeletePropertyId(null);
+        }}
+      />
     </div>
   );
 }

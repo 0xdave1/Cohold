@@ -1,4 +1,7 @@
 import { create } from 'zustand';
+import { decodeAdminAccessToken } from '@/lib/admin/admin-jwt';
+import type { AdminDbRole } from '@/lib/admin/permissions';
+import { parseAdminRole } from '@/lib/admin/permissions';
 
 export type AuthRole = 'user' | 'admin';
 
@@ -22,6 +25,9 @@ interface AuthState {
   accessToken: string | null;
   /** Admin JWT — memory only */
   adminAccessToken: string | null;
+  /** From JWT payload (UI only). */
+  adminRole: AdminDbRole | null;
+  adminEmail: string | null;
   hasHydrated: boolean;
   authChecked: boolean;
   setAuthChecked: (value: boolean) => void;
@@ -45,6 +51,8 @@ export const useAuthStore = create<AuthState>()((set) => ({
   user: null,
   accessToken: null,
   adminAccessToken: null,
+  adminRole: null,
+  adminEmail: null,
   hasHydrated: true,
   authChecked: false,
 
@@ -52,7 +60,14 @@ export const useAuthStore = create<AuthState>()((set) => ({
 
   setAccessToken: (token) => set({ accessToken: token }),
 
-  setAdminAccessToken: (token) => set({ adminAccessToken: token }),
+  setAdminAccessToken: (token) => {
+    const payload = decodeAdminAccessToken(token);
+    set({
+      adminAccessToken: token,
+      adminRole: parseAdminRole(payload?.role),
+      adminEmail: payload?.email?.trim() || null,
+    });
+  },
 
   setSession: ({ role, user }) => {
     set({ isAuthenticated: true, role, user });
@@ -67,6 +82,8 @@ export const useAuthStore = create<AuthState>()((set) => ({
       isAuthenticated: false,
       accessToken: null,
       adminAccessToken: null,
+      adminRole: null,
+      adminEmail: null,
       authChecked: true,
     });
   },
@@ -81,6 +98,6 @@ export const useAuthStore = create<AuthState>()((set) => ({
   },
 
   clearAdminSession: () => {
-    set({ adminAccessToken: null });
+    set({ adminAccessToken: null, adminRole: null, adminEmail: null });
   },
 }));

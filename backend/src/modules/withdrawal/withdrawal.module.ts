@@ -8,9 +8,10 @@ import { PayoutModule } from '../payout/payout.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { WithdrawalReconciliationScheduler } from './withdrawal-reconciliation.scheduler';
 import { KycComplianceModule } from '../kyc/kyc-compliance.module';
+import { OutboxModule } from '../outbox/outbox.module';
 
 @Module({
-  imports: [PrismaModule, NotificationsModule, PayoutModule, WalletModule, KycComplianceModule],
+  imports: [PrismaModule, NotificationsModule, PayoutModule, WalletModule, KycComplianceModule, OutboxModule],
   controllers: [WithdrawalController],
   providers: [WithdrawalService, WithdrawalThrottleGuard, WithdrawalReconciliationScheduler],
   exports: [WithdrawalService],

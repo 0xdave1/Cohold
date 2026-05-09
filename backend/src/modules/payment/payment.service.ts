@@ -14,10 +14,12 @@ import {
   LedgerOperationType,
   TransactionDirection,
   TransactionType,
+  VirtualAccountDepositStatus,
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import Decimal from 'decimal.js';
 import { KycPolicyService } from '../kyc/kyc-policy.service';
+import { VirtualAccountService } from '../virtual-account/virtual-account.service';
 
 const FLW_WALLET_TX_PREFIX = 'flw_wallet_';
 
@@ -49,7 +51,17 @@ export class PaymentService {
     private readonly flutterwaveService: FlutterwaveService,
     private readonly notificationsService: NotificationsService,
     private readonly kycPolicy: KycPolicyService,
+    private readonly virtualAccountService: VirtualAccountService,
   ) {}
+
+  private extractAccountNumber(data: Record<string, unknown>): string | null {
+    const direct = data.account_number ?? data.accountNumber;
+    if (typeof direct === 'string' && direct.trim()) return direct.trim();
+    const destination = data.destination as Record<string, unknown> | undefined;
+    const destAcc = destination?.account_number ?? destination?.accountNumber;
+    if (typeof destAcc === 'string' && destAcc.trim()) return destAcc.trim();
+    return null;
+  }
 
   /**
    * Hosted checkout to fund wallet (Flutterwave). `meta` on the charge ties settlement to `userId`.
@@ -115,20 +127,16 @@ export class PaymentService {
         providerTransactionId: verified.txId ?? undefined,
       });
       didCredit = result.didCredit;
-    });
-
-    if (didCredit) {
-      try {
-        await this.notificationsService.notifyWalletFunded(
+      if (didCredit) {
+        await this.notificationsService.notifyWalletFundedInTransaction(
+          tx,
           userId,
           verified.amount.toFixed(2),
           'NGN',
           reference,
         );
-      } catch (err) {
-        this.logger.warn(`Failed to send wallet funded notification: ${err}`);
       }
-    }
+    });
 
     return { ok: true, reference, amount: verified.amount.toFixed(2), credited: didCredit };
   }
@@ -153,6 +161,19 @@ export class PaymentService {
     }
 
     const txRef = data.tx_ref as string | undefined;
+    const txId = data.id != null ? String(data.id) : null;
+    const accountNumber = this.extractAccountNumber(data);
+
+    if (accountNumber) {
+      await this.handleVirtualAccountDepositWebhook({
+        payload,
+        transactionId: txId,
+        txRef: txRef ?? null,
+        accountNumber,
+      });
+      return { received: true };
+    }
+
     if (!txRef) {
       return { received: true };
     }
@@ -189,24 +210,133 @@ export class PaymentService {
           providerTransactionId: verified.txId ?? undefined,
         });
         didCredit = result.didCredit;
-      });
-      if (didCredit) {
-        try {
-          await this.notificationsService.notifyWalletFunded(
+        if (didCredit) {
+          await this.notificationsService.notifyWalletFundedInTransaction(
+            tx,
             userId,
             verified.amount.toFixed(2),
             'NGN',
             txRef,
           );
-        } catch (err) {
-          this.logger.warn(`Failed to send wallet funded notification: ${err}`);
         }
-      }
+      });
     } catch (err) {
       this.logger.error(`Flutterwave webhook: ledger post failed tx_ref=${txRef}`, err);
     }
 
     return { received: true };
+  }
+
+  private async handleVirtualAccountDepositWebhook(params: {
+    payload: Record<string, unknown>;
+    transactionId: string | null;
+    txRef: string | null;
+    accountNumber: string;
+  }): Promise<void> {
+    let verified: Awaited<ReturnType<FlutterwaveService['verifyTransactionById']>> | null = null;
+    if (!params.transactionId) {
+      await this.virtualAccountService.upsertDepositEvent({
+        providerTransactionId: null,
+        providerReference: params.txRef,
+        accountNumber: params.accountNumber,
+        status: VirtualAccountDepositStatus.FAILED,
+        reason: 'Missing provider transaction id',
+        payload: params.payload,
+      });
+      return;
+    }
+    try {
+      verified = await this.flutterwaveService.verifyTransactionById(params.transactionId);
+    } catch (error) {
+      await this.virtualAccountService.upsertDepositEvent({
+        providerTransactionId: params.transactionId,
+        providerReference: params.txRef,
+        accountNumber: params.accountNumber,
+        status: VirtualAccountDepositStatus.FAILED,
+        reason: `Verification failed: ${String(error)}`,
+        payload: params.payload,
+      });
+      return;
+    }
+
+    const verifiedCurrency = String(verified.currency ?? '').toUpperCase();
+    if (verifiedCurrency !== Currency.NGN) {
+      await this.virtualAccountService.upsertDepositEvent({
+        providerTransactionId: verified.txId,
+        providerReference: verified.reference ?? params.txRef,
+        accountNumber: verified.accountNumber ?? params.accountNumber,
+        amount: verified.amount.toFixed(2),
+        currency: Currency.NGN,
+        status: VirtualAccountDepositStatus.FAILED,
+        reason: `Unsupported currency: ${verifiedCurrency || 'unknown'}`,
+        payload: params.payload,
+      });
+      return;
+    }
+
+    const resolvedAccountNumber = verified.accountNumber ?? params.accountNumber;
+    const virtualAccount = await this.virtualAccountService.getActiveAccountByNumber(resolvedAccountNumber);
+    if (!virtualAccount) {
+      await this.virtualAccountService.upsertDepositEvent({
+        providerTransactionId: verified.txId,
+        providerReference: verified.reference ?? params.txRef,
+        accountNumber: resolvedAccountNumber,
+        amount: verified.amount.toFixed(2),
+        currency: Currency.NGN,
+        status: VirtualAccountDepositStatus.UNMATCHED,
+        reason: 'No active virtual account matched this deposit.',
+        payload: params.payload,
+      });
+      return;
+    }
+
+    const ledgerReference = `FLW_VA_DEPOSIT:${verified.txId ?? params.transactionId}`;
+    try {
+      let didCredit = false;
+      await this.prisma.$transaction(async (tx) => {
+        const result = await this.processWalletFunding(tx, {
+          userId: virtualAccount.userId,
+          amount: verified.amount,
+          reference: ledgerReference,
+          providerTransactionId: verified.txId ?? undefined,
+        });
+        didCredit = result.didCredit;
+        if (didCredit) {
+          await this.notificationsService.notifyWalletFundedInTransaction(
+            tx,
+            virtualAccount.userId,
+            verified.amount.toFixed(2),
+            'NGN',
+            ledgerReference,
+          );
+        }
+      });
+      await this.virtualAccountService.upsertDepositEvent({
+        providerTransactionId: verified.txId,
+        providerReference: verified.reference ?? params.txRef,
+        accountNumber: resolvedAccountNumber,
+        amount: verified.amount.toFixed(2),
+        currency: Currency.NGN,
+        status: didCredit ? VirtualAccountDepositStatus.CREDITED : VirtualAccountDepositStatus.VERIFIED,
+        reason: didCredit ? null : 'Duplicate deposit event; ledger already posted.',
+        payload: params.payload,
+        userId: virtualAccount.userId,
+        virtualAccountId: virtualAccount.id,
+      });
+    } catch (error) {
+      await this.virtualAccountService.upsertDepositEvent({
+        providerTransactionId: verified.txId,
+        providerReference: verified.reference ?? params.txRef,
+        accountNumber: resolvedAccountNumber,
+        amount: verified.amount.toFixed(2),
+        currency: Currency.NGN,
+        status: VirtualAccountDepositStatus.FAILED,
+        reason: `Ledger posting failed: ${String(error)}`,
+        payload: params.payload,
+        userId: virtualAccount.userId,
+        virtualAccountId: virtualAccount.id,
+      });
+    }
   }
 
   /**

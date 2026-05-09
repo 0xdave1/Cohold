@@ -33,7 +33,7 @@ export function FundWalletCard() {
 
   return (
     <div className="rounded-2xl border border-dashboard-border bg-dashboard-card p-4 shadow-[var(--home-card-shadow)]">
-      <h2 className="text-sm font-semibold text-dashboard-heading mb-3">Fund wallet (Flutterwave)</h2>
+      <h2 className="text-sm font-semibold text-dashboard-heading mb-3">Flutterwave checkout</h2>
       <p className="text-xs text-dashboard-body mb-3 leading-relaxed">
         Wallet funding runs only through secure Flutterwave checkout. Your NGN balance updates only after the server verifies funds — not when you click below and not from redirect alone.
       </p>

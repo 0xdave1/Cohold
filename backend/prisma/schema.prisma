@@ -41,6 +41,7 @@ model User {
   notifications         Notification[]
   transactions          Transaction[]         @relation("UserTransactions")
   virtualAccounts       VirtualAccount[]
+  virtualAccountDeposits VirtualAccountDepositEvent[]
   wallets               Wallet[]
   supportConversations  SupportConversation[]
   supportMessages       SupportMessage[]
@@ -50,6 +51,7 @@ model User {
   withdrawals           Withdrawal[]
   authSessions          AuthSession[]
   securityEvents        SecurityEvent[]
+  distributionBatchItems DistributionBatchItem[]
 
   @@index([email])
   @@index([username])
@@ -111,6 +113,10 @@ model Admin {
   supportMessages      SupportMessage[]
   supportPresence      SupportPresence?
   adminSessions        AdminSession[]
+  createdIncomeEvents  PropertyIncomeEvent[] @relation("PropertyIncomeEventCreatedBy")
+  approvedIncomeEvents PropertyIncomeEvent[] @relation("PropertyIncomeEventApprovedBy")
+  createdDistributionBatches DistributionBatch[] @relation("DistributionBatchCreatedBy")
+  approvedDistributionBatches DistributionBatch[] @relation("DistributionBatchApprovedBy")
 
   @@index([accountStatus])
   @@index([email])
@@ -401,9 +407,92 @@ model Property {
   documents         PropertyDocument[]
   images            PropertyImage[]
   transactions      Transaction[]      @relation("PropertyTransactions")
+  incomeEvents      PropertyIncomeEvent[]
+  distributionBatches DistributionBatch[]
 
   @@index([status, createdAt])
   @@index([deletedAt])
+}
+
+model PropertyIncomeEvent {
+  id                String                 @id @default(uuid())
+  propertyId        String
+  amount            Decimal                @db.Decimal(19, 4)
+  currency          Currency
+  type              PropertyIncomeEventType
+  periodStart       DateTime?
+  periodEnd         DateTime?
+  receivedAt        DateTime
+  status            PropertyIncomeEventStatus @default(PENDING)
+  sourceReference   String?
+  ledgerOperationId String?
+  metadata          Json?
+  createdByAdminId  String?
+  approvedByAdminId String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  property         Property           @relation(fields: [propertyId], references: [id])
+  createdByAdmin   Admin?             @relation("PropertyIncomeEventCreatedBy", fields: [createdByAdminId], references: [id])
+  approvedByAdmin  Admin?             @relation("PropertyIncomeEventApprovedBy", fields: [approvedByAdminId], references: [id])
+  distributionBatches DistributionBatch[]
+
+  @@index([propertyId, status, createdAt])
+  @@index([sourceReference])
+}
+
+model DistributionBatch {
+  id               String                    @id @default(uuid())
+  propertyId       String
+  incomeEventId    String?
+  periodStart      DateTime?
+  periodEnd        DateTime?
+  currency         Currency
+  grossIncome      Decimal                   @db.Decimal(19, 4)
+  expenses         Decimal                   @default(0) @db.Decimal(19, 4)
+  platformFee      Decimal                   @default(0) @db.Decimal(19, 4)
+  netDistributable Decimal                   @db.Decimal(19, 4)
+  status           DistributionBatchStatus   @default(DRAFT)
+  reference        String                    @unique
+  createdByAdminId String
+  approvedByAdminId String?
+  processedAt      DateTime?
+  metadata         Json?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  property         Property                  @relation(fields: [propertyId], references: [id])
+  incomeEvent      PropertyIncomeEvent?      @relation(fields: [incomeEventId], references: [id])
+  createdByAdmin   Admin                     @relation("DistributionBatchCreatedBy", fields: [createdByAdminId], references: [id])
+  approvedByAdmin  Admin?                    @relation("DistributionBatchApprovedBy", fields: [approvedByAdminId], references: [id])
+  items            DistributionBatchItem[]
+
+  @@index([propertyId, status, createdAt])
+  @@index([incomeEventId])
+}
+
+model DistributionBatchItem {
+  id               String                      @id @default(uuid())
+  batchId          String
+  userId           String
+  investmentId     String?
+  shares           Decimal                     @db.Decimal(24, 8)
+  ownershipPercent Decimal                     @db.Decimal(10, 6)
+  amount           Decimal                     @db.Decimal(19, 4)
+  currency         Currency
+  status           DistributionBatchItemStatus @default(PENDING)
+  ledgerOperationId String?
+  failureReason    String?
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+
+  batch            DistributionBatch           @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  user             User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  investment       Investment?                 @relation(fields: [investmentId], references: [id])
+
+  @@index([batchId, status])
+  @@index([userId, createdAt])
+  @@index([investmentId])
 }
 
 model PropertyDocument {
@@ -447,6 +536,7 @@ model Investment {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   payouts            DistributionPayout[]
+  distributionBatchItems DistributionBatchItem[]
   property           Property             @relation(fields: [propertyId], references: [id])
   user               User                 @relation(fields: [userId], references: [id])
   investmentReturns  InvestmentReturn[]
@@ -537,18 +627,55 @@ model KycAuditLog {
 }
 
 model VirtualAccount {
-  id            String   @id @default(uuid())
-  userId        String
-  provider      String
-  accountNumber String   @unique
-  accountName   String
-  bankName      String
-  currency      Currency
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  user          User     @relation(fields: [userId], references: [id])
+  id                     String                @id @default(uuid())
+  userId                 String
+  provider               VirtualAccountProvider
+  currency               Currency
+  accountNumber          String?               @unique
+  accountName            String?
+  bankName               String?
+  bankCode               String?
+  providerAccountId      String?               @unique
+  providerReference      String?               @unique
+  status                 VirtualAccountStatus  @default(PENDING)
+  failureReason          String?
+  lastProviderResponse   Json?
+  provisionedAt          DateTime?
+  lastProvisionAttemptAt DateTime?
+  retryCount             Int                   @default(0)
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  user                   User                  @relation(fields: [userId], references: [id])
+  depositEvents          VirtualAccountDepositEvent[]
 
-  @@index([userId, currency])
+  @@unique([userId, provider, currency])
+  @@index([userId, status])
+  @@index([accountNumber])
+}
+
+model VirtualAccountDepositEvent {
+  id                    String                    @id @default(uuid())
+  userId                String?
+  virtualAccountId      String?
+  provider              VirtualAccountProvider
+  providerTransactionId String?                   @unique
+  providerReference     String?
+  accountNumber         String?
+  amount                Decimal?                  @db.Decimal(19, 4)
+  currency              Currency?
+  status                VirtualAccountDepositStatus @default(RECEIVED)
+  reason                String?
+  payload               Json?
+  lastVerifiedAt        DateTime?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+
+  user           User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  virtualAccount VirtualAccount? @relation(fields: [virtualAccountId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([providerReference])
+  @@index([accountNumber])
 }
 
 model Distribution {
@@ -585,14 +712,26 @@ model DistributionPayout {
 model AdminActivityLog {
   id         String   @id @default(uuid())
   adminId    String
+  actorAdminId String?
+  actorRole  AdminRole?
   action     String
   entityType String
   entityId   String?
+  targetType String?
+  targetId   String?
+  previousValue Json?
+  nextValue  Json?
+  reason     String?
   metadata   Json?
+  ipAddress  String?
+  userAgent  String?
   createdAt  DateTime @default(now())
   admin      Admin    @relation(fields: [adminId], references: [id])
 
   @@index([adminId, createdAt])
+  @@index([actorAdminId, createdAt])
+  @@index([action, createdAt])
+  @@index([targetType, targetId, createdAt])
 }
 
 model PaystackWebhookEvent {
@@ -622,12 +761,73 @@ model Notification {
   metadata  Json?
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
+  deliveries NotificationDelivery[]
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, isRead])
   @@index([userId, createdAt])
   @@index([createdAt])
+}
+
+model OutboxEvent {
+  id              String           @id @default(uuid())
+  type            String
+  aggregateType   String
+  aggregateId     String?
+  idempotencyKey  String           @unique
+  status          OutboxEventStatus @default(PENDING)
+  priority        Int              @default(5)
+  attempts        Int              @default(0)
+  maxAttempts     Int              @default(5)
+  nextAttemptAt   DateTime         @default(now())
+  lockedAt        DateTime?
+  lockedBy        String?
+  payload         Json
+  sanitizedPayload Json?
+  lastError       String?
+  lastErrorAt     DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([status, nextAttemptAt, priority, createdAt])
+  @@index([type, createdAt])
+  @@index([aggregateType, aggregateId, createdAt])
+}
+
+model NotificationDelivery {
+  id               String                   @id @default(uuid())
+  notificationId   String
+  channel          NotificationChannel
+  status           NotificationDeliveryStatus @default(PENDING)
+  attempts         Int                      @default(0)
+  providerMessageId String?
+  lastError        String?
+  sentAt           DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([status, channel, createdAt])
+  @@index([notificationId, channel])
+  @@unique([notificationId, channel])
+}
+
+model ScheduledJobState {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  enabled       Boolean  @default(true)
+  lastRunAt     DateTime?
+  lastSuccessAt DateTime?
+  lastFailureAt DateTime?
+  lastError     String?
+  nextRunAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([enabled, name])
 }
 
 enum AdminAccountStatus {
@@ -759,6 +959,40 @@ enum DistributionStatus {
   FAILED
 }
 
+enum PropertyIncomeEventType {
+  RENT
+  PLATFORM_SUBSIDY
+  OTHER_INCOME
+  ADJUSTMENT
+}
+
+enum PropertyIncomeEventStatus {
+  PENDING
+  APPROVED
+  POSTED
+  REJECTED
+  REVERSED
+}
+
+enum DistributionBatchStatus {
+  DRAFT
+  APPROVED
+  PROCESSING
+  COMPLETED
+  PARTIALLY_FAILED
+  FAILED
+  CANCELLED
+  RECONCILIATION_REQUIRED
+}
+
+enum DistributionBatchItemStatus {
+  PENDING
+  POSTED
+  FAILED
+  SKIPPED
+  REVERSED
+}
+
 enum WithdrawalStatus {
   PENDING
   /// Row claimed for exactly one payout initiation attempt (Flutterwave not yet finalized in DB).
@@ -785,6 +1019,29 @@ enum NotificationType {
   ROI_CREDITED
   SYSTEM_MESSAGE
   WELCOME
+}
+
+enum OutboxEventStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  DEAD_LETTER
+  CANCELLED
+}
+
+enum NotificationChannel {
+  EMAIL
+  IN_APP
+  WEBSOCKET
+  PUSH
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  DEAD_LETTER
 }
 
 enum SecurityEventType {
@@ -818,4 +1075,26 @@ enum LedgerOperationStatus {
   REVERSED
   VOIDED
   RECONCILIATION_REQUIRED
+}
+
+enum VirtualAccountProvider {
+  FLUTTERWAVE
+}
+
+enum VirtualAccountStatus {
+  PENDING
+  ACTIVE
+  FAILED
+  SUSPENDED
+  CLOSED
+  REQUIRES_RETRY
+}
+
+enum VirtualAccountDepositStatus {
+  RECEIVED
+  VERIFIED
+  CREDITED
+  UNMATCHED
+  FAILED
+  IGNORED
 }

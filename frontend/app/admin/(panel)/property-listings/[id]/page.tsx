@@ -4,8 +4,12 @@ import { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { adminApi } from '@/lib/admin/api';
 import type { PropertyDetail, PropertyInvestor } from '@/lib/admin/types';
+import { canCloseProperty, canDeleteProperty, canPublishProperty } from '@/lib/admin/permissions';
+import { mapApiError } from '@/lib/api/security-errors';
+import { useAuthStore } from '@/stores/auth.store';
 import {
   ArrowLeft,
   ChevronLeft,
@@ -43,32 +47,37 @@ function inferType(desc: string) {
 }
 
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-  PUBLISHED: { label: 'Active', cls: 'bg-green-50 text-green-600' },
-  DRAFT: { label: 'Draft', cls: 'bg-gray-100 text-gray-500' },
-  UNDER_REVIEW: { label: 'Review', cls: 'bg-amber-50 text-amber-600' },
-  APPROVED: { label: 'Approved', cls: 'bg-blue-50 text-blue-600' },
-  FUNDED: { label: 'Funded', cls: 'bg-blue-50 text-blue-600' },
-  EXITED: { label: 'Closed', cls: 'bg-red-50 text-red-500' },
+  PUBLISHED: { label: 'Published', cls: 'bg-green-50 text-green-700' },
+  DRAFT: { label: 'Draft', cls: 'bg-gray-100 text-gray-600' },
+  CLOSED: { label: 'Closed', cls: 'bg-gray-200 text-gray-800' },
 };
-
-const OPEN_BADGE = { label: 'Open', cls: 'bg-green-50 text-green-600' };
 
 /* ── Main ────────────────────────────────────────── */
 
 export default function PropertyDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const adminRole = useAuthStore((s) => s.adminRole);
+  const allowPublish = canPublishProperty(adminRole);
+  const allowClose = canCloseProperty(adminRole);
+  const allowDelete = canDeleteProperty(adminRole);
   const [prop, setProp] = useState<PropertyDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('info');
   const [closing, setClosing] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [unpublishOpen, setUnpublishOpen] = useState(false);
+  const [propertyDanger, setPropertyDanger] = useState<null | 'close' | 'delete'>(null);
 
   const fetchProperty = useCallback(async () => {
     if (!id) return;
     try {
       const d = await adminApi.propertyDetail(id);
       setProp(d);
-    } catch {
-      /* ignore */
+      setLoadError(null);
+    } catch (e: unknown) {
+      setProp(null);
+      setLoadError(mapApiError(e).message);
     }
   }, [id]);
 
@@ -78,14 +87,59 @@ export default function PropertyDetailPage() {
     fetchProperty().finally(() => setLoading(false));
   }, [id, fetchProperty]);
 
-  const handleClose = async () => {
+  const handleCloseClick = () => {
     if (!id || !prop) return;
-    setClosing(true);
+    setPropertyDanger('close');
+  };
+
+  const handlePublish = async () => {
+    if (!id || !prop) return;
+    if (!window.confirm('Publish this listing? Wallet distributions depend on accurate yield and inventory.')) return;
+    setActionError(null);
     try {
-      await adminApi.closeProperty(id);
-      setProp((p) => (p ? { ...p, status: 'EXITED' } : p));
-    } catch { /* ignore */ }
-    setClosing(false);
+      await adminApi.publishProperty(id);
+      await fetchProperty();
+    } catch (e: unknown) {
+      setActionError(mapApiError(e).message);
+    }
+  };
+
+  const handleDeleteClick = () => {
+    if (!id || !prop) return;
+    setPropertyDanger('delete');
+  };
+
+  const confirmPropertyDanger = async (reason: string) => {
+    if (!id || !prop || !propertyDanger) return;
+    setClosing(propertyDanger === 'close');
+    setActionError(null);
+    try {
+      if (propertyDanger === 'close') {
+        await adminApi.closeProperty(id, { reason });
+        await fetchProperty();
+      } else {
+        await adminApi.deleteProperty(id, { reason });
+        window.location.href = '/admin/property-listings';
+      }
+    } catch (e: unknown) {
+      setActionError(mapApiError(e).message);
+      throw e;
+    } finally {
+      setClosing(false);
+    }
+  };
+
+  const confirmUnpublish = async (reason: string) => {
+    if (!id) return;
+    setActionError(null);
+    try {
+      await adminApi.unpublishProperty(id, { reason });
+      setUnpublishOpen(false);
+      await fetchProperty();
+    } catch (e: unknown) {
+      setActionError(mapApiError(e).message);
+      throw e;
+    }
   };
 
   if (loading) {
@@ -104,14 +158,14 @@ export default function PropertyDetailPage() {
     return (
       <div className="space-y-6">
         <Link href="/admin/property-listings" className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-600"><ArrowLeft className="h-4 w-4" /> Back</Link>
-        <p className="text-gray-500">Property not found.</p>
+        <p className="text-gray-500">{loadError ?? 'Property not found.'}</p>
       </div>
     );
   }
 
-  const statusBadge = STATUS_BADGE[prop.status] ?? STATUS_BADGE.DRAFT;
+  const statusBadge = STATUS_BADGE[prop.status] ?? { label: prop.status, cls: 'bg-gray-100 text-gray-600' };
   const type = prop.listingType || inferType(prop.description);
-  const isOpen = prop.status === 'PUBLISHED' || prop.status === 'APPROVED';
+  const isPublished = prop.status === 'PUBLISHED';
 
   const TABS: { key: Tab; label: string }[] = [
     { key: 'info', label: 'Property info' },
@@ -128,26 +182,59 @@ export default function PropertyDetailPage() {
       </Link>
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-lg font-semibold text-gray-900">{prop.title}</h1>
           <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadge.cls}`}>{statusBadge.label}</span>
-          {isOpen && <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${OPEN_BADGE.cls}`}>{OPEN_BADGE.label}</span>}
+          {isPublished ? (
+            <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
+              Live listing
+            </span>
+          ) : null}
         </div>
-        <div className="flex items-center gap-2">
-          {prop.status !== 'EXITED' && (
+        <div className="flex flex-wrap items-center gap-2">
+          {actionError ? (
+            <span className="max-w-md text-xs text-red-700" role="alert">
+              {actionError}
+            </span>
+          ) : null}
+          {allowPublish && prop.status === 'DRAFT' ? (
             <button
               type="button"
-              onClick={handleClose}
-              disabled={closing}
-              className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50"
+              onClick={() => void handlePublish()}
+              className="rounded-lg bg-[#1a3a4a] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
             >
-              {closing ? 'Closing...' : 'Close property'}
+              Publish
             </button>
-          )}
-          <span className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-500">
-            Edit details (coming soon)
-          </span>
+          ) : null}
+          {allowPublish && prop.status === 'PUBLISHED' ? (
+            <button
+              type="button"
+              onClick={() => setUnpublishOpen(true)}
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
+            >
+              Unpublish (to draft)
+            </button>
+          ) : null}
+          {allowClose && prop.status !== 'CLOSED' ? (
+            <button
+              type="button"
+              onClick={() => handleCloseClick()}
+              disabled={closing}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {closing ? 'Closing…' : 'Close property'}
+            </button>
+          ) : null}
+          {allowDelete ? (
+            <button
+              type="button"
+              onClick={() => handleDeleteClick()}
+              className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+            >
+              Delete listing
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -180,6 +267,27 @@ export default function PropertyDetailPage() {
       {tab === 'features' && <FeaturesTab prop={prop} />}
       {tab === 'investors' && <InvestorsTab propertyId={prop.id} />}
       {tab === 'documents' && <DocumentsTab prop={prop} />}
+
+      <AdminReasonDialog
+        open={unpublishOpen}
+        title="Unpublish property"
+        description="Moves the listing back to DRAFT. A reason is stored for audit when the server accepts it."
+        confirmLabel="Unpublish"
+        onClose={() => setUnpublishOpen(false)}
+        onConfirm={confirmUnpublish}
+      />
+      <AdminReasonDialog
+        open={propertyDanger != null}
+        title={propertyDanger === 'close' ? 'Close property' : 'Delete listing'}
+        description={
+          propertyDanger === 'close'
+            ? 'Closing stops new investments. A reason is required for audit.'
+            : 'Soft-deletes the listing. A reason is required for audit.'
+        }
+        confirmLabel={propertyDanger === 'close' ? 'Close property' : 'Delete listing'}
+        onClose={() => setPropertyDanger(null)}
+        onConfirm={confirmPropertyDanger}
+      />
     </div>
   );
 }
@@ -211,7 +319,12 @@ function InfoRow({ label, value, valueColor }: { label: string; value: string | 
 function PropertyInfoTab({ prop }: { prop: PropertyDetail }) {
   const sharesTotal = new Decimal(prop.sharesTotal || '0');
   const sharesSold = new Decimal(prop.sharesSold || '0');
-  const yieldPct =
+  const oversold = sharesTotal.gt(0) && sharesSold.gt(sharesTotal);
+  const available = sharesTotal.minus(sharesSold);
+  const annualYield = prop.annualYield != null && String(prop.annualYield).trim() !== ''
+    ? new Decimal(String(prop.annualYield)).times(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2)
+    : null;
+  const fundedPct =
     prop.yieldPercentage ??
     (sharesTotal.gt(0)
       ? sharesSold.div(sharesTotal).times(100).toDecimalPlaces(1, Decimal.ROUND_HALF_UP).toFixed(1)
@@ -219,6 +332,14 @@ function PropertyInfoTab({ prop }: { prop: PropertyDetail }) {
 
   return (
     <div className="space-y-6">
+      {oversold ? (
+        <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+          <p className="font-semibold">Inventory inconsistency</p>
+          <p className="mt-1">
+            Shares sold exceed shares total in the current record. Publishing is blocked server-side until corrected.
+          </p>
+        </div>
+      ) : null}
       <div className="rounded-xl border border-gray-200 bg-white p-6">
         <h3 className="mb-5 text-sm font-semibold text-gray-700">Property information</h3>
         <div className="grid grid-cols-2 gap-x-10 gap-y-5 sm:grid-cols-3">
@@ -227,9 +348,15 @@ function PropertyInfoTab({ prop }: { prop: PropertyDetail }) {
           <InfoRow label="Location" value={prop.location} />
           <InfoRow label="Min investment amount" value={fmtMoney(prop.minInvestment, prop.currency)} valueColor="text-green-600" />
           <InfoRow label="Share price" value={fmtMoney(prop.sharePrice, prop.currency)} />
-          <InfoRow label="Yield" value={`${yieldPct}%`} />
+          <InfoRow
+            label="Disclosed annual yield (basis for publish)"
+            value={annualYield != null ? `${annualYield}% / year` : 'Not set — publish will fail until set in admin data'}
+            valueColor={annualYield ? 'text-gray-900' : 'text-amber-700'}
+          />
+          <InfoRow label="Funded (% of share cap)" value={`${fundedPct}%`} />
           <InfoRow label="Total investment value" value={fmtMoney(prop.totalValue, prop.currency)} />
-          <InfoRow label="Total shares" value={sharesTotal.toFixed()} />
+          <InfoRow label="Shares sold / total" value={`${sharesSold.toFixed()} / ${sharesTotal.toFixed()}`} />
+          <InfoRow label="Shares available (computed)" value={available.gte(0) ? available.toFixed() : '—'} />
           <InfoRow label="Date listed" value={fmtDate(prop.createdAt)} />
         </div>
       </div>
@@ -371,15 +498,19 @@ function InvestorsTab({ propertyId }: { propertyId: string }) {
                       <td colSpan={6} className="px-5 py-12 text-center text-sm text-gray-400">No investors yet.</td>
                     </tr>
                   )
-                : investors.map((inv) => (
+                : investors.map((inv) => {
+                    const amountStr = inv.amount ?? inv.amountInvested ?? '0';
+                    const cur = inv.currency ?? 'NGN';
+                    const investedAt = inv.createdAt ?? inv.dateInvested ?? '';
+                    return (
                     <tr key={inv.id} className="border-b border-gray-100 transition-colors hover:bg-gray-50/60">
                       <td className="px-5 py-4 text-sm font-medium text-gray-900">{inv.userName}</td>
-                      <td className="px-5 py-4 text-sm text-gray-700">{fmtMoney(inv.amount, inv.currency)}</td>
-                      <td className="px-5 py-4 text-sm text-gray-700">{fmtMoney(inv.amount, inv.currency)}</td>
+                      <td className="px-5 py-4 text-sm text-gray-700">{fmtMoney(amountStr, cur)}</td>
+                      <td className="px-5 py-4 text-sm text-gray-700">{fmtMoney(amountStr, cur)}</td>
                       <td className="px-5 py-4 text-sm text-gray-700">
                         {new Decimal(inv.ownershipPercent || '0').toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed()}%
                       </td>
-                      <td className="px-5 py-4 text-sm text-gray-500">{fmtDate(inv.createdAt)}</td>
+                      <td className="px-5 py-4 text-sm text-gray-500">{investedAt ? fmtDate(investedAt) : '—'}</td>
                       <td className="px-3 py-4">
                         <button
                           type="button"
@@ -390,7 +521,8 @@ function InvestorsTab({ propertyId }: { propertyId: string }) {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                  );
+                  })}
           </tbody>
         </table>
       </div>

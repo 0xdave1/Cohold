@@ -3,6 +3,8 @@
 import { useMemo, useState } from 'react';
 import { useMyInvestments } from '@/lib/hooks/use-investments';
 import { formatMoney } from '@/lib/hooks/use-wallet';
+import { useUserDistributionHistory } from '@/lib/hooks/use-distributions';
+import { distributionStatusLabel, normalizeDistributionStatus } from '@/lib/distributions/status';
 import { detectListingMode } from '@/lib/listings/category';
 import {
   sumActivePortfolioValue,
@@ -22,13 +24,14 @@ export default function InvestmentsPage() {
   const [tab, setTab] = useState<ListingTab>('all');
 
   const { data: investmentsData, isLoading } = useMyInvestments(1, 100);
+  const { data: distributionHistory } = useUserDistributionHistory(1, 8);
   /** COMPLETED / CANCELLED excluded from portfolio UI */
   const items = useMemo(
     () => (investmentsData?.items ?? []).filter((i) => isActiveInvestmentStatus(i.status)),
     [investmentsData?.items],
   );
 
-  /** Principal + ROI credited — not liquid wallet cash. */
+  /** Principal + posted distribution credits — not liquid wallet cash. */
   const investmentBalanceRaw = useMemo(() => {
     return sumActivePortfolioValue(items, balanceCurrency);
   }, [items, balanceCurrency]);
@@ -68,6 +71,9 @@ export default function InvestmentsPage() {
       <div>
         <h1 className="text-xl font-semibold">Investments</h1>
         <p className="text-sm text-slate-400">View my investment portfolio</p>
+        <p className="text-xs text-dashboard-body mt-1">
+          Projected yield is an estimate. Paid income appears only after backend-posted distributions.
+        </p>
       </div>
 
       {/* Investment balance card (Figma) — balance = sum of active investments in selected currency */}
@@ -76,7 +82,7 @@ export default function InvestmentsPage() {
           Investment portfolio ({balanceCurrency})
         </p>
         <p className="text-[10px] text-dashboard-body/80 mb-3 text-center">
-          Principal + returns · {numberOfAssets} {numberOfAssets === 1 ? 'asset' : 'assets'} ·{' '}
+          Principal + paid distributions · {numberOfAssets} {numberOfAssets === 1 ? 'asset' : 'assets'} ·{' '}
           {formatSharesQuantityForDisplay(totalSharesRaw)} shares
         </p>
 
@@ -212,7 +218,7 @@ export default function InvestmentsPage() {
                         </span>
                       </p>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        Returns:{' '}
+                        Paid distributions:{' '}
                         <span className="font-medium text-emerald-400/90">
                           {formatMoney(investment.totalReturns ?? '0', investment.currency)}
                         </span>
@@ -243,6 +249,39 @@ export default function InvestmentsPage() {
           })}
         </div>
       )}
+
+      <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-4">
+        <p className="text-sm font-semibold text-dashboard-heading">Distribution history</p>
+        <p className="text-xs text-dashboard-body mt-1">
+          Distributions depend on realized property income and admin approval; they may be delayed, reduced, failed, or reversed.
+        </p>
+        <div className="mt-3 space-y-2">
+          {(distributionHistory?.items ?? []).length === 0 ? (
+            <p className="text-xs text-dashboard-body">No paid distributions yet.</p>
+          ) : (
+            (distributionHistory?.items ?? []).map((item) => {
+              const status = normalizeDistributionStatus(item.status ?? item.batch?.status);
+              return (
+                <div key={item.id} className="rounded-lg border border-dashboard-border px-3 py-2">
+                  <p className="text-xs text-dashboard-heading font-medium">
+                    {formatMoney(item.amount, item.currency)} · {distributionStatusLabel(status)}
+                  </p>
+                  <p className="text-[11px] text-dashboard-body">
+                    Property: {item.batch?.propertyId ?? '—'} · Period: {item.batch?.periodStart?.slice(0, 10) ?? '—'} to{' '}
+                    {item.batch?.periodEnd?.slice(0, 10) ?? '—'}
+                  </p>
+                  {item.ledgerOperationId ? (
+                    <p className="text-[10px] text-dashboard-muted">Ledger: {item.ledgerOperationId}</p>
+                  ) : null}
+                  {item.failureReason ? (
+                    <p className="text-[11px] text-red-700">Reason: {item.failureReason}</p>
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -315,7 +315,7 @@ export default function HomeDashboardPage() {
                   <p className="text-sm font-semibold text-dashboard-heading mt-2">
                     {formatMoney(investmentPositionValue(inv.amount, inv.totalReturns), inv.currency)}
                   </p>
-                  <p className="text-[10px] text-dashboard-muted">Position value (principal + returns)</p>
+                  <p className="text-[10px] text-dashboard-muted">Position value (principal + paid distributions)</p>
                   <p className="text-xs font-normal text-dashboard-muted mt-0.5">{inv.status}</p>
                 </div>
               </Link>

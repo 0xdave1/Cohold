@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseTransformInterceptor } from './common/interceptors/response-transform.interceptor';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
@@ -11,36 +11,14 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { json, urlencoded } from 'express';
-
-function normalizeOrigin(origin: string): string {
-  return origin.trim().replace(/\/+$/, '');
-}
-
-function buildCorsOriginValidator(configService: ConfigService): (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => void {
-  const defaults = [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'https://cohold.co',
-    'https://www.cohold.co',
-    'https://cohold.vercel.app',
-    'https://cohold.onrender.com',
-  ];
-  const fromConfig = String(configService.get<string>('config.app.corsOrigin') ?? '')
-    .split(',')
-    .map((s) => normalizeOrigin(s))
-    .filter((s) => s.length > 0 && s !== '*');
-  const allowed = new Set<string>([...defaults.map(normalizeOrigin), ...fromConfig]);
-
-  return (origin, callback) => {
-    if (!origin) {
-      callback(null, true);
-      return;
-    }
-    callback(null, allowed.has(normalizeOrigin(origin)));
-  };
-}
+import {
+  assertProductionSecurityConfig,
+  buildCorsOriginValidator,
+  shouldEnableSwagger,
+} from './common/http/bootstrap-security';
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
     rawBody: true,
@@ -55,15 +33,31 @@ async function bootstrap() {
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.set('trust proxy', 1);
 
+  assertProductionSecurityConfig(configService);
+
   app.use(cookieParser());
+  const isProd = String(configService.get<string>('config.app.env')) === 'production';
   app.use(
     helmet({
       crossOriginResourcePolicy: { policy: 'cross-origin' },
+      contentSecurityPolicy: isProd
+        ? {
+            directives: {
+              defaultSrc: ["'self'"],
+              frameAncestors: ["'none'"],
+              objectSrc: ["'none'"],
+            },
+          }
+        : false,
+      frameguard: { action: 'deny' },
+      referrerPolicy: { policy: 'no-referrer' },
+      hsts: isProd ? { maxAge: 15552000, includeSubDomains: true, preload: false } : false,
     }),
   );
 
-  app.use(json({ limit: '10mb' }));
-  app.use(urlencoded({ extended: true, limit: '10mb' }));
+  const bodyLimit = String(configService.get<string>('config.app.bodyLimit') ?? '1mb');
+  app.use(json({ limit: bodyLimit }));
+  app.use(urlencoded({ extended: true, limit: bodyLimit }));
 
   app.use(CorrelationIdMiddleware.generate);
 
@@ -73,6 +67,11 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
       transform: true,
       transformOptions: { enableImplicitConversion: true },
+      forbidUnknownValues: true,
+      validationError: {
+        target: false,
+        value: false,
+      },
     }),
   );
 
@@ -82,33 +81,58 @@ async function bootstrap() {
     new LoggingInterceptor(),
   );
 
+  const allowedOrigins = configService.get<string[]>('config.app.effectiveCorsAllowedOrigins') ?? [];
   app.enableCors({
-    origin: buildCorsOriginValidator(configService),
-    credentials: true,
+    origin: buildCorsOriginValidator(allowedOrigins),
+    credentials: Boolean(configService.get<boolean>('config.app.corsCredentials')),
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Correlation-Id'],
   });
 
   app.enableShutdownHooks();
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Cohold API')
-    .setDescription('Cohold fractional real estate investment platform API.')
-    .setVersion('1.0')
-    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'user-jwt')
-    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'admin-jwt')
-    .build();
+  const enableSwagger = Boolean(configService.get<boolean>('config.app.enableSwagger'));
+  if (shouldEnableSwagger(String(configService.get<string>('config.app.env')), enableSwagger)) {
+    if (isProd) {
+      const docsUser = configService.get<string>('config.app.swaggerUsername');
+      const docsPass = configService.get<string>('config.app.swaggerPassword');
+      expressApp.use('/docs', (req: any, res: any, next: any) => {
+        const auth = req.headers.authorization;
+        if (!auth || !auth.startsWith('Basic ')) {
+          res.setHeader('WWW-Authenticate', 'Basic realm="Cohold Docs"');
+          res.status(401).send('Authentication required');
+          return;
+        }
+        const [user, pass] = Buffer.from(auth.split(' ')[1], 'base64').toString().split(':');
+        if (user !== docsUser || pass !== docsPass) {
+          res.status(403).send('Forbidden');
+          return;
+        }
+        next();
+      });
+    }
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Cohold API')
+      .setDescription('Cohold fractional real estate investment platform API.')
+      .setVersion('1.0')
+      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'user-jwt')
+      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'admin-jwt')
+      .build();
 
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, document);
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('docs', app, document);
+  } else {
+    logger.log('Swagger disabled by secure production default.');
+  }
 
   const port = configService.get<number>('config.app.port') ?? 3000;
   await app.listen(port);
   const apiPath = `/${apiPrefix}`;
-  console.log(`Server listening on port ${port} (global prefix ${apiPath})`);
+  logger.log(`Server listening on port ${port} (global prefix ${apiPath})`);
 }
 
 bootstrap().catch((err) => {
-  console.error('Fatal bootstrap error', err);
+  const logger = new Logger('Bootstrap');
+  logger.error('Fatal bootstrap error', err instanceof Error ? err.stack : String(err));
   process.exit(1);
 });

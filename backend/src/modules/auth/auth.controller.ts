@@ -90,17 +90,20 @@ export class AuthController {
   }
 
   @Post('resend-otp')
+  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } })
   async resendOtp(@Body() dto: OtpRequestDto) {
     await this.authService.requestOtp(dto.email, dto.purpose ?? 'signup');
     return { message: 'OTP resent to your email' };
   }
 
   @Post('verify-otp')
+  @Throttle({ default: { limit: 10, ttl: 10 * 60_000 } })
   async verifyOtp(@Body() dto: VerifyOtpDto) {
     return this.authService.verifyOtp(dto, dto.purpose ?? 'signup');
   }
 
   @Post('complete-signup')
+  @Throttle({ default: { limit: 10, ttl: 10 * 60_000 } })
   async completeSignup(
     @Body() dto: VerifyOtpDto,
     @Req() req: Request,
@@ -119,12 +122,14 @@ export class AuthController {
   }
 
   @Post('request-otp')
+  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } })
   async requestOtp(@Body() dto: OtpRequestDto) {
     await this.authService.requestOtp(dto.email, dto.purpose ?? 'signup');
     return { message: 'OTP sent to your email' };
   }
 
   @Post('refresh')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     if (this.debugEnabled()) {
       this.logger.debug(

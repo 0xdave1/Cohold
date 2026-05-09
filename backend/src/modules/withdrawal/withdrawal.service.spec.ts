@@ -28,6 +28,7 @@ describe('WithdrawalService payout orchestration', () => {
     notifyWithdrawalInitiated: jest.fn(),
     notifyWithdrawalCompleted: jest.fn(),
     notifyWithdrawalFailed: jest.fn(),
+    notifyWithdrawalReconciliationRequired: jest.fn(),
   };
   const payoutProvider = {
     initiateTransfer: jest.fn(),

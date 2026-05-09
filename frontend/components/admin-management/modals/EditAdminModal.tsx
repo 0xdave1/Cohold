@@ -14,7 +14,7 @@ type EditAdminModalProps = {
   onClose: () => void;
   onSubmit: (
     id: string,
-    payload: { fullName?: string; email?: string; phoneNumber?: string; role?: UiAdminRole },
+    payload: { fullName?: string; email?: string; phoneNumber?: string; role?: UiAdminRole; reason: string },
   ) => Promise<void>;
 };
 
@@ -23,6 +23,7 @@ export function EditAdminModal({ open, admin, loading = false, onClose, onSubmit
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [role, setRole] = useState<UiAdminRole>('OPERATION_ADMIN');
+  const [reason, setReason] = useState('');
 
   useEffect(() => {
     if (!admin) return;
@@ -30,12 +31,15 @@ export function EditAdminModal({ open, admin, loading = false, onClose, onSubmit
     setEmail(admin.email);
     setPhoneNumber(admin.phoneNumber ?? '');
     setRole(normalizeRole(admin.role));
+    setReason('');
   }, [admin]);
 
   const submit = async () => {
     if (!admin) return;
-    await onSubmit(admin.id, { fullName, email, phoneNumber, role });
+    await onSubmit(admin.id, { fullName, email, phoneNumber, role, reason: reason.trim() });
   };
+
+  const reasonOk = reason.trim().length >= 5 && reason.trim().length <= 500;
 
   return (
     <BaseModal open={open} title="Edit admin" onClose={onClose}>
@@ -78,6 +82,15 @@ export function EditAdminModal({ open, admin, loading = false, onClose, onSubmit
             ))}
           </select>
         </FormField>
+        <FormField label="Reason (audit)">
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={3}
+            placeholder="Why these changes are being made (5–500 characters)"
+            className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:border-[#1a3a4a] focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/15"
+          />
+        </FormField>
       </div>
       <div className="mt-6 grid grid-cols-2 gap-3">
         <button
@@ -89,7 +102,7 @@ export function EditAdminModal({ open, admin, loading = false, onClose, onSubmit
         </button>
         <button
           type="button"
-          disabled={loading || !email.trim() || !fullName.trim()}
+          disabled={loading || !email.trim() || !fullName.trim() || !reasonOk}
           onClick={submit}
           className="rounded-full bg-[#00416A] py-2.5 text-sm font-semibold text-white transition hover:bg-[#003558] disabled:opacity-50"
         >

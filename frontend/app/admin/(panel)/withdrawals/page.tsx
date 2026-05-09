@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { adminApi } from '@/lib/admin/api';
 import { adminWithdrawalListBadge } from '@/lib/withdrawals/status';
+import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
+import { canReconcileStaleWithdrawalsBatch, canReconcileWithdrawal } from '@/lib/admin/permissions';
+import { mapApiError } from '@/lib/api/security-errors';
+import { useAuthStore } from '@/stores/auth.store';
 
 type AdminWithdrawalRow = {
   id: string;
@@ -29,18 +33,23 @@ const BADGE: Record<string, string> = {
 };
 
 export default function AdminWithdrawalsPage() {
+  const adminRole = useAuthStore((s) => s.adminRole);
+  const canReconcile = canReconcileWithdrawal(adminRole);
+  const canStaleBatch = canReconcileStaleWithdrawalsBatch(adminRole);
   const [items, setItems] = useState<AdminWithdrawalRow[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [stuckOnly, setStuckOnly] = useState(false);
-  const [actionId, setActionId] = useState<string | null>(null);
+  const [reconcileId, setReconcileId] = useState<string | null>(null);
   const [batchBusy, setBatchBusy] = useState(false);
+  const [staleBatchOpen, setStaleBatchOpen] = useState(false);
   const [opsError, setOpsError] = useState<string | null>(null);
   const limit = 20;
 
   const load = useCallback(async () => {
     setLoading(true);
+    setOpsError(null);
     try {
       const q = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (stuckOnly) {
@@ -50,9 +59,10 @@ export default function AdminWithdrawalsPage() {
       const d = await adminApi.withdrawals(q.toString());
       setItems(d.items ?? []);
       setTotal(d.meta?.total ?? 0);
-    } catch {
+    } catch (e: unknown) {
       setItems([]);
       setTotal(0);
+      setOpsError(mapApiError(e).message);
     } finally {
       setLoading(false);
     }
@@ -62,27 +72,15 @@ export default function AdminWithdrawalsPage() {
     void load();
   }, [load]);
 
-  const reconcileOne = async (id: string) => {
-    setOpsError(null);
-    setActionId(id);
-    try {
-      await adminApi.reconcileWithdrawal(id);
-      await load();
-    } catch {
-      setOpsError('Reconcile failed. Check network or permissions.');
-    } finally {
-      setActionId(null);
-    }
-  };
-
-  const reconcileStale = async () => {
+  const confirmStaleBatch = async (reason: string) => {
     setOpsError(null);
     setBatchBusy(true);
     try {
-      await adminApi.reconcileStaleWithdrawals('olderThanMinutes=30');
+      await adminApi.reconcileStaleWithdrawals({ reason }, 'olderThanMinutes=30');
       await load();
-    } catch {
-      setOpsError('Batch reconcile failed (SUPER_ADMIN only).');
+    } catch (e: unknown) {
+      setOpsError(mapApiError(e).message);
+      throw e;
     } finally {
       setBatchBusy(false);
     }
@@ -106,8 +104,8 @@ export default function AdminWithdrawalsPage() {
           </label>
           <button
             type="button"
-            disabled={batchBusy}
-            onClick={() => void reconcileStale()}
+            disabled={batchBusy || !canStaleBatch}
+            onClick={() => setStaleBatchOpen(true)}
             className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
           >
             {batchBusy ? 'Running…' : 'Reconcile stale (batch)'}
@@ -115,10 +113,14 @@ export default function AdminWithdrawalsPage() {
         </div>
       </div>
       <p className="text-sm text-gray-600">
-        Uses server endpoints <code className="rounded bg-gray-100 px-1">GET /admin/withdrawals</code> and{' '}
-        <code className="rounded bg-gray-100 px-1">POST /admin/withdrawals/:id/reconcile</code>. Batch reconcile requires
-        SUPER_ADMIN.
+        Manual reconcile requires a reason (server-enforced). Your role must include finance approval privileges. Batch
+        stale reconcile is Super-admin only and also requires a reason.
       </p>
+      {!canReconcile ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          You do not have permission to reconcile withdrawals from this UI role.
+        </p>
+      ) : null}
       {opsError ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
           {opsError}
@@ -149,9 +151,7 @@ export default function AdminWithdrawalsPage() {
                 const { label: statusLabel, badgeClass: conflictBadgeClass } = adminWithdrawalListBadge(r);
                 const badgeClass = conflictBadgeClass ?? BADGE[r.status] ?? 'bg-amber-50 text-amber-900';
                 const conflictNote = r.reconciliationConflict
-                  ? [r.reconciliationConflictReason, r.reconciliationConflictAt]
-                      .filter(Boolean)
-                      .join(' · ')
+                  ? [r.reconciliationConflictReason, r.reconciliationConflictAt].filter(Boolean).join(' · ')
                   : '';
                 return (
                   <tr key={r.id} className="border-b border-gray-100">
@@ -167,7 +167,9 @@ export default function AdminWithdrawalsPage() {
                     </td>
                     <td className="max-w-[200px] truncate px-3 py-2 text-xs text-gray-600" title={r.providerTransferCode ?? ''}>
                       {r.providerStatus ?? '—'}
-                      {r.providerTransferCode ? <span className="block text-[10px] text-gray-400">id {r.providerTransferCode}</span> : null}
+                      {r.providerTransferCode ? (
+                        <span className="block text-[10px] text-gray-400">id {r.providerTransferCode}</span>
+                      ) : null}
                       {r.providerLastCheckedAt ? (
                         <span className="block text-[10px] text-gray-400">
                           checked {new Date(r.providerLastCheckedAt).toLocaleString()}
@@ -185,11 +187,11 @@ export default function AdminWithdrawalsPage() {
                     <td className="px-3 py-2">
                       <button
                         type="button"
-                        disabled={!!actionId}
-                        onClick={() => void reconcileOne(r.id)}
+                        disabled={!canReconcile || reconcileId != null}
+                        onClick={() => setReconcileId(r.id)}
                         className="text-xs font-semibold text-[#1a3a4a] underline disabled:opacity-50"
                       >
-                        {actionId === r.id ? '…' : 'Reconcile'}
+                        Reconcile
                       </button>
                     </td>
                   </tr>
@@ -222,6 +224,28 @@ export default function AdminWithdrawalsPage() {
           </div>
         </div>
       )}
+
+      <AdminReasonDialog
+        open={reconcileId != null}
+        title="Reconcile withdrawal"
+        description="Provide an operational reason. The server records this on the audit trail where supported."
+        confirmLabel="Reconcile"
+        onClose={() => setReconcileId(null)}
+        onConfirm={async (reason) => {
+          if (!reconcileId) return;
+          await adminApi.reconcileWithdrawal(reconcileId, { reason });
+          setReconcileId(null);
+          await load();
+        }}
+      />
+      <AdminReasonDialog
+        open={staleBatchOpen}
+        title="Reconcile stale withdrawals (batch)"
+        description="Super-admin only. Runs a bounded batch against stale rows; a reason is stored for audit."
+        confirmLabel="Run batch"
+        onClose={() => setStaleBatchOpen(false)}
+        onConfirm={confirmStaleBatch}
+      />
     </div>
   );
 }

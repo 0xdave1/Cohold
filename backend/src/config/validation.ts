@@ -8,6 +8,22 @@ export const validationSchema = Joi.object({
   API_PREFIX: Joi.string().default('/api/v1'),
   FRONTEND_URL: Joi.string().uri().optional(),
   CORS_ORIGIN: Joi.string().optional(),
+  CORS_ALLOWED_ORIGINS: Joi.string().optional(),
+  ADMIN_ALLOWED_ORIGINS: Joi.string().optional(),
+  CORS_CREDENTIALS: Joi.string().valid('true', 'false').default('true'),
+  BODY_LIMIT: Joi.string().default('1mb'),
+  ENABLE_SWAGGER: Joi.string().valid('true', 'false').default('false'),
+  SWAGGER_USERNAME: Joi.string().optional(),
+  SWAGGER_PASSWORD: Joi.string().optional(),
+  RATE_LIMIT_TTL_MS: Joi.number().integer().min(1000).default(60_000),
+  RATE_LIMIT_LIMIT: Joi.number().integer().min(1).default(100),
+  OUTBOX_WORKER_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  OUTBOX_BATCH_SIZE: Joi.number().integer().min(1).max(500).default(25),
+  OUTBOX_MAX_ATTEMPTS: Joi.number().integer().min(1).max(20).default(5),
+  OUTBOX_BASE_DELAY_SECONDS: Joi.number().integer().min(1).max(3600).default(30),
+  OUTBOX_DEAD_LETTER_ALERT_THRESHOLD: Joi.number().integer().min(1).default(25),
+  EMAIL_DELIVERY_ENABLED: Joi.string().valid('true', 'false').default('true'),
+  WEBSOCKET_DELIVERY_ENABLED: Joi.string().valid('true', 'false').default('true'),
   AUTH_COOKIE_DOMAIN: Joi.string().optional(),
 
   DATABASE_URL: Joi.string().uri().required(),
@@ -49,6 +65,8 @@ export const validationSchema = Joi.object({
   FLUTTERWAVE_WEBHOOK_SECRET: Joi.string().optional(),
   FLUTTERWAVE_BASE_URL: Joi.string().uri().optional(),
   APP_BASE_URL: Joi.string().uri().default('http://localhost:3000'),
+  VIRTUAL_ACCOUNTS_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  FLUTTERWAVE_VIRTUAL_ACCOUNT_ENABLED: Joi.string().valid('true', 'false').optional(),
 
   S3_ACCESS_KEY_ID: Joi.string().required(),
   S3_SECRET_ACCESS_KEY: Joi.string().required(),
@@ -81,6 +99,27 @@ export const validationSchema = Joi.object({
       (value.JWT_ADMIN_REFRESH_SECRET as string | undefined) ?? `${userRefresh}.cohold-admin-refresh-dev-only`;
 
     if (prodLike) {
+      const credentials = (value.CORS_CREDENTIALS ?? 'true') === 'true';
+      const userOrigins = String(value.CORS_ALLOWED_ORIGINS ?? value.CORS_ORIGIN ?? value.FRONTEND_URL ?? '')
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+      const adminOrigins = String(value.ADMIN_ALLOWED_ORIGINS ?? '')
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+      const allowedOrigins = [...new Set([...userOrigins, ...adminOrigins])];
+      if (credentials && (allowedOrigins.length === 0 || allowedOrigins.some((o: string) => o === '*'))) {
+        return helpers.error('any.custom', {
+          message: 'CORS_ALLOWED_ORIGINS must be explicit and non-wildcard when CORS_CREDENTIALS=true.',
+        });
+      }
+      const enableSwagger = (value.ENABLE_SWAGGER ?? 'false') === 'true';
+      if (enableSwagger && (!value.SWAGGER_USERNAME || !value.SWAGGER_PASSWORD)) {
+        return helpers.error('any.custom', {
+          message: 'SWAGGER_USERNAME and SWAGGER_PASSWORD are required when ENABLE_SWAGGER=true in production/staging.',
+        });
+      }
       if (!value.JWT_ADMIN_ACCESS_SECRET || !value.JWT_ADMIN_REFRESH_SECRET) {
         return helpers.error('any.custom', {
           message:
@@ -90,6 +129,15 @@ export const validationSchema = Joi.object({
       if (!value.KYC_ENCRYPTION_KEY || !value.KYC_HASH_SECRET) {
         return helpers.error('any.custom', {
           message: 'KYC_ENCRYPTION_KEY and KYC_HASH_SECRET are required in production/staging (Issue 5).',
+        });
+      }
+      const vaEnabled = value.VIRTUAL_ACCOUNTS_ENABLED === 'true';
+      const flwVaEnabled =
+        (value.FLUTTERWAVE_VIRTUAL_ACCOUNT_ENABLED ?? value.VIRTUAL_ACCOUNTS_ENABLED) === 'true';
+      if (vaEnabled && flwVaEnabled && !value.FLW_SECRET_KEY && !value.FLUTTERWAVE_SECRET_KEY) {
+        return helpers.error('any.custom', {
+          message:
+            'Virtual accounts are enabled but Flutterwave secret key is missing (FLW_SECRET_KEY/FLUTTERWAVE_SECRET_KEY).',
         });
       }
     }

@@ -1,14 +1,18 @@
 import {
   CallHandler,
   ExecutionContext,
+  Logger,
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
+import { redactSensitive } from '../logging/security-redaction.util';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(LoggingInterceptor.name);
+
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const now = Date.now();
     const req = context.switchToHttp().getRequest<Request & { correlationId?: string; user?: any; admin?: any }>();
@@ -20,8 +24,9 @@ export class LoggingInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap(() => {
         const latency = Date.now() - now;
-        console.log(
-          JSON.stringify({
+        this.logger.log(
+          JSON.stringify(
+            redactSensitive({
             level: 'info',
             msg: 'http_request',
             method,
@@ -29,8 +34,13 @@ export class LoggingInterceptor implements NestInterceptor {
             latencyMs: latency,
             correlationId,
             userId: (req as any)?.user?.id,
-            adminId: (req as any)?.user?.role ? (req as any)?.user?.id : undefined,
-          }),
+              adminId: (req as any)?.user?.role ? (req as any)?.user?.id : undefined,
+              headers: {
+                authorization: (req as any)?.headers?.authorization,
+                cookie: (req as any)?.headers?.cookie,
+              },
+            }),
+          ),
         );
       }),
     );

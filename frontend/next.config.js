@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
 const withPWA = require('@ducanh2912/next-pwa').default;
 
+const { assertProductionPublicApiUrl } = require('./lib/env/public-api-env.js');
+if (process.env.NODE_ENV === 'production') {
+  assertProductionPublicApiUrl(process.env.NEXT_PUBLIC_API_URL);
+}
+
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -22,9 +27,38 @@ function buildApiOriginPattern() {
 
 const apiOriginPattern = buildApiOriginPattern();
 
+const securityHeaders = [
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+  {
+    key: 'Permissions-Policy',
+    value: 'camera=(), microphone=(), geolocation=(), payment=()',
+  },
+  {
+    key: 'Content-Security-Policy',
+    value: "frame-ancestors 'self'; base-uri 'self'; form-action 'self'",
+  },
+];
+
+if (process.env.NODE_ENV === 'production') {
+  securityHeaders.push({
+    key: 'Strict-Transport-Security',
+    value: 'max-age=63072000; includeSubDomains; preload',
+  });
+}
+
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: securityHeaders,
+      },
+    ];
+  },
   images: {
     domains: ['localhost'],
     remotePatterns: [

@@ -7,6 +7,7 @@ import { usePropertyDetails } from '@/lib/hooks/use-properties';
 import { readSellReceipt, type StoredSellReceipt } from '@/lib/sell/sell-receipt-storage';
 import Decimal from 'decimal.js';
 import { DetailRow, SectionCard } from '../../../_components/listing-ui';
+import { safeDebugLog } from '@/lib/logging/safe-debug';
 
 /** Same strings returned by the sell API (`formatMoney` on backend = fixed 4 dp). */
 function LedgerAmount({ amountStr, currency }: { amountStr: string; currency: string }) {
@@ -40,10 +41,7 @@ export default function SellSuccessPage() {
 
     if (!sellAmount && !fee && !net) return;
 
-    console.warn(
-      '[Cohold] Sell success: using URL query fallback; prefer sessionStorage receipt from confirm flow.',
-      { propertyId: id },
-    );
+    safeDebugLog('sell:success:url-query-fallback', { propertyId: id });
 
     const cur = property?.currency ?? 'NGN';
     setReceipt({

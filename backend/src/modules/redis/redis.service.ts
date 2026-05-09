@@ -50,12 +50,22 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     if (this.client) {
+      const client = this.client;
       try {
-        await this.client.quit();
+        // `quit()` can fail when connect() never succeeded; always hard-close below.
+        if (client.isOpen) {
+          await client.quit();
+        }
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
         this.logger.warn(`Redis quit failed: ${message}`);
       } finally {
+        try {
+          client.removeAllListeners();
+          client.disconnect();
+        } catch {
+          // no-op: destroy is best-effort for test/runtime shutdown hygiene
+        }
         this.client = null;
       }
     }

@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { SupportCategory, SupportPriority } from '@prisma/client';
 
 export class CreateSupportConversationDto {
@@ -16,6 +16,7 @@ export class CreateSupportConversationDto {
 
   /** Structured triage payload (transactionRef, amount, currency, propertyId, explanation, etc.) */
   @IsOptional()
+  @IsObject()
   metadata?: Record<string, unknown>;
 }
 

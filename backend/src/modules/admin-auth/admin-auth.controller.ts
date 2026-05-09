@@ -91,6 +91,7 @@ export class AdminAuthController {
   }
 
   @Post('refresh')
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     if (this.debugEnabled()) {
       this.logger.debug(`admin refresh hasCookie=${Boolean(req.cookies?.[ADMIN_REFRESH_COOKIE])}`);

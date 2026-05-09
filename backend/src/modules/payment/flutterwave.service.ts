@@ -18,6 +18,8 @@ export type VerifyPaymentResult = {
   txId: string | null;
   customerEmail?: string | null;
   meta?: Record<string, unknown>;
+  currency?: string | null;
+  accountNumber?: string | null;
 };
 
 @Injectable()
@@ -113,15 +115,55 @@ export class FlutterwaveService {
 
       return {
         reference: tx.tx_ref ?? reference,
-        amount: toDecimal(tx.amount ?? 0),
+        amount: toDecimal((tx.amount as string | number | Decimal | undefined) ?? 0),
         status: tx.status,
         txId: tx.id != null ? String(tx.id) : null,
         customerEmail: tx.customer?.email ?? null,
         meta: tx.meta,
+        currency: ((tx as Record<string, unknown>).currency as string | undefined) ?? null,
+        accountNumber:
+          ((tx as Record<string, unknown>).account_number as string | undefined) ??
+          ((tx.meta as Record<string, unknown> | undefined)?.accountNumber as string | undefined) ??
+          null,
       };
     } catch (error) {
       if (axios.isAxiosError(error)) {
         this.logger.error(`Flutterwave verify failed: ${error.message}`, error.response?.data);
+        throw new UnprocessableEntityException(
+          error.response?.data?.message ?? 'Flutterwave payment verification failed',
+        );
+      }
+      throw error;
+    }
+  }
+
+  async verifyTransactionById(transactionId: string): Promise<VerifyPaymentResult> {
+    try {
+      const response = await this.client.get<{
+        status: string;
+        data?: Record<string, unknown>;
+      }>(`/transactions/${encodeURIComponent(transactionId)}/verify`);
+      const tx = response.data?.data ?? {};
+      const status = String(tx.status ?? '').toLowerCase();
+      if (status !== 'successful') {
+        throw new UnprocessableEntityException(`Payment not successful: ${status || 'unknown'}`);
+      }
+      return {
+        reference: String(tx.tx_ref ?? tx.flw_ref ?? ''),
+        amount: toDecimal((tx.amount as string | number | Decimal | undefined) ?? 0),
+        status,
+        txId: tx.id != null ? String(tx.id) : String(transactionId),
+        customerEmail: ((tx.customer as Record<string, unknown> | undefined)?.email as string | undefined) ?? null,
+        meta: (tx.meta as Record<string, unknown> | undefined) ?? undefined,
+        currency: (tx.currency as string | undefined) ?? null,
+        accountNumber:
+          (tx.account_number as string | undefined) ??
+          ((tx.meta as Record<string, unknown> | undefined)?.accountNumber as string | undefined) ??
+          null,
+      };
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        this.logger.error(`Flutterwave verify-by-id failed: ${error.message}`, error.response?.data);
         throw new UnprocessableEntityException(
           error.response?.data?.message ?? 'Flutterwave payment verification failed',
         );

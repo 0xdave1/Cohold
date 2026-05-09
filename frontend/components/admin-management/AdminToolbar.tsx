@@ -14,6 +14,8 @@ type AdminToolbarProps = {
   onStatusChange: (value: string) => void;
   onPeriodChange: (value: UiPeriod) => void;
   onAddAdmin: () => void;
+  /** Hide when current admin cannot create admins (server: SUPER_ADMIN only). */
+  showAddAdmin?: boolean;
 };
 
 export function AdminToolbar({
@@ -26,6 +28,7 @@ export function AdminToolbar({
   onStatusChange,
   onPeriodChange,
   onAddAdmin,
+  showAddAdmin = true,
 }: AdminToolbarProps) {
   const [filterOpen, setFilterOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -117,13 +120,15 @@ export function AdminToolbar({
           ) : null}
         </div>
 
-        <button
-          type="button"
-          onClick={onAddAdmin}
-          className="rounded-full bg-[#00416A] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#003558]"
-        >
-          Add admin
-        </button>
+        {showAddAdmin ? (
+          <button
+            type="button"
+            onClick={onAddAdmin}
+            className="rounded-full bg-[#00416A] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#003558]"
+          >
+            Add admin
+          </button>
+        ) : null}
       </div>
     </div>
   );

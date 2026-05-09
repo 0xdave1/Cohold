@@ -11,6 +11,7 @@ import { INVESTMENT_FEE_RATE } from '@/lib/constants/investment';
 import { BackIconButton, DetailRow, PrimaryButton, SectionCard } from '../../../_components/listing-ui';
 import { useMe } from '@/lib/hooks/use-onboarding';
 import { isKycMoneyActionAllowed } from '@/lib/kyc/status';
+import { saveInvestmentReceipt } from '@/lib/investment/investment-receipt-storage';
 
 export default function InvestSummaryPage() {
   const params = useParams();
@@ -24,6 +25,11 @@ export default function InvestSummaryPage() {
 
   const shares = search.get('shares') ?? '1';
   const sharePrice = property?.sharePrice ?? property?.totalValue ?? '0';
+  const sharesTotalNum = Number(property?.sharesTotal ?? '0');
+  const sharesSoldNum = Number(property?.sharesSold ?? '0');
+  const sharesLeft = Number.isFinite(sharesTotalNum) && Number.isFinite(sharesSoldNum)
+    ? Math.max(0, sharesTotalNum - sharesSoldNum)
+    : 0;
 
   const breakdown = useMemo(() => {
     const p = search.get('principal');
@@ -39,17 +45,28 @@ export default function InvestSummaryPage() {
   const kycAllowed = isKycMoneyActionAllowed(me?.kycStatus);
 
   const submit = async () => {
-    if (!kycAllowed || meLoading) return;
+    if (!kycAllowed || meLoading || Number(shares) > sharesLeft) return;
     setErrorMessage(null);
     try {
       await createInvestment.mutateAsync({
         propertyId: id,
         shares,
         clientReference: `INV-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      }).then((result) => {
+        const amount = String(result.amount ?? breakdown.principal);
+        const receiptShares = String(result.shares ?? shares);
+        saveInvestmentReceipt({
+          propertyId: id,
+          investmentId: String(result.investmentId ?? ''),
+          amount,
+          shares: receiptShares,
+          status: String(result.status ?? 'COMPLETED'),
+          reference: String(result.reference ?? ''),
+          createdAt: String(result.createdAt ?? new Date().toISOString()),
+          currency: property.currency,
+        });
       });
-      router.push(
-        `/dashboard/properties/${id}/invest/success?shares=${encodeURIComponent(shares)}&amount=${encodeURIComponent(breakdown.principal)}&fee=${encodeURIComponent(breakdown.fee)}&total=${encodeURIComponent(breakdown.totalCharge)}`,
-      );
+      router.push(`/dashboard/properties/${id}/invest/success`);
     } catch (e: unknown) {
       setErrorMessage(mapFinancialIntegrityError(e, 'Investment could not be completed.'));
     }
@@ -80,6 +97,9 @@ export default function InvestSummaryPage() {
       <p className="text-center text-[11px] text-dashboard-body">
         You will be charged: {formatMoney(breakdown.totalCharge, property.currency)} (wallet updates only after the server confirms the debit).
       </p>
+      <p className="text-center text-[11px] text-dashboard-body">
+        Shares available (latest listing snapshot): {sharesLeft}. Final availability is confirmed by backend at submit time.
+      </p>
 
       <div className="grid grid-cols-2 gap-2">
         <Link
@@ -88,10 +108,15 @@ export default function InvestSummaryPage() {
         >
           Go back
         </Link>
-        <PrimaryButton onClick={submit} disabled={createInvestment.isPending || meLoading || !kycAllowed}>
+        <PrimaryButton onClick={submit} disabled={createInvestment.isPending || meLoading || !kycAllowed || Number(shares) > sharesLeft}>
           {meLoading ? 'Checking KYC…' : createInvestment.isPending ? 'Investing...' : kycAllowed ? 'Buy shares' : 'Complete KYC'}
         </PrimaryButton>
       </div>
+      {Number(shares) > sharesLeft ? (
+        <p className="text-center text-xs text-amber-800">
+          Requested shares exceed current availability.
+        </p>
+      ) : null}
       {!meLoading && !kycAllowed ? (
         <Link href="/dashboard/kyc" className="block text-center text-xs font-medium text-cohold-blue underline">
           Complete KYC to continue

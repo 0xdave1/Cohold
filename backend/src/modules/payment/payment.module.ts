@@ -6,9 +6,10 @@ import { AuthModule } from '../auth/auth.module';
 import { FlutterwaveService } from './flutterwave.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { KycComplianceModule } from '../kyc/kyc-compliance.module';
+import { VirtualAccountModule } from '../virtual-account/virtual-account.module';
 
 @Module({
-  imports: [WalletModule, AuthModule, NotificationsModule, KycComplianceModule],
+  imports: [WalletModule, AuthModule, NotificationsModule, KycComplianceModule, VirtualAccountModule],
   controllers: [PaymentsController],
   providers: [PaymentService, FlutterwaveService],
   exports: [PaymentService, FlutterwaveService],

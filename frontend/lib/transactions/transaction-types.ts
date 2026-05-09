@@ -7,9 +7,9 @@ export const WALLET_TRANSACTION_TYPE_LABELS: Record<string, string> = {
   INVESTMENT: 'Investment',
   BUY: 'Property buy',
   SELL: 'Property sell',
-  ROI: 'ROI',
+  ROI: 'Distribution credit (ROI)',
   PROPERTY_FUNDING: 'Property funding',
-  DISTRIBUTION: 'Distribution',
+  DISTRIBUTION: 'Distribution credit',
   FEE: 'Fee',
 };
 
