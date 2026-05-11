@@ -10,7 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { TransactionEmailKind } from '../email/types/email.types';
-import { UserGateway } from '../gateway/user.gateway';
+import { WebSocketDeliveryService } from '../gateway/websocket-delivery.service';
 import { redactSensitive } from '../../common/logging/security-redaction.util';
 import { EnqueueOutboxInput, NotificationDeliveryPayload } from './outbox.types';
 
@@ -26,7 +26,7 @@ export class OutboxService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
-    private readonly userGateway: UserGateway,
+    private readonly webSocketDelivery: WebSocketDeliveryService,
   ) {
     this.baseDelaySeconds = Number(
       this.configService.get<number>('config.outbox.baseDelaySeconds') ?? 30,
@@ -164,9 +164,7 @@ export class OutboxService {
         await this.deliverEmail(p);
       } else if (p.channel === 'WEBSOCKET') {
         if (this.websocketDeliveryEnabled) {
-          this.userGateway.server
-            ?.to(`user:${p.userId}`)
-            .emit(p.event, p.data);
+          this.webSocketDelivery.emitToUser(p.userId, p.event, p.data);
         }
       }
       await this.prisma.notificationDelivery.update({

@@ -34,13 +34,13 @@ describe('OutboxService', () => {
     sendWelcomeEmail: jest.fn(),
   } as any;
 
-  const userGateway = { server: { to: jest.fn().mockReturnValue({ emit: jest.fn() }) } } as any;
+  const webSocketDelivery = { emitToUser: jest.fn() } as any;
 
   let service: OutboxService;
 
   beforeEach(() => {
     jest.resetAllMocks();
-    service = new OutboxService(prisma, config, emailService, userGateway);
+    service = new OutboxService(prisma, config, emailService, webSocketDelivery);
   });
 
   it('deduplicates enqueue by idempotency key', async () => {
