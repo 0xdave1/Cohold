@@ -7,6 +7,15 @@ export interface Property {
   title: string;
   description: string;
   location: string;
+  /** Structured location line preferred for display when set. */
+  displayLocation?: string | null;
+  listingType?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  developerName?: string | null;
+  isListedPartnerDeveloper?: boolean;
   totalValue: string;
   currency: 'NGN' | 'USD' | 'GBP' | 'EUR';
   fundingGoal?: string;
@@ -16,14 +25,22 @@ export interface Property {
   sharesTotal?: string;
   sharesSold?: string;
   sharePrice?: string;
+  availableShares?: string | null;
+  fundingProgressPercent?: string | null;
   /** When backend adds investment term metadata */
   duration?: string | null;
   annualYield?: string | null;
+  projectedAnnualYield?: string | null;
   yieldIsProjected?: boolean;
+  yieldBasis?: string | null;
+  termMonths?: number | null;
   expectedReturnDisclosure?: string | null;
   titleVerificationStatus?: string | null;
   legalReviewStatus?: string | null;
   riskDisclosure?: string | null;
+  documentsAvailable?: boolean;
+  features?: string[];
+  terms?: string | null;
   status: string;
   createdAt: string;
   coverImageUrl?: string | null;

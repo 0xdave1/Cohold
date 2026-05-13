@@ -12,6 +12,13 @@ import { BackIconButton, DetailRow, PrimaryButton, SectionCard } from '../../../
 import { useMe } from '@/lib/hooks/use-onboarding';
 import { isKycMoneyActionAllowed } from '@/lib/kyc/status';
 import { saveInvestmentReceipt } from '@/lib/investment/investment-receipt-storage';
+import { formatAnnualYieldPercent } from '@/lib/format/yield';
+import { formatTermForDetail } from '@/lib/listings/format-term';
+import {
+  formatLegalReviewLabel,
+  formatTitleVerificationLabel,
+  formatYieldBasisLabel,
+} from '@/lib/listings/legal-status-ui';
 
 export default function InvestSummaryPage() {
   const params = useParams();
@@ -92,6 +99,32 @@ export default function InvestSummaryPage() {
         <DetailRow label="No. of shares" value={shares} />
         <DetailRow label="Investment fee" value={formatMoney(breakdown.fee, property.currency)} />
         <DetailRow label="Total charge" value={formatMoney(breakdown.totalCharge, property.currency)} />
+      </SectionCard>
+
+      <SectionCard title="Listing disclosures">
+        <DetailRow label="Share price" value={formatMoney(String(sharePrice), property.currency)} />
+        <DetailRow label="Min. investment" value={formatMoney(property.minInvestment ?? '0', property.currency)} />
+        <DetailRow label="Projected annual yield" value={formatAnnualYieldPercent(property.annualYield ?? property.projectedAnnualYield)} />
+        <DetailRow label="Yield basis" value={formatYieldBasisLabel(property.yieldBasis)} />
+        <DetailRow label="Term" value={formatTermForDetail(property.termMonths ?? null)} />
+        <DetailRow label="Title verification" value={formatTitleVerificationLabel(property.titleVerificationStatus)} />
+        <DetailRow label="Legal review" value={formatLegalReviewLabel(property.legalReviewStatus)} />
+        <DetailRow
+          label="Expected return disclosure"
+          value={
+            property.expectedReturnDisclosure?.trim()
+              ? property.expectedReturnDisclosure
+              : 'Not provided for this listing.'
+          }
+        />
+        <DetailRow
+          label="Risk disclosure"
+          value={property.riskDisclosure?.trim() ? property.riskDisclosure : 'Not provided for this listing.'}
+        />
+        <DetailRow
+          label="Documents"
+          value={property.documentsAvailable ? 'Marked as available' : 'Not marked as available'}
+        />
       </SectionCard>
 
       <p className="text-center text-[11px] text-dashboard-body">

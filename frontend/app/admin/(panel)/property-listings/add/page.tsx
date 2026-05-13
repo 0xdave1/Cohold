@@ -31,7 +31,7 @@ const STEPS: { key: Step; label: string; icon: typeof FileText }[] = [
   { key: 'finance', label: 'Finance', icon: DollarSign },
   { key: 'documentation', label: 'Documentation', icon: FolderOpen },
   { key: 'media', label: 'Media', icon: ImageIcon },
-  { key: 'terms', label: 'Terms & conditions', icon: FileCheck },
+  { key: 'terms', label: 'Terms & legal', icon: FileCheck },
   { key: 'preview', label: 'Preview', icon: Eye },
 ];
 
@@ -54,14 +54,37 @@ function mapDocLabelToApiType(label: string): PropertyDocType {
   return 'OTHER';
 }
 
+const UI_TO_LISTING_TYPE: Record<string, string> = {
+  Fractional: 'FRACTIONAL_OWNERSHIP',
+  Land: 'LAND_ACQUISITION',
+  'Own a home': 'OWN_A_HOME',
+};
+
+const TITLE_STATUS_OPTIONS = ['UNSPECIFIED', 'PENDING', 'VERIFIED', 'REJECTED'] as const;
+const LEGAL_STATUS_OPTIONS = ['UNSPECIFIED', 'PENDING', 'APPROVED', 'REJECTED'] as const;
+const YIELD_BASIS_OPTIONS = ['PROJECTED', 'HISTORICAL', 'UNSPECIFIED'] as const;
+
+function parseTermMonthsFromForm(isFractional: boolean, tenure: string, tenureUnit: string): number | undefined {
+  const raw = tenure.replace(/,/g, '').trim();
+  if (!raw) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  if (!isFractional) return Math.round(n);
+  const u = (tenureUnit || 'year').toLowerCase();
+  if (u.startsWith('year')) return Math.round(n * 12);
+  return Math.round(n);
+}
+
 interface FormData {
   propertyType: string;
   propertyName: string;
   plotSize: string;
+  streetAddress: string;
   country: string;
   state: string;
   city: string;
   developer: string;
+  listedPartnerDeveloper: string;
   description: string;
   features: string[];
   totalPropertyValue: string;
@@ -72,10 +95,16 @@ interface FormData {
   investmentTenure: string;
   tenureUnit: string;
   totalPropertyYield: string;
+  yieldBasis: string;
   instalmentAllowed: string;
   monthlyPayment: string;
   initialDepositRequired: string;
   initialDepositAmount: string;
+  titleVerificationStatus: string;
+  legalReviewStatus: string;
+  documentsAvailable: string;
+  expectedReturnDisclosure: string;
+  riskDisclosure: string;
   documents: { name: string; type: string; file: File | null }[];
   coverImage: File | null;
   additionalImages: File[];
@@ -86,10 +115,12 @@ const initial: FormData = {
   propertyType: '',
   propertyName: '',
   plotSize: '',
+  streetAddress: '',
   country: '',
   state: '',
   city: '',
   developer: '',
+  listedPartnerDeveloper: 'No',
   description: '',
   features: [],
   totalPropertyValue: '',
@@ -100,10 +131,16 @@ const initial: FormData = {
   investmentTenure: '',
   tenureUnit: 'year',
   totalPropertyYield: '',
+  yieldBasis: 'PROJECTED',
   instalmentAllowed: 'No',
   monthlyPayment: '',
   initialDepositRequired: 'No',
   initialDepositAmount: '',
+  titleVerificationStatus: 'UNSPECIFIED',
+  legalReviewStatus: 'UNSPECIFIED',
+  documentsAvailable: 'No',
+  expectedReturnDisclosure: '',
+  riskDisclosure: '',
   documents: [],
   coverImage: null,
   additionalImages: [],
@@ -137,10 +174,21 @@ export default function AddListingPage() {
     setSubmitting(true);
     setSubmitPhase('creating');
     try {
-      const body = {
+      const listingType = UI_TO_LISTING_TYPE[form.propertyType] ?? 'FRACTIONAL_OWNERSHIP';
+      const termMonths = parseTermMonthsFromForm(isFractional, form.investmentTenure, form.tenureUnit);
+      const yieldStr = form.totalPropertyYield.replace(/,/g, '').replace(/%/g, '').trim();
+
+      const body: Record<string, unknown> = {
+        listingType,
         title: form.propertyName.trim(),
         description: form.description.trim(),
         location: [form.city, form.state, form.country].filter(Boolean).join(', '),
+        address: form.streetAddress.trim(),
+        city: form.city.trim(),
+        state: form.state.trim(),
+        country: form.country.trim(),
+        developerName: form.developer.trim() || undefined,
+        isListedPartnerDeveloper: form.listedPartnerDeveloper === 'Yes',
         currency: form.currency,
         totalValue: form.totalPropertyValue.replace(/,/g, ''),
         sharesTotal: (form.totalShares || '1').replace(/,/g, ''),
@@ -148,6 +196,17 @@ export default function AddListingPage() {
         sharePrice: form.unitSharePrice?.trim()
           ? form.unitSharePrice.replace(/,/g, '')
           : undefined,
+        annualYield: yieldStr || undefined,
+        termMonths: termMonths ?? undefined,
+        yieldBasis: form.yieldBasis,
+        yieldIsProjected: form.yieldBasis !== 'HISTORICAL',
+        expectedReturnDisclosure: form.expectedReturnDisclosure.trim() || undefined,
+        riskDisclosure: form.riskDisclosure.trim() || undefined,
+        titleVerificationStatus: form.titleVerificationStatus,
+        legalReviewStatus: form.legalReviewStatus,
+        documentsAvailable: form.documentsAvailable === 'Yes',
+        features: form.features,
+        terms: form.terms.trim() || undefined,
       };
 
       const data = await adminApi.createProperty(body);
@@ -348,8 +407,18 @@ function BasicInfoStep({
       </div>
 
       <div>
+        <Label>Street address (optional)</Label>
+        <Input value={form.streetAddress} onChange={(v) => set('streetAddress', v)} placeholder="Street, district, landmark" />
+      </div>
+
+      <div>
         <Label>Property developer</Label>
         <Input value={form.developer} onChange={(v) => set('developer', v)} placeholder="e.g. Santos Developers & Realty" />
+      </div>
+
+      <div>
+        <Label>Listed partner developer</Label>
+        <Select value={form.listedPartnerDeveloper} onChange={(v) => set('listedPartnerDeveloper', v)} options={['No', 'Yes']} placeholder="" />
       </div>
 
       <div>
@@ -429,11 +498,17 @@ function FinanceStep({ form, set, isFractional }: { form: FormData; set: <K exte
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Total property value</Label>
-              <Input value={form.totalPropertyYield} onChange={(v) => set('totalPropertyYield', v)} suffix="%" />
+              <Label>Projected annual yield</Label>
+              <Input value={form.totalPropertyYield} onChange={(v) => set('totalPropertyYield', v)} placeholder="e.g. 12" suffix="%" />
             </div>
             <div>
-              <Label>Investment tenure</Label>
+              <Label>Yield basis</Label>
+              <Select value={form.yieldBasis} onChange={(v) => set('yieldBasis', v)} options={[...YIELD_BASIS_OPTIONS]} placeholder="" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Investment term</Label>
               <div className="flex gap-2">
                 <Input value={form.investmentTenure} onChange={(v) => set('investmentTenure', v)} placeholder="e.g. 1" />
                 <Select value={form.tenureUnit} onChange={(v) => set('tenureUnit', v)} options={['year', 'months']} />
@@ -654,14 +729,74 @@ function MediaStep({ form, set }: { form: FormData; set: <K extends keyof FormDa
 function TermsStep({ form, set }: { form: FormData; set: <K extends keyof FormData>(k: K, v: FormData[K]) => void }) {
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-semibold text-gray-900">Terms &amp; conditions</h2>
-      <textarea
-        value={form.terms}
-        onChange={(e) => set('terms', e.target.value)}
-        rows={12}
-        placeholder="Type terms & conditions"
-        className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500"
-      />
+      <h2 className="text-lg font-semibold text-gray-900">Terms &amp; legal</h2>
+
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950 space-y-1">
+        <p className="font-medium">Compliance reminders</p>
+        <ul className="list-disc pl-4 space-y-0.5">
+          <li>Do not mark title verified unless legal review is complete.</li>
+          <li>Projected yield is not guaranteed.</li>
+          <li>Publishing requires risk and expected return disclosures (minimum length is enforced server-side).</li>
+        </ul>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <Label>Title verification status</Label>
+          <Select
+            value={form.titleVerificationStatus}
+            onChange={(v) => set('titleVerificationStatus', v)}
+            options={[...TITLE_STATUS_OPTIONS]}
+            placeholder=""
+          />
+        </div>
+        <div>
+          <Label>Legal review status</Label>
+          <Select
+            value={form.legalReviewStatus}
+            onChange={(v) => set('legalReviewStatus', v)}
+            options={[...LEGAL_STATUS_OPTIONS]}
+            placeholder=""
+          />
+        </div>
+        <div>
+          <Label>Documents available for investors</Label>
+          <Select value={form.documentsAvailable} onChange={(v) => set('documentsAvailable', v)} options={['No', 'Yes']} placeholder="" />
+        </div>
+      </div>
+
+      <div>
+        <Label>Expected return disclosure</Label>
+        <textarea
+          value={form.expectedReturnDisclosure}
+          onChange={(e) => set('expectedReturnDisclosure', e.target.value)}
+          rows={4}
+          placeholder="Describe projected returns clearly; avoid guaranteed-return language."
+          className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500"
+        />
+      </div>
+
+      <div>
+        <Label>Risk disclosure</Label>
+        <textarea
+          value={form.riskDisclosure}
+          onChange={(e) => set('riskDisclosure', e.target.value)}
+          rows={4}
+          placeholder="Material risks, liquidity, and loss of capital."
+          className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500"
+        />
+      </div>
+
+      <div>
+        <Label>Terms &amp; conditions (optional)</Label>
+        <textarea
+          value={form.terms}
+          onChange={(e) => set('terms', e.target.value)}
+          rows={8}
+          placeholder="Type terms & conditions"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500"
+        />
+      </div>
     </div>
   );
 }
@@ -693,12 +828,21 @@ function PreviewStep({
         </div>
       </div>
 
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-950 space-y-1">
+        <p className="font-semibold">Before you publish (server-enforced)</p>
+        <p>Expected return and risk disclosures must meet minimum length. At least one image or document is required. Positive annual yield is required for fractional listings.</p>
+        <p>Publishing does not automatically mark title or legal review as verified.</p>
+      </div>
+
       <div className="rounded-xl border border-gray-200 bg-white p-6">
-        <h3 className="mb-4 text-sm font-semibold text-gray-700">Finance</h3>
+        <h3 className="mb-4 text-sm font-semibold text-gray-700">Finance (submitted)</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div><span className="text-gray-400">Total value:</span> <span className="ml-2 font-medium text-gray-900">{form.totalPropertyValue || '\u2014'} {form.currency}</span></div>
           <div><span className="text-gray-400">Shares:</span> <span className="ml-2 font-medium text-gray-900">{form.totalShares || '\u2014'}</span></div>
           <div><span className="text-gray-400">Min investment:</span> <span className="ml-2 font-medium text-gray-900">{form.minInvestmentAmount || '\u2014'}</span></div>
+          <div><span className="text-gray-400">Projected yield:</span> <span className="ml-2 font-medium text-gray-900">{form.totalPropertyYield ? `${form.totalPropertyYield}%` : '\u2014'}</span></div>
+          <div><span className="text-gray-400">Yield basis:</span> <span className="ml-2 font-medium text-gray-900">{form.yieldBasis || '\u2014'}</span></div>
+          <div><span className="text-gray-400">Term:</span> <span className="ml-2 font-medium text-gray-900">{form.investmentTenure ? `${form.investmentTenure} ${form.tenureUnit}` : '\u2014'}</span></div>
         </div>
       </div>
 

@@ -8,7 +8,8 @@ describe('Issue 7 investment frontend integrity', () => {
   it('removes hardcoded legal verification claim from listings', () => {
     const src = readRel('app/dashboard/properties/page.tsx');
     expect(src).not.toContain('Cof O Verified');
-    expect(src).toContain('Title status:');
+    expect(src).toContain('Title:');
+    expect(src).toContain('formatTitleVerificationLabel');
   });
 
   it('keeps investment purchase wallet-funded without direct checkout init', () => {
@@ -57,7 +58,7 @@ describe('Issue 7 investment frontend integrity', () => {
 
   it('shows projected return and risk disclosures', () => {
     const src = readRel('app/dashboard/properties/[id]/page.tsx');
-    expect(src).toContain('Returns shown are projected estimates');
-    expect(src).toContain('Investments carry risk');
+    expect(src).toContain('expectedReturnDisclosure');
+    expect(src).toContain('riskDisclosure');
   });
 });

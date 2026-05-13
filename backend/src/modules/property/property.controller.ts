@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/co
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { PropertyService } from './property.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
+import { UpdatePropertyDto } from './dto/update-property.dto';
 import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { AdminRoleGuard } from '../../common/guards/admin-role.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -23,6 +24,16 @@ export class PropertyController {
     @Body() dto: CreatePropertyDto,
   ) {
     return this.propertyService.createProperty(admin.id, dto);
+  }
+
+  @Patch(':id')
+  @Roles(AdminRole.DATA_UPLOADER, AdminRole.APPROVER, AdminRole.COMPLIANCE_ADMIN, AdminRole.SUPER_ADMIN)
+  async update(
+    @CurrentUser() admin: { id: string },
+    @Param('id') id: string,
+    @Body() dto: UpdatePropertyDto,
+  ) {
+    return this.propertyService.updateProperty(admin.id, id, dto);
   }
 
   @Patch(':id/submit-review')

@@ -155,6 +155,11 @@ export interface PropertyListing {
   title: string;
   description: string;
   location: string;
+  displayLocation?: string | null;
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
   status: string;
   totalValue: string;
   sharePrice: string;
@@ -169,12 +174,23 @@ export interface PropertyListing {
 }
 
 export interface PropertyDetail extends PropertyListing {
-  documents: { id: string; type: string; s3Key: string; url: string | null; createdAt: string }[];
-  images: { id: string; url: string | null; position: number; createdAt: string; storageKey?: string | null }[];
+  documents: { id: string; type: string; url: string | null; createdAt: string }[];
+  images: { id: string; url: string | null; position: number; createdAt: string }[];
   totalInvestors: number;
   yieldPercentage: string;
   /** Unitless annual rate from API when present (e.g. 0.12 = 12% / year). Required server-side to publish. */
   annualYield?: string | null;
+  projectedAnnualYield?: string | null;
+  yieldIsProjected?: boolean;
+  yieldBasis?: string | null;
+  termMonths?: number | null;
+  developerName?: string | null;
+  isListedPartnerDeveloper?: boolean;
+  expectedReturnDisclosure?: string | null;
+  riskDisclosure?: string | null;
+  titleVerificationStatus?: string | null;
+  legalReviewStatus?: string | null;
+  documentsAvailable?: boolean;
   features: string[];
   terms: string;
 }

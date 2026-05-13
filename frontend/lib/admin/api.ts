@@ -106,6 +106,8 @@ export const adminApi = {
   admins: (params?: string) => adminGet<any>(`admin/admins${params ? `?${params}` : ''}`),
   adminDetail: (id: string) => adminGet<any>(`admin/admins/${id}`),
   createProperty: (body: Record<string, unknown>) => adminPost<any, Record<string, unknown>>('admin/properties', body),
+  updateProperty: (id: string, body: Record<string, unknown>) =>
+    adminPatch<any, Record<string, unknown>>(`admin/properties/${id}`, body),
   createAdmin: (body: {
     fullName?: string;
     email: string;

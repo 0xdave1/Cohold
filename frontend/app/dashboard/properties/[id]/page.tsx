@@ -7,7 +7,13 @@ import { usePropertyDetails } from '@/lib/hooks/use-properties';
 import { useMyInvestments } from '@/lib/hooks/use-investments';
 import { useMe } from '@/lib/hooks/use-onboarding';
 import { formatMoney } from '@/lib/hooks/use-wallet';
-import { detectListingMode } from '@/lib/listings/category';
+import { resolveListingMode } from '@/lib/listings/category';
+import { formatTermForDetail } from '@/lib/listings/format-term';
+import {
+  formatLegalReviewLabel,
+  formatTitleVerificationLabel,
+  formatYieldBasisLabel,
+} from '@/lib/listings/legal-status-ui';
 import { investmentPositionValue } from '@/lib/money/portfolio';
 import { buyPreviewFromShares } from '@/lib/money/buy-preview';
 import { formatAnnualYieldPercent } from '@/lib/format/yield';
@@ -62,10 +68,11 @@ export default function PropertyDetailPage() {
   }
 
   const modeFromQuery = searchParams.get('mode');
+  const modeFromApi = resolveListingMode(property);
   const mode =
     modeFromQuery === 'fractional' || modeFromQuery === 'land' || modeFromQuery === 'own-home'
       ? modeFromQuery
-      : detectListingMode(property.title, property.description);
+      : modeFromApi;
 
   const sharePrice = property.sharePrice ?? property.totalValue;
   const sharesTotal = property.sharesTotal ?? '0';
@@ -95,11 +102,10 @@ export default function PropertyDetailPage() {
   const soldOut = sharesTotalNum > 0 && sharesSoldNum >= sharesTotalNum;
   const kycAllowed = isKycMoneyActionAllowed(me?.kycStatus);
 
-  const annualYield = property.annualYield;
-  const durationLabel =
-    property.duration != null && String(property.duration).trim() !== ''
-      ? String(property.duration)
-      : '—';
+  const annualYield = property.annualYield ?? property.projectedAnnualYield;
+  const durationLabel = formatTermForDetail(property.termMonths ?? null);
+  const locationLine = (property.displayLocation && property.displayLocation.trim()) || property.location;
+  const featureList = Array.isArray(property.features) ? property.features : [];
 
   const oneSharePreview = isFractional ? buyPreviewFromShares(String(sharePrice), '1') : null;
 
@@ -141,14 +147,19 @@ export default function PropertyDetailPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
-          <span>{property.location}</span>
+          <span>{locationLine}</span>
         </p>
-        <p className="text-xs text-dashboard-body flex items-center gap-1">
-          <span>Listed partner developer</span>
-          <svg className="h-3.5 w-3.5 text-emerald-600 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-          </svg>
-        </p>
+        {property.developerName?.trim() ? (
+          <p className="text-xs text-dashboard-body mt-1">Developer: {property.developerName.trim()}</p>
+        ) : null}
+        {property.isListedPartnerDeveloper ? (
+          <p className="text-xs text-dashboard-body flex items-center gap-1">
+            <span>Listed partner developer</span>
+            <svg className="h-3.5 w-3.5 text-emerald-600 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+            </svg>
+          </p>
+        ) : null}
       </div>
 
       {isFractional && (
@@ -165,10 +176,14 @@ export default function PropertyDetailPage() {
             </div>
           </div>
           <p className="text-[11px] text-dashboard-body">
-            {property.expectedReturnDisclosure ?? 'Returns shown are projected estimates, not guarantees.'}
+            {property.expectedReturnDisclosure?.trim()
+              ? property.expectedReturnDisclosure
+              : 'The issuer has not provided an expected return disclosure for this listing yet.'}
           </p>
           <p className="text-[11px] text-dashboard-body">
-            {property.riskDisclosure ?? 'Investments carry risk and value can move up or down.'}
+            {property.riskDisclosure?.trim()
+              ? property.riskDisclosure
+              : 'The issuer has not provided a risk disclosure for this listing yet.'}
           </p>
         </div>
       )}
@@ -325,15 +340,25 @@ export default function PropertyDetailPage() {
         <DetailRow label={isFractional ? 'Min. investment amount' : 'Min. payment'} value={formatMoney(property.minInvestment ?? '0', property.currency)} />
         <DetailRow
           label={isFractional ? 'Share price' : isLand ? 'Plot size' : 'Home amount'}
-          value={isLand ? '300sqm' : formatMoney(sharePrice, property.currency)}
+          value={isLand ? '—' : formatMoney(sharePrice, property.currency)}
         />
         <DetailRow label="Projected annual yield" value={isFractional ? formatAnnualYieldPercent(annualYield) : '—'} />
-        <DetailRow label="Yield basis" value={property.yieldIsProjected ? 'Projected estimate' : 'Reported by listing'} />
-        <DetailRow label="Expected return disclosure" value={property.expectedReturnDisclosure ?? 'Projected returns are estimates and not guaranteed.'} />
+        <DetailRow label="Yield basis" value={formatYieldBasisLabel(property.yieldBasis)} />
+        <DetailRow
+          label="Expected return disclosure"
+          value={
+            property.expectedReturnDisclosure?.trim()
+              ? property.expectedReturnDisclosure
+              : 'Not provided for this listing.'
+          }
+        />
         <DetailRow label="Term" value={durationLabel} />
-        <DetailRow label="Title verification status" value={property.titleVerificationStatus ?? 'UNSPECIFIED'} />
-        <DetailRow label="Legal review status" value={property.legalReviewStatus ?? 'UNSPECIFIED'} />
-        <DetailRow label="Risk disclosure" value={property.riskDisclosure ?? 'Investments carry risk'} />
+        <DetailRow label="Title verification status" value={formatTitleVerificationLabel(property.titleVerificationStatus)} />
+        <DetailRow label="Legal review status" value={formatLegalReviewLabel(property.legalReviewStatus)} />
+        <DetailRow
+          label="Risk disclosure"
+          value={property.riskDisclosure?.trim() ? property.riskDisclosure : 'Not provided for this listing.'}
+        />
         {isInvested && isFractional && positionAgg ? (
           <>
             <DetailRow label="Your paid distributions" value={formatMoney(positionAgg.totalReturns, property.currency)} />
@@ -354,11 +379,15 @@ export default function PropertyDetailPage() {
 
       <SectionCard title={isLand ? 'Land features' : 'Property features'}>
         <div className="flex flex-wrap gap-1.5">
-          {['Electricity', 'Security', 'Internet connectivity', 'Accessibility', 'Proximate to recreation spots', 'Modern style'].map((f) => (
-            <span key={f} className="rounded-full border border-dashboard-border px-2.5 py-1 text-[10px] text-dashboard-body">
-              {f}
-            </span>
-          ))}
+          {featureList.length === 0 ? (
+            <p className="text-xs text-dashboard-body">No features listed for this property yet.</p>
+          ) : (
+            featureList.map((f) => (
+              <span key={f} className="rounded-full border border-dashboard-border px-2.5 py-1 text-[10px] text-dashboard-body">
+                {f}
+              </span>
+            ))
+          )}
         </div>
       </SectionCard>
 

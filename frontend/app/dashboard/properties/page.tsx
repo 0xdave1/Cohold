@@ -5,8 +5,10 @@ import { useProperties } from '@/lib/hooks/use-properties';
 import { formatMoney } from '@/lib/hooks/use-wallet';
 import Link from 'next/link';
 import Image from 'next/image';
-import { detectListingMode, modeLabel } from '@/lib/listings/category';
+import { resolveListingMode, listingTypePillLabel } from '@/lib/listings/category';
 import { formatAnnualYieldPercent } from '@/lib/format/yield';
+import { formatTermForListingCard } from '@/lib/listings/format-term';
+import { formatTitleVerificationLabel } from '@/lib/listings/legal-status-ui';
 
 type ListingTab = 'all' | 'fractional' | 'land' | 'own-home';
 
@@ -17,7 +19,7 @@ export default function PropertiesPage() {
   const items = data?.items ?? [];
   const filtered = useMemo(() => {
     if (tab === 'all') return items;
-    return items.filter((p) => detectListingMode(p.title, p.description) === tab);
+    return items.filter((p) => resolveListingMode(p) === tab);
   }, [items, tab]);
 
   return (
@@ -72,9 +74,19 @@ export default function PropertiesPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map((p) => {
-            const category = detectListingMode(p.title, p.description);
+            const category = resolveListingMode(p);
             const cta = category === 'fractional' ? 'Invest now' : category === 'land' ? 'Buy now' : 'Own now';
             const mode = category === 'fractional' ? 'fractional' : category === 'land' ? 'land' : 'own-home';
+            const loc = (p.displayLocation && p.displayLocation.trim()) || p.location;
+            const titleRaw = (p.titleVerificationStatus ?? 'UNSPECIFIED').toUpperCase();
+            const titlePillClass =
+              titleRaw === 'UNSPECIFIED'
+                ? 'bg-gray-100 text-gray-700'
+                : titleRaw === 'VERIFIED'
+                  ? 'bg-emerald-50 text-emerald-800'
+                  : titleRaw === 'PENDING'
+                    ? 'bg-amber-50 text-amber-900'
+                    : 'bg-rose-50 text-rose-800';
             return (
               <Link
                 key={p.id}
@@ -92,21 +104,21 @@ export default function PropertiesPage() {
                       unoptimized
                     />
                   ) : null}
-                  <div className="absolute left-2 top-2 flex gap-1.5">
+                  <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
                     <span className="rounded-md bg-[#D6EDF8] px-2 py-0.5 text-[10px] font-medium text-[#0A4A74]">
-                      {modeLabel(category)}
+                      {listingTypePillLabel(p.listingType)}
                     </span>
-                    <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-900">
-                      Title status: {p.titleVerificationStatus ?? 'UNSPECIFIED'}
+                    <span className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${titlePillClass}`}>
+                      Title: {formatTitleVerificationLabel(p.titleVerificationStatus)}
                     </span>
                   </div>
                 </div>
                 <div className="p-3">
                   <p className="text-base font-medium text-dashboard-heading line-clamp-2">{p.title}</p>
                   <p className="text-xs text-dashboard-body mt-1">
-                    {p.location}
+                    {loc}
                     {category === 'fractional'
-                      ? `  |  ${formatAnnualYieldPercent(p.annualYield)} p.a.  |  ${p.duration && String(p.duration).trim() ? p.duration : 'Term TBD'}`
+                      ? `  |  ${formatAnnualYieldPercent(p.annualYield)} p.a.  |  ${formatTermForListingCard(p.termMonths)}`
                       : ''}
                   </p>
                   <div className="mt-3 flex items-end justify-between gap-2">
@@ -124,7 +136,7 @@ export default function PropertiesPage() {
                   </div>
                   {category === 'fractional' ? (
                     <p className="mt-2 text-[10px] text-dashboard-body">
-                      Returns are projected estimates. Investments carry risk.
+                      Projected yield is an estimate, not a guarantee. Capital is at risk.
                     </p>
                   ) : null}
                 </div>

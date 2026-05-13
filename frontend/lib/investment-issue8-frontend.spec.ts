@@ -8,8 +8,8 @@ describe('Issue 8 returns/distribution frontend integrity', () => {
   it('labels annualYield as projected and keeps risk disclosures', () => {
     const src = readRel('app/dashboard/properties/[id]/page.tsx');
     expect(src).toContain('Projected annual yield');
-    expect(src).toContain('Projected returns are estimates');
-    expect(src).toContain('Investments carry risk');
+    expect(src).toContain('expectedReturnDisclosure');
+    expect(src).toContain('riskDisclosure');
   });
 
   it('contains no guaranteed ROI language in key investment pages', () => {

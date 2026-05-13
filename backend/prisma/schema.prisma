@@ -387,8 +387,16 @@ model Property {
   id                String             @id @default(uuid())
   title             String
   description       String
+  /// Legacy single-line location; prefer structured address fields for new listings.
   location          String
-  status            PropertyStatus     @default(PUBLISHED)
+  listingType       ListingType        @default(FRACTIONAL_OWNERSHIP)
+  address           String             @default("")
+  city              String             @default("")
+  state             String             @default("")
+  country           String             @default("")
+  developerName     String?
+  isListedPartnerDeveloper Boolean   @default(false)
+  status            PropertyStatus     @default(DRAFT)
   totalValue        Decimal            @db.Decimal(24, 8)
   sharePrice        Decimal            @db.Decimal(24, 8)
   currency          Currency
@@ -398,6 +406,17 @@ model Property {
   sharesSold        Decimal            @default(0) @db.Decimal(24, 8)
   /// Annual yield as a unitless rate, e.g. 0.125 = 12.5% per year (used for scheduled ROI math).
   annualYield       Decimal?           @db.Decimal(12, 8)
+  yieldIsProjected  Boolean            @default(true)
+  yieldBasis        PropertyYieldBasis @default(UNSPECIFIED)
+  termMonths        Int?
+  expectedReturnDisclosure String?
+  riskDisclosure    String?
+  titleVerificationStatus TitleVerificationStatus @default(UNSPECIFIED)
+  legalReviewStatus LegalReviewStatus @default(UNSPECIFIED)
+  documentsAvailable Boolean          @default(false)
+  /// JSON array of short feature strings for display (bounded in DTO validation).
+  features          Json               @default("[]")
+  terms             String?
   deletedAt         DateTime?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
@@ -945,6 +964,36 @@ enum PropertyStatus {
   DRAFT
   PUBLISHED
   CLOSED
+}
+
+/// How a property is offered to retail investors (drives UX and pricing labels).
+enum ListingType {
+  FRACTIONAL_OWNERSHIP
+  LAND_ACQUISITION
+  OWN_A_HOME
+}
+
+/// How disclosed yield should be interpreted — never implies a guarantee.
+enum PropertyYieldBasis {
+  PROJECTED
+  HISTORICAL
+  UNSPECIFIED
+}
+
+/// Title / land registry diligence — informational only; not a legal certificate.
+enum TitleVerificationStatus {
+  UNSPECIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+/// Internal legal review workflow — separate from title diligence.
+enum LegalReviewStatus {
+  UNSPECIFIED
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum InvestmentStatus {

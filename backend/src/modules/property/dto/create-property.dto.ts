@@ -1,46 +1,152 @@
-import { IsEnum, IsNumberString, IsOptional, IsString } from 'class-validator';
-import { Currency } from '@prisma/client';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsNumberString,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import {
+  Currency,
+  LegalReviewStatus,
+  ListingType,
+  PropertyYieldBasis,
+  TitleVerificationStatus,
+} from '@prisma/client';
+
+const MAX_FEATURES = 50;
+const MAX_FEATURE_ITEM = 200;
+const MAX_DISCLOSURE = 8000;
+const MAX_TERMS = 50000;
+const MAX_DEVELOPER = 200;
 
 export class CreatePropertyDto {
+  @IsOptional()
+  @IsEnum(ListingType)
+  listingType?: ListingType;
+
   @IsString()
+  @MaxLength(300)
   title!: string;
 
   @IsString()
+  @MaxLength(20000)
   description!: string;
 
+  /** Legacy single-line location (optional if structured address is complete). */
+  @IsOptional()
   @IsString()
-  location!: string;
+  @MaxLength(2000)
+  location?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  country?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_DEVELOPER)
+  developerName?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isListedPartnerDeveloper?: boolean;
 
   @IsEnum(Currency)
   currency!: Currency;
 
-  /**
-   * Total value as string (NUMERIC(24,8)).
-   */
   @IsNumberString()
   totalValue!: string;
 
-  /**
-   * Total number of shares for this property.
-   */
   @IsNumberString()
   sharesTotal!: string;
 
-  /**
-   * Minimum investment ticket size.
-   */
   @IsNumberString()
   minInvestment!: string;
 
-  /**
-   * Price per share. If omitted, auto-calculated as totalValue / sharesTotal.
-   */
   @IsOptional()
   @IsNumberString()
   sharePrice?: string;
 
+  /**
+   * Unitless annual rate (e.g. 0.125) or percent 0–100 (e.g. "12.5" meaning 12.5%).
+   * Parsed in service; persisted as unitless Decimal.
+   */
+  @IsOptional()
+  @IsNumberString()
+  annualYield?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  yieldIsProjected?: boolean;
+
+  @IsOptional()
+  @IsEnum(PropertyYieldBasis)
+  yieldBasis?: PropertyYieldBasis;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(600)
+  termMonths?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_DISCLOSURE)
+  expectedReturnDisclosure?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_DISCLOSURE)
+  riskDisclosure?: string;
+
+  @IsOptional()
+  @IsEnum(TitleVerificationStatus)
+  titleVerificationStatus?: TitleVerificationStatus;
+
+  @IsOptional()
+  @IsEnum(LegalReviewStatus)
+  legalReviewStatus?: LegalReviewStatus;
+
+  @IsOptional()
+  @IsBoolean()
+  documentsAvailable?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_FEATURES)
+  @IsString({ each: true })
+  @MaxLength(MAX_FEATURE_ITEM, { each: true })
+  features?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_TERMS)
+  terms?: string;
+
+  /** @deprecated Ignored — use listingType */
   @IsOptional()
   @IsString()
   type?: string;
 }
-

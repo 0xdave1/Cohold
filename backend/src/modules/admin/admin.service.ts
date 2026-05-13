@@ -23,6 +23,8 @@ import { assertValidUpload, extensionFromFileName } from '../storage/upload-vali
 import { KycService } from '../kyc/kyc.service';
 import { KycReviewDto } from '../kyc/dto/kyc-review.dto';
 import { VirtualAccountService } from '../virtual-account/virtual-account.service';
+import { assertPropertyPublishableOrThrow } from '../property/property-publish-rules';
+import { parseFeaturesFromDb } from '../property/property-yield.util';
 import * as bcrypt from 'bcrypt';
 
 type AdminUiRole = 'SUPER_ADMIN' | 'FINANCE_ADMIN' | 'OPERATION_ADMIN' | 'COMPLIANCE_ADMIN';
@@ -1099,9 +1101,13 @@ export class AdminService {
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
+          listingType: true,
           title: true,
           description: true,
           location: true,
+          city: true,
+          state: true,
+          country: true,
           status: true,
           totalValue: true,
           sharePrice: true,
@@ -1119,7 +1125,15 @@ export class AdminService {
 
     return {
       items: items.map((p) => ({
-        ...p,
+        id: p.id,
+        listingType: p.listingType,
+        title: p.title,
+        description: p.description,
+        location: p.location,
+        city: p.city,
+        state: p.state,
+        country: p.country,
+        status: p.status,
         totalValue: p.totalValue.toString(),
         sharePrice: p.sharePrice.toString(),
         minInvestment: p.minInvestment.toString(),
@@ -1127,7 +1141,6 @@ export class AdminService {
         sharesTotal: p.sharesTotal.toString(),
         sharesSold: p.sharesSold.toString(),
         investorCount: p._count.investments,
-        _count: undefined,
       })),
       meta: { page, limit, total },
     };
@@ -1161,7 +1174,7 @@ export class AdminService {
       ? totalInvested.div(totalVal).times(100).toFixed(2)
       : '0.00';
 
-    const { investments: _inv, ...rest } = property;
+    const { investments, documents: _propDocs, images: _propImages, ...rest } = property;
 
     const images = await Promise.all(
       (property.images ?? []).map(async (img) => {
@@ -1189,14 +1202,23 @@ export class AdminService {
       }),
     );
 
+    const displayLocation = [property.city, property.state, property.country]
+      .map((x) => (x ?? '').trim())
+      .filter(Boolean)
+      .join(', ') || property.location;
+
     return {
       ...rest,
+      displayLocation,
       totalValue: property.totalValue.toString(),
       sharePrice: property.sharePrice.toString(),
       minInvestment: property.minInvestment.toString(),
       currentRaised: property.currentRaised.toString(),
       sharesTotal: property.sharesTotal.toString(),
       sharesSold: property.sharesSold.toString(),
+      annualYield: property.annualYield?.toString() ?? null,
+      projectedAnnualYield: property.annualYield?.toString() ?? null,
+      features: parseFeaturesFromDb(property.features),
       totalInvestors,
       yieldPercentage,
       images,
@@ -1278,47 +1300,11 @@ export class AdminService {
       if (property.status !== PropertyStatus.DRAFT) {
         throw new BadRequestException('Only listings in DRAFT can be published. Unpublish or correct status first.');
       }
+      assertPropertyPublishableOrThrow(property);
       const title = property.title?.trim() ?? '';
       const desc = property.description?.trim() ?? '';
-      if (title.length < 2) {
-        throw new BadRequestException('Property title is too short to publish.');
-      }
-      if (desc.length < 20) {
-        throw new BadRequestException('Property description must be at least 20 characters to publish.');
-      }
       const location = property.location?.trim() ?? '';
-      if (location.length < 2) {
-        throw new BadRequestException('Property location is too short to publish.');
-      }
-      if (property.annualYield == null) {
-        throw new BadRequestException('Property cannot be published without annualYield disclosure.');
-      }
-      if (toDecimal(property.annualYield.toString()).lte(0)) {
-        throw new BadRequestException('annualYield must be a positive disclosed rate.');
-      }
-      if (
-        toDecimal(property.minInvestment.toString()).lte(0) ||
-        toDecimal(property.sharePrice.toString()).lte(0) ||
-        toDecimal(property.totalValue.toString()).lte(0)
-      ) {
-        throw new BadRequestException('minInvestment, sharePrice, and totalValue must be positive before publish.');
-      }
       const mediaCount = property._count.images + property._count.documents;
-      if (mediaCount < 1) {
-        throw new BadRequestException('At least one image or document is required before publishing.');
-      }
-      if (toDecimal(property.sharesTotal.toString()).lte(0)) {
-        throw new BadRequestException('sharesTotal must be positive before publish.');
-      }
-      if (toDecimal(property.sharesSold.toString()).lt(0)) {
-        throw new BadRequestException('sharesSold cannot be negative.');
-      }
-      if (toDecimal(property.sharesSold.toString()).gt(toDecimal(property.sharesTotal.toString()))) {
-        throw new BadRequestException('Property inventory inconsistency: sharesSold exceeds sharesTotal.');
-      }
-      if (toDecimal(property.currentRaised.toString()).gt(toDecimal(property.totalValue.toString()))) {
-        throw new BadRequestException('currentRaised exceeds totalValue — unsafe listing state.');
-      }
       await tx.property.update({
         where: { id: propertyId },
         data: { status: PropertyStatus.PUBLISHED },
@@ -1336,6 +1322,8 @@ export class AdminService {
             titleLength: title.length,
             descriptionLength: desc.length,
             locationLength: location.length,
+            expectedReturnDisclosureLength: (property.expectedReturnDisclosure ?? '').trim().length,
+            riskDisclosureLength: (property.riskDisclosure ?? '').trim().length,
             mediaCountAtPublish: mediaCount,
             inventorySharesOk: true,
             raisedVsTotalOk: true,
@@ -1497,6 +1485,10 @@ export class AdminService {
         s3Key: body.key,
       },
       select: { id: true, type: true, s3Key: true, createdAt: true },
+    });
+    await this.prisma.property.update({
+      where: { id: propertyId },
+      data: { documentsAvailable: true },
     });
     return {
       ...created,

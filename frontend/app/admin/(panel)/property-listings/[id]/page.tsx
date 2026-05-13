@@ -7,7 +7,7 @@ import { useParams } from 'next/navigation';
 import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { adminApi } from '@/lib/admin/api';
 import type { PropertyDetail, PropertyInvestor } from '@/lib/admin/types';
-import { canCloseProperty, canDeleteProperty, canPublishProperty } from '@/lib/admin/permissions';
+import { canCloseProperty, canDeleteProperty, canPublishProperty, canManageProperties } from '@/lib/admin/permissions';
 import { mapApiError } from '@/lib/api/security-errors';
 import { useAuthStore } from '@/stores/auth.store';
 import {
@@ -18,6 +18,7 @@ import {
   FileText,
   MoreHorizontal,
 } from 'lucide-react';
+import { listingTypePillLabel } from '@/lib/listings/category';
 import Decimal from 'decimal.js';
 import { formatDecimalMoneyForDisplay } from '@/lib/money/format-display';
 
@@ -39,13 +40,6 @@ function shortId(id: string) {
   return `#${id.replace(/-/g, '').slice(0, 6).toUpperCase()}`;
 }
 
-function inferType(desc: string) {
-  const d = (desc ?? '').toLowerCase();
-  if (d.includes('land')) return 'Land';
-  if (d.includes('own a home') || d.includes('home')) return 'Own a home';
-  return 'Fractional';
-}
-
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   PUBLISHED: { label: 'Published', cls: 'bg-green-50 text-green-700' },
   DRAFT: { label: 'Draft', cls: 'bg-gray-100 text-gray-600' },
@@ -60,6 +54,7 @@ export default function PropertyDetailPage() {
   const allowPublish = canPublishProperty(adminRole);
   const allowClose = canCloseProperty(adminRole);
   const allowDelete = canDeleteProperty(adminRole);
+  const allowEditListing = canManageProperties(adminRole);
   const [prop, setProp] = useState<PropertyDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -164,7 +159,7 @@ export default function PropertyDetailPage() {
   }
 
   const statusBadge = STATUS_BADGE[prop.status] ?? { label: prop.status, cls: 'bg-gray-100 text-gray-600' };
-  const type = prop.listingType || inferType(prop.description);
+  const typeLabel = listingTypePillLabel(prop.listingType);
   const isPublished = prop.status === 'PUBLISHED';
 
   const TABS: { key: Tab; label: string }[] = [
@@ -241,8 +236,17 @@ export default function PropertyDetailPage() {
       {/* Metrics */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <MetricCard label="Total investment value" value={fmtMoney(prop.totalValue, prop.currency)} />
-        <MetricCard label="Investment type" value={type} />
+        <MetricCard label="Listing type" value={typeLabel} />
         <MetricCard label="Total investors" value={String(prop.totalInvestors ?? prop.investorCount ?? 0)} />
+      </div>
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950 space-y-1">
+        <p className="font-semibold">Listing compliance</p>
+        <ul className="list-disc pl-4 space-y-0.5">
+          <li>Do not mark title verified unless legal review is complete.</li>
+          <li>Projected yield is not guaranteed — avoid guaranteed-return language in disclosures.</li>
+          <li>Publish requires expected return and risk disclosures (minimum length enforced server-side).</li>
+        </ul>
       </div>
 
       {/* Tabs */}
@@ -263,7 +267,9 @@ export default function PropertyDetailPage() {
         </div>
       </div>
 
-      {tab === 'info' && <PropertyInfoTab prop={prop} />}
+      {tab === 'info' && (
+        <PropertyInfoTab prop={prop} propertyId={id} canEdit={allowEditListing} onReload={() => void fetchProperty()} />
+      )}
       {tab === 'features' && <FeaturesTab prop={prop} />}
       {tab === 'investors' && <InvestorsTab propertyId={prop.id} />}
       {tab === 'documents' && <DocumentsTab prop={prop} />}
@@ -316,7 +322,17 @@ function InfoRow({ label, value, valueColor }: { label: string; value: string | 
 
 /* ── Property Info Tab ───────────────────────────── */
 
-function PropertyInfoTab({ prop }: { prop: PropertyDetail }) {
+function PropertyInfoTab({
+  prop,
+  propertyId,
+  canEdit,
+  onReload,
+}: {
+  prop: PropertyDetail;
+  propertyId: string;
+  canEdit: boolean;
+  onReload: () => void;
+}) {
   const sharesTotal = new Decimal(prop.sharesTotal || '0');
   const sharesSold = new Decimal(prop.sharesSold || '0');
   const oversold = sharesTotal.gt(0) && sharesSold.gt(sharesTotal);
@@ -324,11 +340,76 @@ function PropertyInfoTab({ prop }: { prop: PropertyDetail }) {
   const annualYield = prop.annualYield != null && String(prop.annualYield).trim() !== ''
     ? new Decimal(String(prop.annualYield)).times(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2)
     : null;
-  const fundedPct =
-    prop.yieldPercentage ??
-    (sharesTotal.gt(0)
-      ? sharesSold.div(sharesTotal).times(100).toDecimalPlaces(1, Decimal.ROUND_HALF_UP).toFixed(1)
-      : '0');
+  const fundedPct = sharesTotal.gt(0)
+    ? sharesSold.div(sharesTotal).times(100).toDecimalPlaces(1, Decimal.ROUND_HALF_UP).toFixed(1)
+    : '0';
+  const displayLoc = (prop.displayLocation && prop.displayLocation.trim()) || prop.location;
+
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [form, setForm] = useState(() => buildEditForm(prop));
+
+  useEffect(() => {
+    setForm(buildEditForm(prop));
+  }, [
+    prop.id,
+    prop.title,
+    prop.description,
+    prop.listingType,
+    prop.annualYield,
+    prop.termMonths,
+    prop.expectedReturnDisclosure,
+    prop.riskDisclosure,
+    prop.titleVerificationStatus,
+    prop.legalReviewStatus,
+    prop.documentsAvailable,
+    prop.developerName,
+    prop.isListedPartnerDeveloper,
+    prop.address,
+    prop.city,
+    prop.state,
+    prop.country,
+    prop.yieldBasis,
+    prop.features,
+  ]);
+
+  const save = async () => {
+    if (!canEdit) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      const termNum = form.termMonths.trim() === '' ? undefined : Number(form.termMonths);
+      const body: Record<string, unknown> = {
+        listingType: form.listingType,
+        title: form.title.trim(),
+        description: form.description.trim(),
+        address: form.address.trim(),
+        city: form.city.trim(),
+        state: form.state.trim(),
+        country: form.country.trim(),
+        developerName: form.developerName.trim() || undefined,
+        isListedPartnerDeveloper: form.isListedPartnerDeveloper,
+        annualYield: form.annualYieldPercent.trim() || undefined,
+        yieldBasis: form.yieldBasis,
+        yieldIsProjected: form.yieldBasis !== 'HISTORICAL',
+        expectedReturnDisclosure: form.expectedReturnDisclosure.trim() || undefined,
+        riskDisclosure: form.riskDisclosure.trim() || undefined,
+        titleVerificationStatus: form.titleVerificationStatus,
+        legalReviewStatus: form.legalReviewStatus,
+        documentsAvailable: form.documentsAvailable,
+        features: form.featuresText.split('\n').map((s) => s.trim()).filter(Boolean),
+      };
+      if (termNum !== undefined && Number.isFinite(termNum) && termNum > 0) {
+        body.termMonths = Math.round(termNum);
+      }
+      await adminApi.updateProperty(propertyId, body);
+      await onReload();
+    } catch (e: unknown) {
+      setEditError(mapApiError(e).message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -344,8 +425,9 @@ function PropertyInfoTab({ prop }: { prop: PropertyDetail }) {
         <h3 className="mb-5 text-sm font-semibold text-gray-700">Property information</h3>
         <div className="grid grid-cols-2 gap-x-10 gap-y-5 sm:grid-cols-3">
           <InfoRow label="Listing ID" value={shortId(prop.id)} />
+          <InfoRow label="Listing type" value={listingTypePillLabel(prop.listingType)} />
           <InfoRow label="Property name" value={prop.title} />
-          <InfoRow label="Location" value={prop.location} />
+          <InfoRow label="Display location" value={displayLoc} />
           <InfoRow label="Min investment amount" value={fmtMoney(prop.minInvestment, prop.currency)} valueColor="text-green-600" />
           <InfoRow label="Share price" value={fmtMoney(prop.sharePrice, prop.currency)} />
           <InfoRow
@@ -354,6 +436,7 @@ function PropertyInfoTab({ prop }: { prop: PropertyDetail }) {
             valueColor={annualYield ? 'text-gray-900' : 'text-amber-700'}
           />
           <InfoRow label="Funded (% of share cap)" value={`${fundedPct}%`} />
+          <InfoRow label="Capital subscribed (invested / total value)" value={`${prop.yieldPercentage ?? '0'}%`} />
           <InfoRow label="Total investment value" value={fmtMoney(prop.totalValue, prop.currency)} />
           <InfoRow label="Shares sold / total" value={`${sharesSold.toFixed()} / ${sharesTotal.toFixed()}`} />
           <InfoRow label="Shares available (computed)" value={available.gte(0) ? available.toFixed() : '—'} />
@@ -368,8 +451,245 @@ function PropertyInfoTab({ prop }: { prop: PropertyDetail }) {
           {prop.description || 'No description provided.'}
         </p>
       </div>
+
+      {canEdit ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-6 space-y-4">
+          <h3 className="text-sm font-semibold text-gray-700">Edit listing contract</h3>
+          {editError ? <p className="text-xs text-red-600">{editError}</p> : null}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-xs text-gray-500">
+              Listing type
+              <select
+                value={form.listingType}
+                onChange={(e) => setForm((f) => ({ ...f, listingType: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              >
+                <option value="FRACTIONAL_OWNERSHIP">Fractional</option>
+                <option value="LAND_ACQUISITION">Land</option>
+                <option value="OWN_A_HOME">Own a home</option>
+              </select>
+            </label>
+            <label className="block text-xs text-gray-500">
+              Yield basis
+              <select
+                value={form.yieldBasis}
+                onChange={(e) => setForm((f) => ({ ...f, yieldBasis: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              >
+                <option value="PROJECTED">PROJECTED</option>
+                <option value="HISTORICAL">HISTORICAL</option>
+                <option value="UNSPECIFIED">UNSPECIFIED</option>
+              </select>
+            </label>
+          </div>
+          <label className="block text-xs text-gray-500">
+            Title
+            <input
+              value={form.title}
+              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block text-xs text-gray-500">
+            Description
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              rows={4}
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-xs text-gray-500">
+              Address
+              <input
+                value={form.address}
+                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block text-xs text-gray-500">
+              City
+              <input
+                value={form.city}
+                onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block text-xs text-gray-500">
+              State
+              <input
+                value={form.state}
+                onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block text-xs text-gray-500">
+              Country
+              <input
+                value={form.country}
+                onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
+          <label className="block text-xs text-gray-500">
+            Developer name
+            <input
+              value={form.developerName}
+              onChange={(e) => setForm((f) => ({ ...f, developerName: e.target.value }))}
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-gray-700">
+            <input
+              type="checkbox"
+              checked={form.isListedPartnerDeveloper}
+              onChange={(e) => setForm((f) => ({ ...f, isListedPartnerDeveloper: e.target.checked }))}
+            />
+            Listed partner developer
+          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-xs text-gray-500">
+              Annual yield (% per year, e.g. 12 for 12%)
+              <input
+                value={form.annualYieldPercent}
+                onChange={(e) => setForm((f) => ({ ...f, annualYieldPercent: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block text-xs text-gray-500">
+              Term (months)
+              <input
+                value={form.termMonths}
+                onChange={(e) => setForm((f) => ({ ...f, termMonths: e.target.value }))}
+                placeholder="e.g. 24"
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-xs text-gray-500">
+              Title verification status
+              <select
+                value={form.titleVerificationStatus}
+                onChange={(e) => setForm((f) => ({ ...f, titleVerificationStatus: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              >
+                {['UNSPECIFIED', 'PENDING', 'VERIFIED', 'REJECTED'].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs text-gray-500">
+              Legal review status
+              <select
+                value={form.legalReviewStatus}
+                onChange={(e) => setForm((f) => ({ ...f, legalReviewStatus: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              >
+                {['UNSPECIFIED', 'PENDING', 'APPROVED', 'REJECTED'].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-700">
+            <input
+              type="checkbox"
+              checked={form.documentsAvailable}
+              onChange={(e) => setForm((f) => ({ ...f, documentsAvailable: e.target.checked }))}
+            />
+            Documents available (investor-facing flag)
+          </label>
+          <label className="block text-xs text-gray-500">
+            Expected return disclosure
+            <textarea
+              value={form.expectedReturnDisclosure}
+              onChange={(e) => setForm((f) => ({ ...f, expectedReturnDisclosure: e.target.value }))}
+              rows={3}
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block text-xs text-gray-500">
+            Risk disclosure
+            <textarea
+              value={form.riskDisclosure}
+              onChange={(e) => setForm((f) => ({ ...f, riskDisclosure: e.target.value }))}
+              rows={3}
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block text-xs text-gray-500">
+            Features (one per line)
+            <textarea
+              value={form.featuresText}
+              onChange={(e) => setForm((f) => ({ ...f, featuresText: e.target.value }))}
+              rows={4}
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void save()}
+            className="rounded-lg bg-[#1a3a4a] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+type EditFormState = {
+  listingType: string;
+  title: string;
+  description: string;
+  address: string;
+  city: string;
+  state: string;
+  country: string;
+  developerName: string;
+  isListedPartnerDeveloper: boolean;
+  annualYieldPercent: string;
+  yieldBasis: string;
+  termMonths: string;
+  expectedReturnDisclosure: string;
+  riskDisclosure: string;
+  titleVerificationStatus: string;
+  legalReviewStatus: string;
+  documentsAvailable: boolean;
+  featuresText: string;
+};
+
+function buildEditForm(prop: PropertyDetail): EditFormState {
+  const annualYieldPercent =
+    prop.annualYield != null && String(prop.annualYield).trim() !== ''
+      ? new Decimal(String(prop.annualYield)).times(100).toDecimalPlaces(8, Decimal.ROUND_HALF_UP).toFixed()
+      : '';
+  const trimmed = annualYieldPercent.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
+  return {
+    listingType: prop.listingType || 'FRACTIONAL_OWNERSHIP',
+    title: prop.title,
+    description: prop.description,
+    address: prop.address ?? '',
+    city: prop.city ?? '',
+    state: prop.state ?? '',
+    country: prop.country ?? '',
+    developerName: prop.developerName ?? '',
+    isListedPartnerDeveloper: Boolean(prop.isListedPartnerDeveloper),
+    annualYieldPercent: trimmed,
+    yieldBasis: prop.yieldBasis ?? 'PROJECTED',
+    termMonths: prop.termMonths != null ? String(prop.termMonths) : '',
+    expectedReturnDisclosure: prop.expectedReturnDisclosure ?? '',
+    riskDisclosure: prop.riskDisclosure ?? '',
+    titleVerificationStatus: prop.titleVerificationStatus ?? 'UNSPECIFIED',
+    legalReviewStatus: prop.legalReviewStatus ?? 'UNSPECIFIED',
+    documentsAvailable: Boolean(prop.documentsAvailable),
+    featuresText: (prop.features ?? []).join('\n'),
+  };
 }
 
 /* ── Features & Pictures Tab ─────────────────────── */
