@@ -1,49 +1,74 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { DashboardHeaderActions } from '@/components/dashboard/DashboardHeaderActions';
 import { AccountsModal } from '@/components/wallet/AccountsModal';
 import { WithdrawWalletModal } from '@/components/wallet/WithdrawWalletModal';
-import {
-  useWalletBalances,
-  formatMoney,
-} from '@/lib/hooks/use-wallet';
+import { useWalletBalances, formatMoney } from '@/lib/hooks/use-wallet';
 import { useMyInvestments } from '@/lib/hooks/use-investments';
 import { investmentPositionValue, isActiveInvestmentStatus } from '@/lib/money/portfolio';
 import { useProperties } from '@/lib/hooks/use-properties';
 import { useMe } from '@/lib/hooks/use-onboarding';
-import { useDashboardSummary } from '@/lib/hooks/use-dashboard-summary';
+import { useDashboardSummary, type DashboardSummary } from '@/lib/hooks/use-dashboard-summary';
 import { useOnboardingChecklist } from '@/lib/hooks/use-onboarding-checklist';
 import { useAuthStore } from '@/stores/auth.store';
 import { EmptyState } from '@/components/dashboard/EmptyState';
 import { isKycMoneyActionAllowed } from '@/lib/kyc/status';
-import { OnboardingChecklistCard } from '@/components/dashboard/OnboardingChecklistCard';
-import { unsupportedMetricHint, unsupportedMetricLabel } from '@/lib/dashboard/unsupported-metric';
+import { DashboardTodoShortcuts } from '@/components/dashboard/DashboardTodoShortcuts';
+import { getVirtualAccountWalletNotice } from '@/lib/dashboard/virtual-account-ui';
 
 const CURRENCIES: Array<{ code: 'NGN'; flag: string; label: string }> = [
   { code: 'NGN', flag: '🇳🇬', label: 'NGN Account' },
 ];
 
+function paidDistributionsMeaningful(summary: DashboardSummary): boolean {
+  const n = summary.paidDistributionsFromPayouts.payoutCount;
+  const raw = summary.paidDistributionsFromPayouts.totalAmount;
+  if (n <= 0) return false;
+  const v = parseFloat(String(raw).replace(/,/g, ''));
+  return Number.isFinite(v) && v > 0;
+}
+
+function investmentSummaryAside(summary: DashboardSummary | undefined): ReactNode {
+  if (!summary) return null;
+  const paid = paidDistributionsMeaningful(summary);
+  const activeN = summary.activeInvestments.count;
+  const hasActive = activeN > 0;
+  if (!paid && !hasActive) return null;
+  const segments: string[] = [];
+  if (paid) {
+    segments.push(
+      `Paid distributions (credited): ${formatMoney(summary.paidDistributionsFromPayouts.totalAmount, 'NGN')}`,
+    );
+  }
+  if (hasActive) {
+    let line = `Active positions: ${activeN}`;
+    if (summary.activeInvestments.principalInvested) {
+      line += ` · Principal ${formatMoney(summary.activeInvestments.principalInvested, 'NGN')}`;
+    }
+    segments.push(line);
+  }
+  return <p className="mb-2 text-[11px] leading-relaxed text-dashboard-body">{segments.join(' · ')}</p>;
+}
+
 export default function HomeDashboardPage() {
   const router = useRouter();
   const userFromStore = useAuthStore((s) => s.user);
   const { data: me } = useMe();
-  const { data: dashboardSummary, isLoading: summaryLoading, isError: summaryError } = useDashboardSummary();
-  const {
-    data: onboardingChecklist,
-    isLoading: checklistLoading,
-    isError: checklistError,
-  } = useOnboardingChecklist();
+  const { data: dashboardSummary } = useDashboardSummary();
+  const { data: onboardingChecklist, isLoading: checklistLoading, isError: checklistError } = useOnboardingChecklist();
   const { data: balances = [], isLoading: balancesLoading } = useWalletBalances();
   const { data: investmentsData } = useMyInvestments();
   const { data: propertiesData } = useProperties(1, 10);
 
   const displayName = me?.firstName || userFromStore?.firstName || 'User';
   const userEmail = me?.email ?? userFromStore?.email ?? '';
-  const initials = [me?.firstName?.[0], me?.lastName?.[0]].filter(Boolean).join('').toUpperCase() || (userFromStore?.email?.[0] ?? 'U').toUpperCase();
+  const initials =
+    [me?.firstName?.[0], me?.lastName?.[0]].filter(Boolean).join('').toUpperCase() ||
+    (userFromStore?.email?.[0] ?? 'U').toUpperCase();
   const profileImage = me?.profilePhotoUrl ?? me?.profileImageUrl ?? null;
   const meIsVerified = isKycMoneyActionAllowed(me?.kycStatus) && !!me?.onboardingCompletedAt;
   const storeIsVerified =
@@ -71,7 +96,7 @@ export default function HomeDashboardPage() {
               ? 'withdraw funds'
               : action === 'account'
                 ? 'view account details'
-                : 'perform P2P transfers'
+                : 'perform P2P transfers',
       );
       return;
     }
@@ -88,20 +113,20 @@ export default function HomeDashboardPage() {
   );
   const listings = useMemo(() => propertiesData?.items ?? [], [propertiesData?.items]);
   const listingCoverById = useMemo(
-    () =>
-      new Map(
-        listings.map((p) => [p.id, p.coverImageUrl ?? null] as const),
-      ),
+    () => new Map(listings.map((p) => [p.id, p.coverImageUrl ?? null] as const)),
     [listings],
   );
   const fractionalListings = useMemo(() => listings.slice(0, 6), [listings]);
 
+  const vaNotice = dashboardSummary ? getVirtualAccountWalletNotice(dashboardSummary.virtualAccount) : null;
+  const pendingWd = dashboardSummary?.pendingWithdrawals;
+  const showPendingWithdrawal = pendingWd && typeof pendingWd.count === 'number' && pendingWd.count > 0;
+
   return (
     <div className="space-y-6">
-      {/* Header: avatar, greeting, tagline, notification */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-amber-100 flex items-center justify-center text-dashboard-heading font-semibold text-sm">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-amber-100 text-sm font-semibold text-dashboard-heading">
             {profileImage ? (
               <Image
                 src={profileImage}
@@ -116,86 +141,15 @@ export default function HomeDashboardPage() {
             )}
           </div>
           <div className="min-w-0">
-            <h1 className="text-xl font-bold text-dashboard-heading truncate">Hi {displayName} 👋</h1>
+            <h1 className="truncate text-xl font-bold text-dashboard-heading">Hi {displayName} 👋</h1>
             <p className="text-sm font-normal text-dashboard-body">Welcome to investing for properties</p>
           </div>
         </div>
         <DashboardHeaderActions />
       </div>
 
-      <OnboardingChecklistCard
-        checklist={onboardingChecklist}
-        isLoading={checklistLoading}
-        isError={checklistError}
-      />
-
-      <section aria-labelledby="dashboard-summary-heading" className="rounded-2xl border border-dashboard-border bg-dashboard-card px-4 py-4">
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <h2 id="dashboard-summary-heading" className="text-sm font-semibold text-dashboard-heading">
-            Overview (from server)
-          </h2>
-          {summaryError ? (
-            <span className="text-xs text-amber-700">Summary unavailable</span>
-          ) : null}
-        </div>
-        {summaryLoading ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="h-16 rounded-lg bg-dashboard-border/40 animate-pulse" />
-            ))}
-          </div>
-        ) : dashboardSummary ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 text-xs">
-            <SummaryTile
-              label="Paid distributions"
-              value={formatMoney(dashboardSummary.paidDistributionsFromPayouts.totalAmount, 'NGN')}
-              hint="From payout records; not projected yield."
-            />
-            <SummaryTile
-              label="Active investments"
-              value={String(dashboardSummary.activeInvestments.count)}
-              sub={formatMoney(dashboardSummary.activeInvestments.principalInvested, 'NGN')}
-              subLabel="Principal"
-            />
-            <SummaryTile
-              label="Pending withdrawals"
-              value={String(dashboardSummary.pendingWithdrawals.count)}
-              sub={formatMoney(dashboardSummary.pendingWithdrawals.totalNetAmount, 'NGN')}
-              subLabel="Net total"
-            />
-            <SummaryTile label="KYC status" value={dashboardSummary.kycStatus} />
-            <SummaryTile
-              label="Virtual account"
-              value={dashboardSummary.virtualAccount.status}
-              sub={[dashboardSummary.virtualAccount.bankName, dashboardSummary.virtualAccount.accountNumberLast4]
-                .filter(Boolean)
-                .join(' · ') || undefined}
-            />
-            <SummaryTile
-              label="Unread notifications"
-              value={String(dashboardSummary.unreadNotificationsCount)}
-              href="/dashboard/notifications"
-            />
-            <SummaryTile label="Open support (OPEN)" value={String(dashboardSummary.openSupportTicketsCount)} href="/dashboard/support" />
-            <SummaryTile
-              label="Portfolio projected yield"
-              value={unsupportedMetricLabel(dashboardSummary.projectedPortfolioYield?.value ?? null)}
-              hint={unsupportedMetricHint(dashboardSummary.projectedPortfolioYield?.unsupportedReason)}
-            />
-            <SummaryTile
-              label="Resale / secondary liquidity"
-              value={unsupportedMetricLabel(null)}
-              hint={unsupportedMetricHint(dashboardSummary.unsupported?.secondaryMarketLiquidity?.unsupportedReason)}
-            />
-          </div>
-        ) : (
-          <p className="text-sm text-dashboard-body">Connect to the server to load your dashboard summary.</p>
-        )}
-      </section>
-
-      {/* Wallet card (Figma): centered account pill, centered balance + eye, compact virtual account pill */}
       <div
-        className="rounded-2xl bg-dashboard-card border border-dashboard-border px-4 pt-4 pb-5"
+        className="rounded-xl border border-dashboard-border bg-dashboard-card px-4 pb-5 pt-4"
         style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
       >
         <div className="flex justify-center">
@@ -209,7 +163,9 @@ export default function HomeDashboardPage() {
                 {CURRENCIES.find((c) => c.code === selectedCurrency)?.flag}
               </span>
             </span>
-            <span className="text-sm font-medium text-dashboard-heading">{CURRENCIES.find((c) => c.code === selectedCurrency)?.label}</span>
+            <span className="text-sm font-medium text-dashboard-heading">
+              {CURRENCIES.find((c) => c.code === selectedCurrency)?.label}
+            </span>
             <svg className="h-4 w-4 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
@@ -218,14 +174,14 @@ export default function HomeDashboardPage() {
 
         <div className="mt-4 flex items-center justify-center gap-2">
           {balancesLoading ? (
-            <div className="h-8 w-40 bg-dashboard-border/50 rounded animate-pulse" />
+            <div className="h-8 w-40 animate-pulse rounded bg-dashboard-border/50" />
           ) : (
-            <p className="text-2xl font-bold text-dashboard-heading tracking-tight">{displayBalance}</p>
+            <p className="text-2xl font-bold tracking-tight text-dashboard-heading">{displayBalance}</p>
           )}
           <button
             type="button"
             onClick={() => setBalanceVisible((v) => !v)}
-            className="p-1.5 rounded-lg hover:bg-dashboard-border/40 shrink-0"
+            className="shrink-0 rounded-lg p-1.5 hover:bg-dashboard-border/40"
             aria-label={balanceVisible ? 'Hide balance' : 'Show balance'}
           >
             {balanceVisible ? (
@@ -241,7 +197,31 @@ export default function HomeDashboardPage() {
           </button>
         </div>
 
-        {/* Quick actions (inside wallet card) */}
+        {showPendingWithdrawal ? (
+          <div className="mt-3 flex justify-center">
+            <Link
+              href="/dashboard/wallet"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-200/90 bg-amber-50 px-3 py-1.5 text-center text-[11px] font-medium text-amber-950"
+            >
+              <span className="truncate">
+                {pendingWd.count} pending withdrawal{pendingWd.count === 1 ? '' : 's'}
+                {pendingWd.totalNetAmount
+                  ? ` · ${formatMoney(pendingWd.totalNetAmount, 'NGN')} net`
+                  : null}
+              </span>
+            </Link>
+          </div>
+        ) : null}
+
+        {vaNotice ? (
+          <div className="mt-3 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-center text-xs leading-snug text-amber-950">
+            {vaNotice}{' '}
+            <Link href="/dashboard/wallet" className="font-semibold text-cohold-primary underline-offset-2 hover:underline">
+              Wallet
+            </Link>
+          </div>
+        ) : null}
+
         <div className="mt-4 grid grid-cols-4 gap-4">
           {[
             { key: 'top-up', label: 'Top up', icon: PlusIcon, onClick: () => handleWalletAction('top-up') },
@@ -256,81 +236,30 @@ export default function HomeDashboardPage() {
               aria-label={`${label} wallet action`}
               className="flex flex-col items-center gap-2"
             >
-              <div className="h-12 w-12 rounded-full bg-cohold-blue flex items-center justify-center text-white hover:opacity-90 transition-opacity">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-cohold-primary text-white transition-opacity hover:bg-cohold-primary-hover hover:opacity-95">
                 <Icon className="h-6 w-6" />
               </div>
-              <span className="text-xs font-medium text-dashboard-heading">{label}</span>
+              <span className="text-xs font-medium text-dashboard-body">{label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Shortcuts — checklist above drives priority; these are quick navigation only */}
-      <section aria-label="Shortcuts">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-normal text-dashboard-body">Shortcuts</p>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            {
-              key: 'properties',
-              title: 'Browse properties',
-              href: '/dashboard/properties',
-              icon: (
-                <svg className="h-6 w-6 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
-              ),
-            },
-            {
-              key: 'wallet',
-              title: 'Wallet',
-              href: '/dashboard/wallet',
-              icon: (
-                <svg className="h-6 w-6 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                </svg>
-              ),
-            },
-            {
-              key: 'support',
-              title: 'Support',
-              href: '/dashboard/support',
-              icon: (
-                <svg className="h-6 w-6 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-              ),
-            },
-          ].map((t) => (
-            <Link
-              key={t.key}
-              href={t.href}
-              className="rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-3 flex flex-col gap-3 focus:outline-none focus:ring-2 focus:ring-cohold-blue/30"
-            >
-              <div className="h-11 w-11 rounded-xl bg-dashboard-border/10 flex items-center justify-center" aria-hidden>
-                {t.icon}
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-dashboard-heading leading-4 line-clamp-2">{t.title}</p>
-                <svg className="h-4 w-4 text-dashboard-body shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </section>
+      <DashboardTodoShortcuts
+        checklist={onboardingChecklist}
+        isLoading={checklistLoading}
+        isError={checklistError}
+      />
 
-      {/* My Investments: horizontal carousel, card radius 12px, font hierarchy */}
       <section>
-        <div className="flex items-center justify-between mb-3">
+        <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold text-dashboard-heading">My investments</h2>
           <Link href="/dashboard/investments" className="text-sm font-normal text-dashboard-body">
             See all →
           </Link>
         </div>
-        <div className="overflow-x-auto pb-2 -mx-4 px-4 flex gap-3 snap-x snap-mandatory">
+        {investmentSummaryAside(dashboardSummary)}
+        <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
           {myInvestments.length === 0 ? (
             <EmptyState
               title="You do not have any investment yet."
@@ -346,52 +275,55 @@ export default function HomeDashboardPage() {
                 </svg>
               }
               cta={{ label: 'Go to Listings', href: '/dashboard/properties' }}
-              className="flex-1 min-w-[280px] rounded-xl p-6 shadow-sm"
+              className="min-w-[280px] flex-1 rounded-xl p-6 shadow-sm"
             />
           ) : (
             myInvestments.slice(0, 5).map((inv) => {
               const cover = listingCoverById.get(inv.propertyId) ?? null;
               return (
-              <Link
-                key={inv.id}
-                href={`/dashboard/portfolio/${inv.id}`}
-                className="flex-shrink-0 w-[280px] snap-start rounded-xl border border-dashboard-border bg-dashboard-card overflow-hidden shadow-sm hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-shadow"
-              >
-                <div className="relative h-36 bg-dashboard-border/50 flex items-center justify-center rounded-t-xl">
-                  {cover ? (
-                    <Image
-                      src={cover}
-                      alt={inv.property?.title ?? 'Property'}
-                      fill
-                      sizes="280px"
-                      className="h-full w-full object-cover"
-                      unoptimized
-                    />
-                  ) : (
-                    <svg className="h-12 w-12 text-dashboard-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                    </svg>
-                  )}
-                </div>
-                <div className="p-3">
-                  <p className="text-sm font-semibold text-dashboard-heading line-clamp-2">{inv.property?.title ?? 'Property'}</p>
-                  <p className="text-xs font-normal text-dashboard-body mt-1">{inv.property?.location ?? '—'}</p>
-                  <p className="text-sm font-semibold text-dashboard-heading mt-2">
-                    {formatMoney(investmentPositionValue(inv.amount, inv.totalReturns), inv.currency)}
-                  </p>
-                  <p className="text-[10px] text-dashboard-muted">Principal plus paid distributions credited to this position (not a guaranteed total).</p>
-                  <p className="text-xs font-normal text-dashboard-muted mt-0.5">{inv.status}</p>
-                </div>
-              </Link>
+                <Link
+                  key={inv.id}
+                  href={`/dashboard/portfolio/${inv.id}`}
+                  className="w-[280px] flex-shrink-0 snap-start overflow-hidden rounded-xl border border-dashboard-border bg-dashboard-card shadow-sm transition-shadow hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
+                >
+                  <div className="relative flex h-36 items-center justify-center rounded-t-xl bg-dashboard-border/50">
+                    {cover ? (
+                      <Image
+                        src={cover}
+                        alt={inv.property?.title ?? 'Property'}
+                        fill
+                        sizes="280px"
+                        className="h-full w-full object-cover"
+                        unoptimized
+                      />
+                    ) : (
+                      <svg className="h-12 w-12 text-dashboard-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                      </svg>
+                    )}
+                  </div>
+                  <div className="p-3">
+                    <p className="line-clamp-2 text-sm font-semibold text-dashboard-heading">
+                      {inv.property?.title ?? 'Property'}
+                    </p>
+                    <p className="mt-1 text-xs font-normal text-dashboard-body">{inv.property?.location ?? '—'}</p>
+                    <p className="mt-2 text-sm font-semibold text-dashboard-heading">
+                      {formatMoney(investmentPositionValue(inv.amount, inv.totalReturns), inv.currency)}
+                    </p>
+                    <p className="mt-0.5 text-[10px] text-dashboard-muted">
+                      Principal plus paid distributions credited to this position (not a guaranteed total).
+                    </p>
+                    <p className="mt-0.5 text-xs font-normal text-dashboard-muted">{inv.status}</p>
+                  </div>
+                </Link>
               );
             })
           )}
         </div>
       </section>
 
-      {/* Listings: vertical grid, Active badge, typography hierarchy */}
       <section>
-        <div className="flex items-center justify-between mb-3">
+        <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold text-dashboard-heading">Listings | Fractional ownership</h2>
           <Link href="/dashboard/properties" className="text-sm font-normal text-dashboard-body">
             See all →
@@ -407,9 +339,9 @@ export default function HomeDashboardPage() {
               <Link
                 key={p.id}
                 href={`/dashboard/properties/${p.id}`}
-                className="rounded-xl border border-dashboard-border bg-dashboard-card overflow-hidden shadow-sm hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-shadow flex flex-col"
+                className="flex flex-col overflow-hidden rounded-xl border border-dashboard-border bg-dashboard-card shadow-sm transition-shadow hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
               >
-                <div className="relative h-32 bg-dashboard-border/50 rounded-t-xl">
+                <div className="relative h-32 rounded-t-xl bg-dashboard-border/50">
                   {p.coverImageUrl ? (
                     <Image
                       src={p.coverImageUrl}
@@ -424,11 +356,11 @@ export default function HomeDashboardPage() {
                     {listingStatusLabel(p.status)}
                   </span>
                 </div>
-                <div className="p-3 flex-1 flex flex-col">
-                  <p className="text-sm font-semibold text-dashboard-heading line-clamp-2">{p.title}</p>
-                  <p className="text-xs font-normal text-dashboard-body mt-1 line-clamp-1">{p.location}</p>
-                  <div className="mt-auto pt-2 flex items-center justify-end">
-                    <span className="rounded-lg bg-cohold-blue text-white text-xs font-medium px-3 py-1.5" aria-hidden>
+                <div className="flex flex-1 flex-col p-3">
+                  <p className="line-clamp-2 text-sm font-semibold text-dashboard-heading">{p.title}</p>
+                  <p className="mt-1 line-clamp-1 text-xs font-normal text-dashboard-body">{p.location}</p>
+                  <div className="mt-auto flex items-center justify-end pt-2">
+                    <span className="rounded-lg bg-cohold-primary px-3 py-1.5 text-xs font-medium text-white" aria-hidden>
                       View
                     </span>
                   </div>
@@ -439,7 +371,6 @@ export default function HomeDashboardPage() {
         </div>
       </section>
 
-      {/* Modals */}
       {showAccountsModal && (
         <AccountsModal
           balances={balances}
@@ -478,86 +409,64 @@ function listingStatusLabel(status: string | undefined): string {
   return s ? s.replace(/_/g, ' ') : 'Listed';
 }
 
-function SummaryTile({
-  label,
-  value,
-  sub,
-  subLabel,
-  hint,
-  href,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  subLabel?: string;
-  hint?: string;
-  href?: string;
-}) {
-  const inner = (
-    <>
-      <p className="text-dashboard-muted font-medium leading-tight">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-dashboard-heading leading-snug break-words">{value}</p>
-      {sub ? (
-        <p className="mt-0.5 text-[11px] text-dashboard-body">
-          {subLabel ? `${subLabel}: ` : ''}
-          {sub}
-        </p>
-      ) : null}
-      {hint ? <p className="mt-1 text-[10px] text-dashboard-muted leading-snug">{hint}</p> : null}
-    </>
-  );
-  const className =
-    'rounded-lg border border-dashboard-border bg-white/80 px-2 py-2 min-h-[4.5rem] flex flex-col justify-center';
-  if (href) {
-    return (
-      <Link href={href} className={`${className} hover:bg-dashboard-border/20 focus:outline-none focus:ring-2 focus:ring-cohold-blue/25`}>
-        {inner}
-      </Link>
-    );
-  }
-  return <div className={className}>{inner}</div>;
-}
-
 function PlusIcon({ className }: { className?: string }) {
-  return <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>;
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+    </svg>
+  );
 }
 function SwapIcon({ className }: { className?: string }) {
-  return <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>;
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+    </svg>
+  );
 }
 function WithdrawIcon({ className }: { className?: string }) {
-  return <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>;
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+    </svg>
+  );
 }
 function P2PIcon({ className }: { className?: string }) {
-  return <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>;
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+    </svg>
+  );
 }
 
 function UnverifiedActionModal({ action, onClose }: { action: string; onClose: () => void }) {
-  const title =
-    action.includes('top-up') ? 'Top up' :
-    action.includes('swap') ? 'Swap' :
-    action.includes('withdraw') ? 'Withdraw' :
-    action.includes('P2P') ? 'P2P transfers' :
-    'Action';
+  const title = action.includes('top-up')
+    ? 'Top up'
+    : action.includes('swap')
+      ? 'Swap'
+      : action.includes('withdraw')
+        ? 'Withdraw'
+        : action.includes('P2P')
+          ? 'P2P transfers'
+          : 'Action';
 
-  const message =
-    action.includes('top-up')
-      ? 'You cannot top-up your account because you have not verified your account. Complete KYC to have total freedom.'
-      : action.includes('swap')
-        ? 'You cannot swap funds because you have not verified your account. Complete KYC to have total freedom.'
-        : action.includes('withdraw')
-          ? 'You cannot withdraw funds because you have not verified your account. Complete KYC to have total freedom.'
-          : action.includes('P2P')
-            ? 'You cannot perform P2P transfers because you have not verified your account. Complete KYC to have total freedom.'
-            : `You cannot ${action} until you verify your account. Complete KYC to continue.`;
+  const message = action.includes('top-up')
+    ? 'You cannot top-up your account because you have not verified your account. Complete KYC to have total freedom.'
+    : action.includes('swap')
+      ? 'You cannot swap funds because you have not verified your account. Complete KYC to have total freedom.'
+      : action.includes('withdraw')
+        ? 'You cannot withdraw funds because you have not verified your account. Complete KYC to have total freedom.'
+        : action.includes('P2P')
+          ? 'You cannot perform P2P transfers because you have not verified your account. Complete KYC to have total freedom.'
+          : `You cannot ${action} until you verify your account. Complete KYC to continue.`;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end z-50 sm:items-center sm:p-4">
-      <div className="bg-dashboard-card rounded-t-2xl sm:rounded-2xl w-full max-w-md mx-auto p-6 shadow-xl">
-        <div className="flex items-center justify-end mb-2">
+    <div className="fixed inset-0 z-50 flex items-end bg-black/50 sm:items-center sm:p-4">
+      <div className="mx-auto w-full max-w-md rounded-t-2xl bg-dashboard-card p-6 shadow-xl sm:rounded-2xl">
+        <div className="mb-2 flex items-center justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-lg hover:bg-dashboard-border/50"
+            className="rounded-lg p-2 hover:bg-dashboard-border/50"
             aria-label="Close"
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -583,4 +492,3 @@ function UnverifiedActionModal({ action, onClose }: { action: string; onClose: (
     </div>
   );
 }
-

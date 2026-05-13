@@ -23,13 +23,13 @@ describe('Issue 12 frontend truthfulness', () => {
     expect(row?.notes).toMatch(/Issue 7/i);
   });
 
-  it('dashboard home wires Issue 12 summary and onboarding components', () => {
+  it('dashboard home wires Issue 12 hooks without legacy system cards', () => {
     const home = readRel('app/dashboard/home/page.tsx');
     expect(home).toContain('useDashboardSummary');
     expect(home).toContain('useOnboardingChecklist');
-    expect(home).toContain('OnboardingChecklistCard');
-    expect(home).toContain('Paid distributions');
-    expect(home).toContain('unsupportedMetricLabel');
+    expect(home).toContain('DashboardTodoShortcuts');
+    expect(home).not.toMatch(/Overview \(from server\)|Onboarding checklist unavailable|Summary unavailable/i);
+    expect(home).not.toContain('unsupportedMetricLabel');
   });
 
   it('invest success page does not promise certificates or PDFs', () => {

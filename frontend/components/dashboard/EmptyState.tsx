@@ -36,8 +36,8 @@ export function EmptyState({
       className={`${wrapperBase} ${className}`}
     >
       {icon && (
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F5D99A]">
-          <div className="text-cohold-blue">{icon}</div>
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl border border-cohold-accent-border bg-cohold-accent-soft">
+          <div className="text-cohold-primary">{icon}</div>
         </div>
       )}
 
@@ -56,7 +56,7 @@ export function EmptyState({
           {'href' in cta ? (
             <Link
               href={cta.href}
-              className="inline-flex h-11 w-full items-center justify-center rounded-full bg-cohold-blue px-4 text-sm font-medium text-white hover:opacity-90"
+              className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-cohold-primary px-4 text-sm font-medium text-white transition-colors hover:bg-cohold-primary-hover"
             >
               {cta.label}
             </Link>
@@ -64,7 +64,7 @@ export function EmptyState({
             <button
               type="button"
               onClick={cta.onClick}
-              className="inline-flex h-11 w-full items-center justify-center rounded-full bg-cohold-blue px-4 text-sm font-medium text-white hover:opacity-90"
+              className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-cohold-primary px-4 text-sm font-medium text-white transition-colors hover:bg-cohold-primary-hover"
             >
               {cta.label}
             </button>
