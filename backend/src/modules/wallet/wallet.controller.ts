@@ -61,6 +61,8 @@ export class WalletController {
     @Query('direction') direction?: string,
     @Query('currency') currency?: string,
     @Query('q') q?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
     return this.walletService.getTransactions(user.id, {
       page: parseInt(page, 10),
@@ -70,6 +72,8 @@ export class WalletController {
       direction,
       currency,
       q,
+      from,
+      to,
     });
   }
 }

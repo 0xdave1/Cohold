@@ -2,7 +2,7 @@ import { ArrowRight, FileText, Shield, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 
 const TRUST_ITEMS = [
-  { icon: Shield, label: 'Verified properties' },
+  { icon: Shield, label: 'Curated listings & disclosures' },
   { icon: FileText, label: 'Documentation in one place' },
   { icon: TrendingUp, label: 'No guaranteed returns' },
 ] as const;
@@ -27,7 +27,7 @@ export function LandingHero() {
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-[#1A1A1A]/65 md:text-xl">
-          Invest in verified properties from ₦1M. Build wealth through fractional ownership, land acquisition, and structured
+          Invest in curated property offerings from ₦1M. Build wealth through fractional ownership, land acquisition, and structured
           home ownership — all from one platform.
         </p>
 

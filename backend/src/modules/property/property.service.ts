@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
-import { PropertyStatus } from '@prisma/client';
+import { DistributionStatus, PropertyStatus } from '@prisma/client';
 import { formatHighPrecision, toDecimal } from '../../common/money/decimal.util';
 import { RedisService, RedisUnavailableError } from '../redis/redis.service';
 import { StorageService } from '../storage/storage.service';
@@ -263,7 +263,9 @@ export class PropertyService {
   }
 
   async listPublished(page = 1, limit = 20) {
-    const cacheKey = this.keyList(page, limit);
+    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(100, Math.floor(limit)) : 20;
+    const cacheKey = this.keyList(safePage, safeLimit);
     const cached = await this.cacheGet<{
       items: any[];
       meta: { page: number; limit: number; total: number };
@@ -271,14 +273,14 @@ export class PropertyService {
 
     if (cached) return cached;
 
-    const skip = (page - 1) * limit;
+    const skip = (safePage - 1) * safeLimit;
     const where = { deletedAt: null };
 
     const [items, total] = await Promise.all([
       this.prisma.property.findMany({
         where,
         skip,
-        take: limit,
+        take: safeLimit,
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
@@ -295,6 +297,7 @@ export class PropertyService {
           annualYield: true,
           status: true,
           createdAt: true,
+          _count: { select: { documents: true } },
           images: {
             orderBy: { position: 'asc' },
             take: 1,
@@ -315,8 +318,10 @@ export class PropertyService {
           ? (await this.signedReadUrlOrNull(firstImage.storageKey)) ?? firstImage.url ?? null
           : null;
 
+        const { _count, ...rest } = p;
+
         return {
-          ...p,
+          ...rest,
           images: undefined,
           coverImageUrl,
           totalValue: p.totalValue.toString(),
@@ -335,6 +340,7 @@ export class PropertyService {
               : 'No projected return is currently available.',
           titleVerificationStatus: 'UNSPECIFIED',
           legalReviewStatus: 'UNSPECIFIED',
+          documentsAvailable: _count.documents > 0,
           riskDisclosure:
             'Property investment carries risk, including liquidity and market risk. Review documents before investing.',
         };
@@ -343,7 +349,7 @@ export class PropertyService {
 
     const result = {
       items: mappedItems,
-      meta: { page, limit, total },
+      meta: { page: safePage, limit: safeLimit, total },
     };
 
     await this.cacheSet(cacheKey, result, 30);
@@ -434,9 +440,19 @@ export class PropertyService {
       ? soldShares.div(totalShares).mul(100)
       : toDecimal(0);
 
-    const [images, documents] = await Promise.all([
+    const [images, documents, histAgg, payoutAgg] = await Promise.all([
       this.buildPublicImages(property.id),
       this.buildPublicDocuments(property.id),
+      this.prisma.distribution.aggregate({
+        where: { propertyId, status: DistributionStatus.COMPLETED },
+        _sum: { totalAmount: true },
+        _count: { id: true },
+      }),
+      this.prisma.distributionPayout.aggregate({
+        where: { distribution: { propertyId, status: DistributionStatus.COMPLETED } },
+        _sum: { amount: true },
+        _count: { id: true },
+      }),
     ]);
 
     const result = {
@@ -447,6 +463,15 @@ export class PropertyService {
       yieldIsProjected: property.annualYield != null,
       titleVerificationStatus: 'UNSPECIFIED',
       legalReviewStatus: 'UNSPECIFIED',
+      documentsAvailable: documents.length > 0,
+      historicalDistributionSummary: {
+        completedDistributionCount: histAgg._count.id,
+        totalGrossDistributedAmount: histAgg._sum.totalAmount?.toString() ?? '0',
+        investorPayoutLineCount: payoutAgg._count.id,
+        totalInvestorPayoutAmount: payoutAgg._sum.amount?.toString() ?? '0',
+        note:
+          'Historical totals from completed admin distributions and credited payout lines; not a forecast of future returns.',
+      },
       expectedReturnDisclosure:
         'Any annual yield shown is projected and not guaranteed. Distributions depend on realized property income.',
       riskDisclosure:

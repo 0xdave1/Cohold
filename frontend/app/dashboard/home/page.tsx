@@ -15,9 +15,13 @@ import { useMyInvestments } from '@/lib/hooks/use-investments';
 import { investmentPositionValue, isActiveInvestmentStatus } from '@/lib/money/portfolio';
 import { useProperties } from '@/lib/hooks/use-properties';
 import { useMe } from '@/lib/hooks/use-onboarding';
+import { useDashboardSummary } from '@/lib/hooks/use-dashboard-summary';
+import { useOnboardingChecklist } from '@/lib/hooks/use-onboarding-checklist';
 import { useAuthStore } from '@/stores/auth.store';
 import { EmptyState } from '@/components/dashboard/EmptyState';
 import { isKycMoneyActionAllowed } from '@/lib/kyc/status';
+import { OnboardingChecklistCard } from '@/components/dashboard/OnboardingChecklistCard';
+import { unsupportedMetricHint, unsupportedMetricLabel } from '@/lib/dashboard/unsupported-metric';
 
 const CURRENCIES: Array<{ code: 'NGN'; flag: string; label: string }> = [
   { code: 'NGN', flag: '🇳🇬', label: 'NGN Account' },
@@ -27,6 +31,12 @@ export default function HomeDashboardPage() {
   const router = useRouter();
   const userFromStore = useAuthStore((s) => s.user);
   const { data: me } = useMe();
+  const { data: dashboardSummary, isLoading: summaryLoading, isError: summaryError } = useDashboardSummary();
+  const {
+    data: onboardingChecklist,
+    isLoading: checklistLoading,
+    isError: checklistError,
+  } = useOnboardingChecklist();
   const { data: balances = [], isLoading: balancesLoading } = useWalletBalances();
   const { data: investmentsData } = useMyInvestments();
   const { data: propertiesData } = useProperties(1, 10);
@@ -76,8 +86,7 @@ export default function HomeDashboardPage() {
     () => (investmentsData?.items ?? []).filter((i) => isActiveInvestmentStatus(i.status)),
     [investmentsData?.items],
   );
-  const listings = propertiesData?.items ?? [];
-  const fractionalListings = listings.slice(0, 6);
+  const listings = useMemo(() => propertiesData?.items ?? [], [propertiesData?.items]);
   const listingCoverById = useMemo(
     () =>
       new Map(
@@ -85,6 +94,7 @@ export default function HomeDashboardPage() {
       ),
     [listings],
   );
+  const fractionalListings = useMemo(() => listings.slice(0, 6), [listings]);
 
   return (
     <div className="space-y-6">
@@ -112,6 +122,76 @@ export default function HomeDashboardPage() {
         </div>
         <DashboardHeaderActions />
       </div>
+
+      <OnboardingChecklistCard
+        checklist={onboardingChecklist}
+        isLoading={checklistLoading}
+        isError={checklistError}
+      />
+
+      <section aria-labelledby="dashboard-summary-heading" className="rounded-2xl border border-dashboard-border bg-dashboard-card px-4 py-4">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h2 id="dashboard-summary-heading" className="text-sm font-semibold text-dashboard-heading">
+            Overview (from server)
+          </h2>
+          {summaryError ? (
+            <span className="text-xs text-amber-700">Summary unavailable</span>
+          ) : null}
+        </div>
+        {summaryLoading ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-16 rounded-lg bg-dashboard-border/40 animate-pulse" />
+            ))}
+          </div>
+        ) : dashboardSummary ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 text-xs">
+            <SummaryTile
+              label="Paid distributions"
+              value={formatMoney(dashboardSummary.paidDistributionsFromPayouts.totalAmount, 'NGN')}
+              hint="From payout records; not projected yield."
+            />
+            <SummaryTile
+              label="Active investments"
+              value={String(dashboardSummary.activeInvestments.count)}
+              sub={formatMoney(dashboardSummary.activeInvestments.principalInvested, 'NGN')}
+              subLabel="Principal"
+            />
+            <SummaryTile
+              label="Pending withdrawals"
+              value={String(dashboardSummary.pendingWithdrawals.count)}
+              sub={formatMoney(dashboardSummary.pendingWithdrawals.totalNetAmount, 'NGN')}
+              subLabel="Net total"
+            />
+            <SummaryTile label="KYC status" value={dashboardSummary.kycStatus} />
+            <SummaryTile
+              label="Virtual account"
+              value={dashboardSummary.virtualAccount.status}
+              sub={[dashboardSummary.virtualAccount.bankName, dashboardSummary.virtualAccount.accountNumberLast4]
+                .filter(Boolean)
+                .join(' · ') || undefined}
+            />
+            <SummaryTile
+              label="Unread notifications"
+              value={String(dashboardSummary.unreadNotificationsCount)}
+              href="/dashboard/notifications"
+            />
+            <SummaryTile label="Open support (OPEN)" value={String(dashboardSummary.openSupportTicketsCount)} href="/dashboard/support" />
+            <SummaryTile
+              label="Portfolio projected yield"
+              value={unsupportedMetricLabel(dashboardSummary.projectedPortfolioYield?.value ?? null)}
+              hint={unsupportedMetricHint(dashboardSummary.projectedPortfolioYield?.unsupportedReason)}
+            />
+            <SummaryTile
+              label="Resale / secondary liquidity"
+              value={unsupportedMetricLabel(null)}
+              hint={unsupportedMetricHint(dashboardSummary.unsupported?.secondaryMarketLiquidity?.unsupportedReason)}
+            />
+          </div>
+        ) : (
+          <p className="text-sm text-dashboard-body">Connect to the server to load your dashboard summary.</p>
+        )}
+      </section>
 
       {/* Wallet card (Figma): centered account pill, centered balance + eye, compact virtual account pill */}
       <div
@@ -173,6 +253,7 @@ export default function HomeDashboardPage() {
               key={key}
               type="button"
               onClick={onClick}
+              aria-label={`${label} wallet action`}
               className="flex flex-col items-center gap-2"
             >
               <div className="h-12 w-12 rounded-full bg-cohold-blue flex items-center justify-center text-white hover:opacity-90 transition-opacity">
@@ -184,57 +265,40 @@ export default function HomeDashboardPage() {
         </div>
       </div>
 
-      {/* To-dos */}
-      <section>
+      {/* Shortcuts — checklist above drives priority; these are quick navigation only */}
+      <section aria-label="Shortcuts">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-normal text-dashboard-body">To-dos</p>
+          <p className="text-xs font-normal text-dashboard-body">Shortcuts</p>
         </div>
-
         <div className="grid grid-cols-3 gap-2">
           {[
             {
-              key: 'kyc',
-              title: isVerified ? 'Make your first investment' : 'Complete your KYC',
-              subtitle: isVerified ? '' : '',
-              href: isVerified ? '/dashboard/properties' : '/dashboard/kyc',
+              key: 'properties',
+              title: 'Browse properties',
+              href: '/dashboard/properties',
               icon: (
                 <svg className="h-6 w-6 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  {isVerified ? (
-                    <>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 21h18" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 21V7a2 2 0 012-2h10a2 2 0 012 2v14" />
-                    </>
-                  ) : (
-                    <>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 11V7a4 4 0 00-8 0v4" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M20 11V7a4 4 0 00-8 0v4" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 11h14v10H5V11z" />
-                    </>
-                  )}
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
               ),
             },
             {
-              key: 'invest',
-              title: 'Make your first investment',
-              href: '/dashboard/properties',
+              key: 'wallet',
+              title: 'Wallet',
+              href: '/dashboard/wallet',
               icon: (
                 <svg className="h-6 w-6 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 11l5-5 5 5" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 19h14" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                 </svg>
               ),
             },
             {
-              key: 'land',
-              title: 'Buy your first land',
-              href: '/dashboard/properties',
+              key: 'support',
+              title: 'Support',
+              href: '/dashboard/support',
               icon: (
                 <svg className="h-6 w-6 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 10l9-7 9 7" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 10v10h10V10" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
               ),
             },
@@ -242,14 +306,14 @@ export default function HomeDashboardPage() {
             <Link
               key={t.key}
               href={t.href}
-              className="rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-3 flex flex-col gap-3"
+              className="rounded-xl border border-dashboard-border bg-dashboard-card px-3 py-3 flex flex-col gap-3 focus:outline-none focus:ring-2 focus:ring-cohold-blue/30"
             >
-              <div className="h-11 w-11 rounded-xl bg-dashboard-border/10 flex items-center justify-center">
+              <div className="h-11 w-11 rounded-xl bg-dashboard-border/10 flex items-center justify-center" aria-hidden>
                 {t.icon}
               </div>
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-medium text-dashboard-heading leading-4 line-clamp-2">{t.title}</p>
-                <svg className="h-4 w-4 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="h-4 w-4 text-dashboard-body shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
               </div>
@@ -315,7 +379,7 @@ export default function HomeDashboardPage() {
                   <p className="text-sm font-semibold text-dashboard-heading mt-2">
                     {formatMoney(investmentPositionValue(inv.amount, inv.totalReturns), inv.currency)}
                   </p>
-                  <p className="text-[10px] text-dashboard-muted">Position value (principal + paid distributions)</p>
+                  <p className="text-[10px] text-dashboard-muted">Principal plus paid distributions credited to this position (not a guaranteed total).</p>
                   <p className="text-xs font-normal text-dashboard-muted mt-0.5">{inv.status}</p>
                 </div>
               </Link>
@@ -356,16 +420,16 @@ export default function HomeDashboardPage() {
                       unoptimized
                     />
                   ) : null}
-                  <span className="absolute left-2 top-2 rounded-md bg-emerald-500 px-2 py-0.5 text-xs font-medium text-white">
-                    Active ⚡
+                  <span className="absolute left-2 top-2 rounded-md bg-slate-700 px-2 py-0.5 text-xs font-medium text-white">
+                    {listingStatusLabel(p.status)}
                   </span>
                 </div>
                 <div className="p-3 flex-1 flex flex-col">
                   <p className="text-sm font-semibold text-dashboard-heading line-clamp-2">{p.title}</p>
                   <p className="text-xs font-normal text-dashboard-body mt-1 line-clamp-1">{p.location}</p>
                   <div className="mt-auto pt-2 flex items-center justify-end">
-                    <span className="rounded-lg bg-cohold-blue text-white text-xs font-medium px-3 py-1.5">
-                      Invest
+                    <span className="rounded-lg bg-cohold-blue text-white text-xs font-medium px-3 py-1.5" aria-hidden>
+                      View
                     </span>
                   </div>
                 </div>
@@ -404,6 +468,54 @@ export default function HomeDashboardPage() {
       )}
     </div>
   );
+}
+
+function listingStatusLabel(status: string | undefined): string {
+  const s = (status ?? '').toUpperCase();
+  if (s === 'PUBLISHED' || s === 'ACTIVE') return 'Listed';
+  if (s === 'SOLD_OUT' || s === 'FULLY_FUNDED') return 'Fully allocated';
+  if (s === 'DRAFT') return 'Draft';
+  return s ? s.replace(/_/g, ' ') : 'Listed';
+}
+
+function SummaryTile({
+  label,
+  value,
+  sub,
+  subLabel,
+  hint,
+  href,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  subLabel?: string;
+  hint?: string;
+  href?: string;
+}) {
+  const inner = (
+    <>
+      <p className="text-dashboard-muted font-medium leading-tight">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-dashboard-heading leading-snug break-words">{value}</p>
+      {sub ? (
+        <p className="mt-0.5 text-[11px] text-dashboard-body">
+          {subLabel ? `${subLabel}: ` : ''}
+          {sub}
+        </p>
+      ) : null}
+      {hint ? <p className="mt-1 text-[10px] text-dashboard-muted leading-snug">{hint}</p> : null}
+    </>
+  );
+  const className =
+    'rounded-lg border border-dashboard-border bg-white/80 px-2 py-2 min-h-[4.5rem] flex flex-col justify-center';
+  if (href) {
+    return (
+      <Link href={href} className={`${className} hover:bg-dashboard-border/20 focus:outline-none focus:ring-2 focus:ring-cohold-blue/25`}>
+        {inner}
+      </Link>
+    );
+  }
+  return <div className={className}>{inner}</div>;
 }
 
 function PlusIcon({ className }: { className?: string }) {

@@ -21,6 +21,8 @@ export interface ListNotificationsQuery {
   page?: number;
   limit?: number;
   unreadOnly?: boolean;
+  type?: NotificationType;
+  isRead?: boolean;
 }
 
 export interface NotificationResponse {
@@ -100,13 +102,16 @@ export class NotificationsService {
     userId: string,
     query: ListNotificationsQuery = {},
   ): Promise<PaginatedNotificationsResponse> {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
+    const page = Math.max(1, query.page ?? 1);
+    const rawLimit = query.limit ?? 20;
+    const limit = Math.max(1, Math.min(100, rawLimit));
     const skip = (page - 1) * limit;
 
+    const unreadOnly = query.unreadOnly === true;
     const where: Prisma.NotificationWhereInput = {
       userId,
-      ...(query.unreadOnly ? { isRead: false } : {}),
+      ...(unreadOnly ? { isRead: false } : typeof query.isRead === 'boolean' ? { isRead: query.isRead } : {}),
+      ...(query.type ? { type: query.type } : {}),
     };
 
     const [notifications, total] = await Promise.all([

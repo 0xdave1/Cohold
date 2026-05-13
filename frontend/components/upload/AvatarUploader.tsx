@@ -28,9 +28,9 @@ const VARIANT_STYLES = {
     edit: 'text-cohold-blue',
   },
   auth: {
-    circle: 'bg-[hsl(var(--auth-input-border))]/30 text-auth-heading',
-    hint: 'text-auth-body/80',
-    edit: 'text-cohold-link font-semibold',
+    circle: 'border border-cohold-accent-border bg-cohold-accent-soft text-cohold-text',
+    hint: 'text-cohold-muted/90',
+    edit: 'text-sm font-semibold text-cohold-primary hover:underline',
   },
 } as const;
 
@@ -75,7 +75,7 @@ export function AvatarUploader({
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={uploading}
-        className={`relative flex items-center justify-center overflow-hidden rounded-full font-semibold ring-offset-2 focus:outline-none focus:ring-2 focus:ring-cohold-blue disabled:opacity-60 ${vs.circle} ${sizeCls}`}
+        className={`relative flex items-center justify-center overflow-hidden rounded-xl font-semibold ring-offset-2 focus:outline-none focus:ring-2 focus:ring-cohold-primary disabled:opacity-60 ${vs.circle} ${sizeCls}`}
         aria-label="Change profile photo"
       >
         {photoUrl ? (

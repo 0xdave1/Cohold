@@ -30,6 +30,18 @@ export class UsersController {
     return this.usersService.getMe(user.id);
   }
 
+  @Get('me/dashboard-summary')
+  @ApiOperation({ summary: 'Truthful dashboard aggregates (Issue 12)' })
+  async dashboardSummary(@CurrentUser() user: { id: string }) {
+    return this.usersService.getDashboardSummary(user.id);
+  }
+
+  @Get('me/onboarding-checklist')
+  @ApiOperation({ summary: 'Informational onboarding checklist for UX' })
+  async onboardingChecklist(@CurrentUser() user: { id: string }) {
+    return this.usersService.getOnboardingChecklist(user.id);
+  }
+
   @Get('username-availability')
   @ApiOperation({ summary: 'Check if a username is available' })
   @ApiQuery({ name: 'username', required: true, type: String })
@@ -104,6 +116,12 @@ export class UsersController {
   @Post('me/profile-photo/complete')
   async completeProfilePhoto(@CurrentUser() user: { id: string }, @Body() dto: CompleteProfilePhotoDto) {
     return this.usersService.setProfilePhotoKey(user.id, dto.key);
+  }
+
+  @Delete('me/profile-photo')
+  @ApiOperation({ summary: 'Remove profile photo' })
+  async removeProfilePhoto(@CurrentUser() user: { id: string }) {
+    return this.usersService.clearProfilePhoto(user.id);
   }
 }
 

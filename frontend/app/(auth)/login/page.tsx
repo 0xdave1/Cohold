@@ -68,13 +68,13 @@ export default function LoginPage() {
 
   return (
     <main className={auth.card}>
-      <p className={auth.pageTitle}>login</p>
-      <div className="mt-6 flex flex-col items-center text-center">
-        <CoholdLogo className="mb-4" />
+      <p className={auth.pageTitle}>Login</p>
+      <div className="mt-2 flex flex-col items-center text-center">
+        <CoholdLogo className="mb-3" />
         <h1 className={auth.heading}>Welcome back to Cohold</h1>
         <p className={"mt-2 " + auth.body}>Enter your details below to login to your account</p>
       </div>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 space-y-4" noValidate>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 space-y-4" noValidate>
         <div className="space-y-1.5">
           <label className={auth.label}>Email address</label>
           <input type="email" placeholder="doe@mail.com" className={auth.input} {...form.register("email")} />
@@ -89,7 +89,7 @@ export default function LoginPage() {
               className={auth.input + " " + auth.inputWithIcon}
               {...form.register("password")}
             />
-            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-auth-body hover:text-auth-heading" aria-label={showPassword ? "Hide password" : "Show password"}>
+            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-cohold-muted hover:text-cohold-text" aria-label={showPassword ? "Hide password" : "Show password"}>
               {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
           </div>
@@ -103,7 +103,7 @@ export default function LoginPage() {
           {login.isPending ? "Logging in..." : "Login"}
         </button>
       </form>
-      <p className={"mt-6 " + auth.footerText}>
+      <p className={"mt-5 " + auth.footerText}>
         Don&apos;t have an account? <Link href="/signup" className={auth.link}>Create account</Link>
       </p>
     </main>

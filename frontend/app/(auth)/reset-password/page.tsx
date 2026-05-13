@@ -1,14 +1,26 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useState, useCallback, useRef, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { getApiErrorMessage } from '@/lib/api/errors';
+import { auth } from '@/components/auth/auth-styles';
+import { AuthScreenHeader } from '@/components/auth/AuthScreenHeader';
+import { KeyIcon } from '@/components/auth/AuthIcons';
 
 export const dynamic = 'force-dynamic';
+
+function parseOtpToCells(raw: string): string[] {
+  const digits = raw.replace(/\D/g, '').slice(0, 6);
+  const cells = ['', '', '', '', '', ''];
+  for (let i = 0; i < digits.length; i++) {
+    cells[i] = digits[i] ?? '';
+  }
+  return cells;
+}
 
 function Eye({ className }: { className?: string }) {
   return (
@@ -27,13 +39,15 @@ function EyeOff({ className }: { className?: string }) {
   );
 }
 
-const resetPasswordSchema = z.object({
-  newPassword: z.string().min(8, 'Password must be at least 8 characters'),
-  confirmPassword: z.string().min(8, 'Password must be at least 8 characters'),
-}).refine((data) => data.newPassword === data.confirmPassword, {
-  message: 'Passwords do not match',
-  path: ['confirmPassword'],
-});
+const resetPasswordSchema = z
+  .object({
+    newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+    confirmPassword: z.string().min(8, 'Password must be at least 8 characters'),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
 
 type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>;
 
@@ -42,10 +56,11 @@ function ResetPasswordContent() {
   const email = searchParams.get('email') ?? '';
   const otpFromUrl = searchParams.get('otp') ?? '';
 
-  const [otp, setOtp] = useState(otpFromUrl);
+  const [otp, setOtp] = useState<string[]>(() => parseOtpToCells(otpFromUrl));
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const { resetPassword } = useAuth();
 
   const form = useForm<ResetPasswordFormValues>({
@@ -56,12 +71,73 @@ function ResetPasswordContent() {
     },
   });
 
+  useEffect(() => {
+    setOtp(parseOtpToCells(otpFromUrl));
+  }, [otpFromUrl]);
+
+  const otpString = otp.join('');
+
+  const handleChange = useCallback(
+    (index: number, value: string) => {
+      if (!/^\d*$/.test(value)) return;
+      const digit = value.slice(-1);
+      const next = [...otp];
+      next[index] = digit;
+      setOtp(next);
+      setError(null);
+      if (digit && index < otp.length - 1) {
+        inputRefs.current[index + 1]?.focus();
+      }
+    },
+    [otp],
+  );
+
+  const handleKeyDown = useCallback(
+    (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Backspace') {
+        if (otp[index]) {
+          const next = [...otp];
+          next[index] = '';
+          setOtp(next);
+          return;
+        }
+        if (index > 0) {
+          const next = [...otp];
+          next[index - 1] = '';
+          setOtp(next);
+          inputRefs.current[index - 1]?.focus();
+        }
+      }
+      if (e.key === 'ArrowLeft' && index > 0) {
+        inputRefs.current[index - 1]?.focus();
+      }
+      if (e.key === 'ArrowRight' && index < otp.length - 1) {
+        inputRefs.current[index + 1]?.focus();
+      }
+    },
+    [otp],
+  );
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!pasted) return;
+    const next = ['', '', '', '', '', ''];
+    pasted.split('').forEach((char, i) => {
+      next[i] = char;
+    });
+    setOtp(next);
+    setError(null);
+    const nextFocusIndex = pasted.length >= 6 ? 5 : pasted.length;
+    inputRefs.current[nextFocusIndex]?.focus();
+  }, []);
+
   const onSubmit = async (values: ResetPasswordFormValues) => {
     if (!email) {
       setError('Missing email. Please start from forgot password.');
       return;
     }
-    if (otp.length !== 6) {
+    if (otpString.length !== 6) {
       setError('Enter the 6-digit code from your email.');
       return;
     }
@@ -71,7 +147,7 @@ function ResetPasswordContent() {
     try {
       const res = await resetPassword.mutateAsync({
         email,
-        otp,
+        otp: otpString,
         newPassword: values.newPassword,
         confirmPassword: values.confirmPassword,
       });
@@ -86,69 +162,111 @@ function ResetPasswordContent() {
   };
 
   return (
-    <main className="rounded-auth-radius-lg bg-auth-card p-8 shadow-[var(--auth-shadow-card)]">
-      <p className="text-sm font-medium uppercase tracking-wide text-auth-body">reset password</p>
-      <div className="mt-6">
-        <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-cohold-icon-bg">
-          <svg className="h-7 w-7 text-auth-heading" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-          </svg>
-        </div>
-        <h1 className="mt-4 text-[22px] font-bold leading-tight text-auth-heading">Reset password</h1>
-        <p className="mt-2 text-[15px] leading-relaxed text-auth-body">
+    <main className={auth.card}>
+      <AuthScreenHeader backHref="/forgot-password" backLabel="Back to forgot password" />
+      <p className={auth.pageTitle}>Reset password</p>
+      <div className="mt-2">
+        <KeyIcon className="mb-3" />
+        <h1 className={auth.heading}>Reset password</h1>
+        <p className={'mt-2 ' + auth.body}>
           A 6-digit OTP has been sent to your email, enter code to recover account.
         </p>
       </div>
 
-      <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 space-y-4" noValidate>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 space-y-4" noValidate>
         <div className="space-y-1.5">
-          <label className="text-sm font-medium text-auth-heading">6-digit code</label>
-          <input
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={6}
-            placeholder="000000"
-            className="w-full rounded-[10px] border border-[hsl(var(--auth-input-border))] bg-white px-3 py-2.5 text-[15px] text-auth-heading placeholder:text-auth-body outline-none focus:border-cohold-blue focus:ring-1 focus:ring-cohold-blue"
-            value={otp}
-            onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-          />
+          <label className={auth.label}>OTP Code</label>
+          <div className="flex items-center justify-center gap-1.5 sm:gap-2">
+            {otp.slice(0, 3).map((digit, i) => (
+              <input
+                key={i}
+                ref={(el) => {
+                  inputRefs.current[i] = el;
+                }}
+                type="text"
+                inputMode="numeric"
+                autoComplete={i === 0 ? 'one-time-code' : 'off'}
+                maxLength={1}
+                value={digit}
+                onChange={(e) => handleChange(i, e.target.value)}
+                onKeyDown={(e) => handleKeyDown(i, e)}
+                onPaste={handlePaste}
+                className={auth.otpCell}
+              />
+            ))}
+            <span className="px-0.5 text-lg font-light text-cohold-muted" aria-hidden>
+              –
+            </span>
+            {otp.slice(3, 6).map((digit, i) => {
+              const index = i + 3;
+              return (
+                <input
+                  key={index}
+                  ref={(el) => {
+                    inputRefs.current[index] = el;
+                  }}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  maxLength={1}
+                  value={digit}
+                  onChange={(e) => handleChange(index, e.target.value)}
+                  onKeyDown={(e) => handleKeyDown(index, e)}
+                  onPaste={handlePaste}
+                  className={auth.otpCell}
+                />
+              );
+            })}
+          </div>
         </div>
+
         <div className="space-y-1.5">
-          <label className="text-sm font-medium text-auth-heading">New password</label>
+          <label className={auth.label}>New password</label>
           <div className="relative">
             <input
               type={showPassword ? 'text' : 'password'}
               placeholder="Enter password"
-              className="w-full rounded-[10px] border border-[hsl(var(--auth-input-border))] bg-white px-3 py-2.5 pr-10 text-[15px] text-auth-heading placeholder:text-auth-body outline-none focus:border-cohold-blue focus:ring-1 focus:ring-cohold-blue"
+              className={auth.input + ' ' + auth.inputWithIcon}
               {...form.register('newPassword')}
             />
-            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-auth-body hover:text-auth-heading" aria-label={showPassword ? 'Hide password' : 'Show password'}>
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-cohold-muted hover:text-cohold-text"
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
               {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
           </div>
-          {form.formState.errors.newPassword && <p className="text-xs text-red-600">{form.formState.errors.newPassword.message}</p>}
+          {form.formState.errors.newPassword && <p className={auth.error}>{form.formState.errors.newPassword.message}</p>}
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-sm font-medium text-auth-heading">Confirm password</label>
+          <label className={auth.label}>Confirm password</label>
           <div className="relative">
             <input
               type={showConfirmPassword ? 'text' : 'password'}
               placeholder="Enter password"
-              className="w-full rounded-[10px] border border-[hsl(var(--auth-input-border))] bg-white px-3 py-2.5 pr-10 text-[15px] text-auth-heading placeholder:text-auth-body outline-none focus:border-cohold-blue focus:ring-1 focus:ring-cohold-blue"
+              className={auth.input + ' ' + auth.inputWithIcon}
               {...form.register('confirmPassword')}
             />
-            <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-auth-body hover:text-auth-heading" aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}>
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-cohold-muted hover:text-cohold-text"
+              aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+            >
               {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
           </div>
-          {form.formState.errors.confirmPassword && <p className="text-xs text-red-600">{form.formState.errors.confirmPassword.message}</p>}
+          {form.formState.errors.confirmPassword && (
+            <p className={auth.error}>{form.formState.errors.confirmPassword.message}</p>
+          )}
         </div>
 
-        {error && <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">{error}</div>}
+        {error && <div className={auth.errorBox}>{error}</div>}
 
-        <button type="submit" disabled={resetPassword.isPending} className="w-full rounded-xl bg-cohold-blue py-3 text-[15px] font-semibold text-white shadow-[var(--auth-shadow)] hover:bg-[hsl(var(--cohold-blue-hover))] disabled:cursor-not-allowed disabled:opacity-60">
+        <button type="submit" disabled={resetPassword.isPending} className={auth.btnPrimary}>
           {resetPassword.isPending ? 'Resetting...' : 'Complete'}
         </button>
       </form>
@@ -158,7 +276,13 @@ function ResetPasswordContent() {
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={<div className="p-6">Loading...</div>}>
+    <Suspense
+      fallback={
+        <div className={auth.card}>
+          <p className="text-sm text-cohold-muted">Loading...</p>
+        </div>
+      }
+    >
       <ResetPasswordContent />
     </Suspense>
   );

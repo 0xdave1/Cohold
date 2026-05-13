@@ -24,16 +24,28 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 222.2 84% 4.9%;
     --radius: 0.5rem;
-    /* Auth / onboarding (Figma) */
-    --auth-bg: 60 20% 98%;
+    /* Cohold brand (hex) — auth / onboarding */
+    --cohold-primary: #054870;
+    --cohold-primary-hover: #003d5f;
+    --cohold-accent: #d8a83d;
+    --cohold-accent-soft: #f6dfa7;
+    --cohold-accent-border: #e8c978;
+    --cohold-bg: #f5f1ec;
+    --cohold-logo-soft: #dceaf2;
+    --cohold-border: #ddd8d2;
+    --cohold-muted: #6f6a64;
+    --cohold-text: #171717;
+
+    /* Auth / onboarding (aligned with brand; HSL for existing utilities) */
+    --auth-bg: 40 25% 94%;
     --auth-card: 0 0% 100%;
-    --auth-heading: 0 0% 20%;
-    --auth-body: 0 0% 40%;
-    --auth-input-border: 0 0% 88%;
-    --cohold-blue: 206 78% 24%;
-    --cohold-blue-hover: 206 78% 20%;
-    --cohold-icon-bg: 45 33% 94%;
-    --cohold-link: 211 100% 50%;
+    --auth-heading: 0 0% 9%;
+    --auth-body: 35 6% 41%;
+    --auth-input-border: 35 12% 84%;
+    --cohold-blue: 201 93% 23%;
+    --cohold-blue-hover: 201 100% 19%;
+    --cohold-icon-bg: 45 85% 82%;
+    --cohold-link: 201 93% 23%;
     --auth-radius: 10px;
     --auth-radius-lg: 12px;
     --auth-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);

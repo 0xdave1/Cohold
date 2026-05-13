@@ -7,6 +7,7 @@ import {
   Prisma,
   PrismaClient,
   PropertyStatus,
+  SupportStatus,
   TransactionStatus,
   TransactionType,
   VirtualAccountStatus,
@@ -1613,6 +1614,157 @@ export class AdminService {
         shortOperationCount: ledger.shortLedgerOperations.length,
         transactionsWithoutLedgerOperation: ledger.transactionsWithoutLedgerOperation,
       },
+    };
+  }
+
+  /**
+   * Issue 12: aggregated operational signals for launch prep — not a certification of production readiness.
+   * Issue 7 (investment concurrency) is never auto-certified here.
+   */
+  async getLaunchReadiness() {
+    const financialOps = await this.getFinancialOpsSummary();
+    const [kycRequiresReview, kycFailed, supportPipeline, frozenUsers] = await Promise.all([
+      this.prisma.user.count({ where: { kycStatus: KycStatus.REQUIRES_REVIEW } }),
+      this.prisma.user.count({ where: { kycStatus: KycStatus.FAILED } }),
+      this.prisma.supportConversation.count({
+        where: {
+          status: {
+            in: [SupportStatus.OPEN, SupportStatus.WAITING_FOR_ADMIN, SupportStatus.LIVE],
+          },
+        },
+      }),
+      this.prisma.user.count({ where: { isFrozen: true } }),
+    ]);
+
+    type LaunchItem = { code: string; message: string; count?: number };
+    const blockers: LaunchItem[] = [];
+    const warnings: LaunchItem[] = [];
+
+    if (financialOps.withdrawals.reconciliationRequired > 0) {
+      blockers.push({
+        code: 'WITHDRAWAL_RECONCILIATION_REQUIRED',
+        message: 'One or more withdrawals need reconciliation before treating payouts as settled.',
+        count: financialOps.withdrawals.reconciliationRequired,
+      });
+    }
+    if (financialOps.outbox.deadLetter > 0) {
+      blockers.push({
+        code: 'OUTBOX_DEAD_LETTER',
+        message: 'Outbox events are in DEAD_LETTER; operational follow-up is required.',
+        count: financialOps.outbox.deadLetter,
+      });
+    }
+    if (financialOps.ledger.walletMismatchCount > 0) {
+      blockers.push({
+        code: 'LEDGER_WALLET_MISMATCH',
+        message: 'Wallet stored balances diverge from ledger-derived totals.',
+        count: financialOps.ledger.walletMismatchCount,
+      });
+    }
+    if (financialOps.ledger.unbalancedOperationCount > 0) {
+      blockers.push({
+        code: 'LEDGER_UNBALANCED_OPERATION',
+        message: 'Completed ledger operations with debits not matching credits.',
+        count: financialOps.ledger.unbalancedOperationCount,
+      });
+    }
+    if (financialOps.ledger.shortOperationCount > 0) {
+      blockers.push({
+        code: 'LEDGER_SHORT_OPERATION',
+        message: 'Ledger operations with fewer than two completed legs.',
+        count: financialOps.ledger.shortOperationCount,
+      });
+    }
+    if (financialOps.ledger.transactionsWithoutLedgerOperation > 0) {
+      blockers.push({
+        code: 'TRANSACTIONS_WITHOUT_LEDGER_OPERATION',
+        message: 'Completed transactions missing ledgerOperationId.',
+        count: financialOps.ledger.transactionsWithoutLedgerOperation,
+      });
+    }
+
+    if (financialOps.withdrawals.failed > 0) {
+      warnings.push({
+        code: 'WITHDRAWAL_FAILED',
+        message: 'Failed withdrawals present; review user comms and provider state.',
+        count: financialOps.withdrawals.failed,
+      });
+    }
+    if (financialOps.virtualAccounts.failedOrRetryRequired > 0) {
+      warnings.push({
+        code: 'VIRTUAL_ACCOUNT_PROVISIONING_FAILURE',
+        message: 'Virtual accounts failed or need retry.',
+        count: financialOps.virtualAccounts.failedOrRetryRequired,
+      });
+    }
+    if (financialOps.virtualAccounts.unmatchedDeposits > 0) {
+      warnings.push({
+        code: 'UNMATCHED_VIRTUAL_ACCOUNT_DEPOSITS',
+        message: 'Unmatched virtual-account deposits detected (sample capped in ops queries).',
+        count: financialOps.virtualAccounts.unmatchedDeposits,
+      });
+    }
+    if (financialOps.distributions.partiallyFailed > 0) {
+      warnings.push({
+        code: 'DISTRIBUTION_PARTIALLY_FAILED',
+        message: 'Distribution batches in PARTIALLY_FAILED state.',
+        count: financialOps.distributions.partiallyFailed,
+      });
+    }
+    if (financialOps.outbox.pending > 0) {
+      warnings.push({
+        code: 'OUTBOX_PENDING_BACKLOG',
+        message: 'Outbox events still pending processing.',
+        count: financialOps.outbox.pending,
+      });
+    }
+    if (kycRequiresReview > 0) {
+      warnings.push({
+        code: 'KYC_REQUIRES_REVIEW',
+        message: 'Users awaiting manual KYC review.',
+        count: kycRequiresReview,
+      });
+    }
+    if (kycFailed > 0) {
+      warnings.push({
+        code: 'KYC_FAILED_USERS',
+        message: 'Users in FAILED KYC state may need outreach or re-submission.',
+        count: kycFailed,
+      });
+    }
+    if (supportPipeline > 0) {
+      warnings.push({
+        code: 'SUPPORT_OPEN_PIPELINE',
+        message: 'Support conversations in OPEN, WAITING_FOR_ADMIN, or LIVE.',
+        count: supportPipeline,
+      });
+    }
+    if (frozenUsers > 0) {
+      warnings.push({
+        code: 'FROZEN_USERS',
+        message: 'Frozen user accounts present.',
+        count: frozenUsers,
+      });
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      assessmentNote:
+        'Automated aggregates only. This endpoint does not certify legal compliance, security review, or full production readiness.',
+      issue7InvestmentConcurrency: {
+        status: 'MANUAL_CHECK_REQUIRED' as const,
+        detail:
+          'Investment concurrency / idempotency under load is not asserted or certified by this API (tracked separately; see Issue 7).',
+      },
+      blockers,
+      warnings,
+      counts: {
+        kycRequiresReview,
+        kycFailed,
+        supportOpenPipeline: supportPipeline,
+        frozenUsers,
+      },
+      financialOps,
     };
   }
 }

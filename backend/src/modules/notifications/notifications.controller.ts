@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { NotificationType } from '@prisma/client';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -21,6 +22,8 @@ export class NotificationsController {
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
   @ApiQuery({ name: 'unreadOnly', required: false, type: Boolean, description: 'Filter to unread only' })
+  @ApiQuery({ name: 'type', required: false, enum: NotificationType, description: 'Filter by notification type' })
+  @ApiQuery({ name: 'isRead', required: false, type: Boolean, description: 'Filter by read status' })
   async listNotifications(
     @CurrentUser() user: { id: string },
     @Query() query: ListNotificationsDto,
@@ -29,6 +32,8 @@ export class NotificationsController {
       page: query.page,
       limit: query.limit,
       unreadOnly: query.unreadOnly,
+      type: query.type,
+      isRead: query.isRead,
     });
   }
 

@@ -29,6 +29,7 @@ import {
   Landmark,
   ScrollText,
   Coins,
+  ClipboardList,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -65,6 +66,12 @@ const NAV_ITEMS: NavItem[] = [
   },
   { label: 'Wallet transactions', href: '/admin/wallet-transactions', icon: Wallet, visible: () => true },
   { label: 'Distributions', href: '/admin/distributions', icon: Receipt, visible: () => true },
+  {
+    label: 'Launch readiness',
+    href: '/admin/launch-readiness',
+    icon: ClipboardList,
+    visible: (r) => canViewOps(r),
+  },
   {
     label: 'Ops / Outbox',
     href: '/admin/dashboard',

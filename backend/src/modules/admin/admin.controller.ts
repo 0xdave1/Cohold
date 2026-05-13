@@ -338,6 +338,12 @@ export class AdminController {
     return this.adminService.getFinancialOpsSummary();
   }
 
+  @Roles(AdminRole.SUPER_ADMIN, AdminRole.COMPLIANCE_ADMIN)
+  @Get('launch-readiness')
+  async launchReadiness() {
+    return this.adminService.getLaunchReadiness();
+  }
+
   @Roles(AdminRole.SUPER_ADMIN)
   @Post('withdrawals/reconcile-stale')
   async reconcileStaleWithdrawals(

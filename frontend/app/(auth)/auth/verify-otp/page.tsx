@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/hooks/use-auth';
 import { getApiErrorMessage } from '@/lib/api/errors';
 import { EnvelopeIcon } from '@/components/auth/AuthIcons';
 import { auth } from '@/components/auth/auth-styles';
+import { AuthScreenHeader } from '@/components/auth/AuthScreenHeader';
 
 export const dynamic = 'force-dynamic';
 
@@ -141,6 +142,8 @@ function VerifyOtpContent() {
     }
   };
 
+  const backHref = purpose === 'signup' ? '/signup' : '/login';
+
   if (purpose === 'login' && email) {
     return (
       <main className={auth.card}>
@@ -151,24 +154,25 @@ function VerifyOtpContent() {
 
   return (
     <main className={auth.card}>
-      <p className={auth.pageTitle}>verify account</p>
+      <AuthScreenHeader backHref={backHref} backLabel={purpose === 'signup' ? 'Back to create account' : 'Back to login'} />
+      <p className={auth.pageTitle}>Verify account</p>
 
-      <div className="mt-6">
-        <EnvelopeIcon className="mb-4" />
+      <div className="mt-2">
+        <EnvelopeIcon className="mb-3" />
         <h1 className={auth.heading}>Verify your account</h1>
         <p className={`mt-2 ${auth.body}`}>
           A 6-digit OTP has been sent to your email. Enter OTP to verify your account and continue
         </p>
         {reason === 'pending' && (
-          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <div className="mt-3 rounded-xl border border-amber-200/80 bg-amber-50 p-3 text-sm text-amber-950">
             Account pending verification. Enter your OTP to continue, or request a new code.
           </div>
         )}
       </div>
 
-      <div className="mt-8 space-y-6">
-        <div className="flex justify-center gap-2">
-          {otp.map((digit, index) => (
+      <div className="mt-6 space-y-5">
+        <div className="flex items-center justify-center gap-1.5 sm:gap-2">
+          {otp.slice(0, 3).map((digit, index) => (
             <input
               key={index}
               ref={(el) => {
@@ -182,9 +186,32 @@ function VerifyOtpContent() {
               onChange={(e) => handleChange(index, e.target.value)}
               onKeyDown={(e) => handleKeyDown(index, e)}
               onPaste={handlePaste}
-              className="h-12 w-11 rounded-[10px] border border-[hsl(var(--auth-input-border))] bg-white text-center text-lg font-semibold text-auth-heading focus:border-cohold-blue focus:outline-none focus:ring-1 focus:ring-cohold-blue"
+              className={auth.otpCell}
             />
           ))}
+          <span className="px-0.5 text-lg font-light text-cohold-muted" aria-hidden>
+            –
+          </span>
+          {otp.slice(3, 6).map((digit, index) => {
+            const i = index + 3;
+            return (
+              <input
+                key={i}
+                ref={(el) => {
+                  inputRefs.current[i] = el;
+                }}
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={1}
+                value={digit}
+                onChange={(e) => handleChange(i, e.target.value)}
+                onKeyDown={(e) => handleKeyDown(i, e)}
+                onPaste={handlePaste}
+                className={auth.otpCell}
+              />
+            );
+          })}
         </div>
 
         {error && <div className={auth.errorBox}>{error}</div>}
@@ -199,7 +226,7 @@ function VerifyOtpContent() {
         </button>
       </div>
 
-      <p className={`mt-6 ${auth.footerText}`}>
+      <p className={`mt-5 ${auth.footerText}`}>
         Didn&apos;t receive the code?{' '}
         <button
           type="button"
@@ -209,7 +236,7 @@ function VerifyOtpContent() {
         >
           {resendOtp.isPending ? 'Resending...' : 'Resend OTP'}
         </button>{' '}
-        |{' '}
+        <span className="text-cohold-muted/70">|</span>{' '}
         <Link href="/signup" className={auth.link}>
           Change email
         </Link>
@@ -220,7 +247,13 @@ function VerifyOtpContent() {
 
 export default function VerifyOtpPage() {
   return (
-    <Suspense fallback={<div className="p-6">Loading...</div>}>
+    <Suspense
+      fallback={
+        <div className={auth.card}>
+          <p className="text-sm text-cohold-muted">Loading...</p>
+        </div>
+      }
+    >
       <VerifyOtpContent />
     </Suspense>
   );

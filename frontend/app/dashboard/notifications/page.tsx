@@ -12,6 +12,7 @@ import {
   getNotificationDeliveryView,
   type Notification,
 } from '@/lib/hooks/use-notifications';
+import { mapApiError } from '@/lib/api/security-errors';
 import { useWebSocket } from '@/lib/hooks/use-websocket';
 
 function formatRelativeTime(dateString: string): string {
@@ -281,11 +282,7 @@ export default function NotificationsPage() {
           </div>
         ) : isError ? (
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center dark:border-red-900/40 dark:bg-red-950/30">
-            <p className="text-sm text-red-700 dark:text-red-300">
-              {error instanceof Error
-                ? error.message
-                : 'Failed to load notifications'}
-            </p>
+            <p className="text-sm text-red-700 dark:text-red-300">{mapApiError(error).message}</p>
             <button
               type="button"
               onClick={() => refetch()}
@@ -301,11 +298,7 @@ export default function NotificationsPage() {
                 role="alert"
                 className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200"
               >
-                <p>
-                  {markAllReadMutation.error instanceof Error
-                    ? markAllReadMutation.error.message
-                    : 'Could not mark all as read. Please try again.'}
-                </p>
+                <p>{mapApiError(markAllReadMutation.error).message}</p>
                 <button
                   type="button"
                   onClick={() => markAllReadMutation.reset()}

@@ -68,6 +68,7 @@ async function adminDelete<T, B = unknown>(path: string, body?: B): Promise<T> {
 export const adminApi = {
   dashboard: () => adminGet<any>('admin/dashboard/overview'),
   opsSummary: () => adminGet<any>('admin/ops/summary'),
+  launchReadiness: () => adminGet<Record<string, unknown>>('admin/launch-readiness'),
   users: (params?: string) => adminGet<any>(`admin/users${params ? `?${params}` : ''}`),
   userDetail: (id: string) => adminGet<any>(`admin/users/${id}`),
   userTransactions: (id: string, params?: string) =>

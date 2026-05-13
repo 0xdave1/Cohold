@@ -17,7 +17,7 @@ export function OnboardingBackLink() {
   return (
     <Link
       href={step.backHref}
-      className="text-auth-heading hover:text-cohold-blue flex items-center gap-1 text-sm font-medium"
+      className="flex shrink-0 items-center gap-1 text-sm font-medium text-cohold-text hover:text-cohold-primary"
       aria-label={step.backLabel}
     >
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

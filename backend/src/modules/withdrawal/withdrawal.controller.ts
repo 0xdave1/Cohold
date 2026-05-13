@@ -27,6 +27,11 @@ export class WithdrawalController {
     return this.withdrawalService.listWithdrawals(user.id, query);
   }
 
+  @Get(':id/receipt')
+  async receipt(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    return this.withdrawalService.getWithdrawalReceipt(user.id, id);
+  }
+
   @Get(':id')
   async getOne(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.withdrawalService.getWithdrawalById(user.id, id);

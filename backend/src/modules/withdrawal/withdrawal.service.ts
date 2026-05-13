@@ -719,7 +719,8 @@ export class WithdrawalService {
 
   async listWithdrawals(userId: string, query: ListWithdrawalsQueryDto) {
     const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
+    const rawLimit = query.limit ?? 20;
+    const limit = Math.max(1, Math.min(100, rawLimit));
     const skip = (page - 1) * limit;
 
     const [items, total] = await Promise.all([
@@ -742,6 +743,42 @@ export class WithdrawalService {
     const w = await this.prisma.withdrawal.findFirst({ where: { id, userId } });
     if (!w) throw new NotFoundException('Withdrawal not found');
     return this.serializeWithdrawal(w);
+  }
+
+  /** JSON receipt for withdrawal (no PDF). Bank account masked. */
+  async getWithdrawalReceipt(userId: string, id: string) {
+    const w = await this.prisma.withdrawal.findFirst({
+      where: { id, userId },
+      include: {
+        linkedBankAccount: {
+          select: { bankName: true, accountName: true, accountNumber: true },
+        },
+      },
+    });
+    if (!w) throw new NotFoundException('Withdrawal not found');
+    const digits = w.linkedBankAccount?.accountNumber?.replace(/\D/g, '') ?? '';
+    const last4 = digits.length > 0 ? digits.slice(-4) : null;
+    return {
+      kind: 'WITHDRAWAL_RECEIPT' as const,
+      withdrawalId: w.id,
+      userId,
+      reference: w.reference,
+      amount: w.amount.toString(),
+      fee: w.fee.toString(),
+      netAmount: w.netAmount.toString(),
+      currency: w.currency,
+      status: w.status,
+      initiatedAt: w.initiatedAt.toISOString(),
+      processedAt: w.processedAt?.toISOString() ?? null,
+      completedAt: w.completedAt?.toISOString() ?? null,
+      providerReference: w.providerReference ?? null,
+      recipientBankName: w.linkedBankAccount?.bankName ?? null,
+      recipientAccountName: w.linkedBankAccount?.accountName ?? null,
+      recipientAccountLast4: last4 ? `****${last4}` : null,
+      pdfAvailable: false as const,
+      disclaimer:
+        'This JSON receipt summarizes your withdrawal request and status. It is not a bank guarantee, legal certificate, or regulatory filing.',
+    };
   }
 
   async markProcessing(

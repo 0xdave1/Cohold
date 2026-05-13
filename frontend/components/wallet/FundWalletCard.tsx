@@ -8,6 +8,8 @@ import { mapFinancialIntegrityError } from '@/lib/finance/financial-errors';
 /**
  * Issue 1: Funding only via `POST /payments/flutterwave/initialize` → hosted checkout →
  * server verify. No local balance mutation; balance refreshes after verified return + verify call.
+ * `walletFundingReference` in sessionStorage is a non-sensitive payment correlation id only (not auth/KYC);
+ * prefer `tx_ref` / `reference` query params when the provider returns them.
  */
 export function FundWalletCard() {
   const [amount, setAmount] = useState('');

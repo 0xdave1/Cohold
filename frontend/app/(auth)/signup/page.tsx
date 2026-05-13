@@ -58,13 +58,13 @@ export default function SignupPage() {
 
   return (
     <main className={auth.card}>
-      <p className={auth.pageTitle}>create account</p>
-      <div className="mt-6 flex flex-col items-center text-center">
-        <CoholdLogo className="mb-4" />
+      <p className={auth.pageTitle}>Create account</p>
+      <div className="mt-2 flex flex-col items-center text-center">
+        <CoholdLogo className="mb-3" />
         <h1 className={auth.heading}>Welcome to Cohold</h1>
         <p className={`mt-2 ${auth.body}`}>Enter your details below to create an account.</p>
       </div>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 space-y-4" noValidate>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 space-y-4" noValidate>
         <div className="space-y-1.5">
           <label className={auth.label}>Email address</label>
           <input
@@ -87,7 +87,7 @@ export default function SignupPage() {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-auth-body hover:text-auth-heading"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-cohold-muted hover:text-cohold-text"
               aria-label={showPassword ? "Hide password" : "Show password"}
             >
               {showPassword ? (
@@ -100,7 +100,9 @@ export default function SignupPage() {
           {form.formState.errors.password && <p className={auth.error}>{form.formState.errors.password.message}</p>}
         </div>
         <div className="space-y-1.5">
-          <label className={auth.label}>Referral code <span className="text-auth-body font-normal">(optional)</span></label>
+          <label className={auth.label}>
+            Referral code <span className="font-normal text-cohold-muted">(optional)</span>
+          </label>
           <input
             type="text"
             placeholder="Enter referral code"
@@ -113,7 +115,7 @@ export default function SignupPage() {
           {signup.isPending ? "Creating account..." : "Create account"}
         </button>
       </form>
-      <p className={`mt-6 ${auth.footerText}`}>
+      <p className={`mt-5 ${auth.footerText}`}>
         Already have an account? <Link href="/login" className={auth.link}>Login</Link>
       </p>
     </main>

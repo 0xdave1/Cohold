@@ -32,56 +32,57 @@ export default function ReviewPage() {
   if (profileLoading) {
     return (
       <div className={auth.card}>
-        <p className="text-auth-body">Loading...</p>
+        <p className="text-sm text-cohold-muted">Loading...</p>
       </div>
     );
   }
 
   return (
     <main className={auth.card}>
-      <p className={auth.pageTitle}>review</p>
-      <div className="mt-6">
-        <PencilIcon className="mb-4" />
+      <p className={auth.pageTitle}>Review details</p>
+      <div className="mt-1">
+        <PencilIcon className="mb-3" />
         <h1 className={auth.heading}>Review details</h1>
-        <p className={"mt-2 " + auth.body}>
-          Go through all the details you provided and ensure they are all accurate
-        </p>
+        <p className={'mt-2 ' + auth.body}>Go through all the details you provided and ensure they are all accurate</p>
       </div>
 
-      <div className="mt-8 flex flex-col items-center">
+      <div className="mt-6 flex flex-col items-center">
         <AvatarUploader variant="auth" initials={avatarInitials} photoUrl={profile?.profilePhotoUrl} />
       </div>
 
-      <div className="mt-6 rounded-xl border border-[hsl(var(--auth-input-border))] bg-white p-4 space-y-3">
+      <div className="mt-5 space-y-3 rounded-xl border border-cohold-border bg-white p-4">
         <div className="flex justify-between gap-4">
-          <span className="text-sm text-auth-body">Full name</span>
-          <span className="text-right text-sm font-semibold text-auth-heading">{fullName}</span>
+          <span className="text-sm text-cohold-muted">Full name</span>
+          <span className="text-right text-sm font-semibold text-cohold-text">{fullName}</span>
         </div>
         <div className="flex justify-between gap-4">
-          <span className="text-sm text-auth-body">Phone number</span>
-          <span className="text-right text-sm font-semibold text-auth-heading">{phone}</span>
+          <span className="text-sm text-cohold-muted">Phone number</span>
+          <span className="text-right text-sm font-semibold text-cohold-text">{phone}</span>
         </div>
         <div className="flex justify-between gap-4">
-          <span className="text-sm text-auth-body">Nationality</span>
-          <span className="text-right text-sm font-semibold text-auth-heading">{profile?.nationality ?? '—'}</span>
+          <span className="text-sm text-cohold-muted">Nationality</span>
+          <span className="text-right text-sm font-semibold text-cohold-text">{profile?.nationality ?? '—'}</span>
         </div>
         <div className="flex justify-between gap-4">
-          <span className="text-sm text-auth-body">Address</span>
-          <span className="text-right text-sm font-semibold text-auth-heading">{address}</span>
+          <span className="text-sm text-cohold-muted">Address</span>
+          <span className="text-right text-sm font-semibold text-cohold-text">{address}</span>
         </div>
       </div>
 
-      <p className="mt-6 text-sm text-auth-body">
-        By tapping on Confirm and continue, you agree to Cohold Terms and Conditions and Privacy Policy.
-      </p>
-      <p className="mt-1 text-sm">
-        <Link href="/terms" className={auth.link}>Terms and Conditions</Link>
-        {' · '}
-        <Link href="/privacy" className={auth.link}>Privacy Policy</Link>
+      <p className="mt-5 text-sm leading-relaxed text-cohold-muted">
+        By tapping on Confirm and continue, you agree to Cohold{' '}
+        <Link href="/terms" className={auth.link}>
+          Terms and Conditions
+        </Link>{' '}
+        and{' '}
+        <Link href="/privacy" className={auth.link}>
+          Privacy Policy
+        </Link>
+        .
       </p>
 
-      {error && <div className={"mt-4 " + auth.errorBox}>{error}</div>}
-      <button type="button" onClick={handleConfirm} disabled={completeOnboarding.isPending} className={"mt-6 " + auth.btnPrimary}>
+      {error && <div className={'mt-4 ' + auth.errorBox}>{error}</div>}
+      <button type="button" onClick={handleConfirm} disabled={completeOnboarding.isPending} className={'mt-5 ' + auth.btnPrimary}>
         {completeOnboarding.isPending ? 'Completing...' : 'Confirm and continue'}
       </button>
     </main>

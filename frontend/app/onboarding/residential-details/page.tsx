@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
-import { HouseIcon } from '@/components/auth/AuthIcons';
+import { PinIcon } from '@/components/auth/AuthIcons';
 import { auth } from '@/components/auth/auth-styles';
 import { useMe, useOnboarding } from '@/lib/hooks/use-onboarding';
 import { NIGERIAN_STATES } from '@/lib/constants/countries';
@@ -58,22 +58,22 @@ export default function ResidentialDetailsPage() {
   if (profileLoading) {
     return (
       <div className={auth.card}>
-        <p className="text-auth-body">Loading...</p>
+        <p className="text-sm text-cohold-muted">Loading...</p>
       </div>
     );
   }
 
   return (
     <main className={auth.card}>
-      <p className={auth.pageTitle}>residential details</p>
-      <div className="mt-6">
-        <HouseIcon className="mb-4" />
+      <p className={auth.pageTitle}>Residential details</p>
+      <div className="mt-1">
+        <PinIcon className="mb-3" />
         <h1 className={auth.heading}>Residential details</h1>
         <p className={'mt-2 ' + auth.body}>
           Provide details of your residential address to help us understand you better
         </p>
       </div>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 space-y-4" noValidate>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 space-y-4" noValidate>
         <div className="space-y-1.5">
           <label className={auth.label}>House number</label>
           <input placeholder="e.g. 10" className={auth.input} {...form.register('houseNumber')} />
@@ -93,7 +93,10 @@ export default function ResidentialDetailsPage() {
           <label className={auth.label}>State</label>
           <select
             className={auth.input + ' appearance-none bg-[length:16px] bg-[right_12px_center] bg-no-repeat'}
-            style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%236b7280\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\'%3E%3C/path%3E%3C/svg%3E")' }}
+            style={{
+              backgroundImage:
+                'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%236F6A64\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\'%3E%3C/path%3E%3C/svg%3E")',
+            }}
             {...form.register('state')}
           >
             <option value="">Select a state</option>

@@ -380,6 +380,8 @@ export class WalletService {
       direction?: string;
       currency?: string;
       q?: string;
+      from?: string;
+      to?: string;
     },
   ) {
     const page = Number.isFinite(opts.page) && opts.page > 0 ? opts.page : 1;
@@ -397,6 +399,21 @@ export class WalletService {
       where.currency = this.walletCurrency;
     }
     if (opts.q) where.reference = { contains: opts.q, mode: 'insensitive' };
+
+    if (opts.from || opts.to) {
+      const range: { gte?: Date; lte?: Date } = {};
+      if (opts.from) {
+        const d = new Date(opts.from);
+        if (Number.isNaN(d.getTime())) throw new BadRequestException('Invalid from date');
+        range.gte = d;
+      }
+      if (opts.to) {
+        const d = new Date(opts.to);
+        if (Number.isNaN(d.getTime())) throw new BadRequestException('Invalid to date');
+        range.lte = d;
+      }
+      where.createdAt = range;
+    }
 
     const [items, total] = await Promise.all([
       this.prisma.transaction.findMany({
@@ -679,6 +696,11 @@ export class WalletService {
         netAmount: l.netAmount?.toString() ?? null,
       })),
       metadata: primary?.metadata ?? null,
+      pdfAvailable: false as const,
+      disclaimer:
+        primary?.investmentId || primary?.type === TransactionType.BUY || primary?.type === TransactionType.SELL
+          ? 'Ledger-backed movement summary for your wallet/investment activity. Not a land title, regulatory filing, or guaranteed-return certificate.'
+          : 'Ledger-backed movement summary for your wallet activity. Not a bank certificate.',
     };
   }
 

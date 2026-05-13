@@ -43,6 +43,11 @@ export class InvestmentController {
     return this.investmentService.sellFractional(user.id, dto);
   }
 
+  @Get(':id/receipt')
+  async getReceipt(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    return this.investmentService.getInvestmentReceipt(id, user.id);
+  }
+
   @Get(':id')
   async getById(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.investmentService.getInvestment(id, user.id);

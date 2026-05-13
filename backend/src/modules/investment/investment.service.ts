@@ -641,6 +641,61 @@ export class InvestmentService {
     return investment;
   }
 
+  /** JSON receipt metadata for an investment position (no PDF). Ownership enforced. */
+  async getInvestmentReceipt(id: string, userId: string) {
+    const inv = await this.prisma.investment.findUnique({
+      where: { id },
+      include: {
+        property: {
+          select: { id: true, title: true, currency: true, annualYield: true },
+        },
+      },
+    });
+    if (!inv) throw new NotFoundException('Investment not found');
+    if (inv.userId !== userId) throw new ForbiddenException('Not allowed to view this investment');
+
+    const [payoutAgg, buyLeg] = await Promise.all([
+      this.prisma.distributionPayout.aggregate({
+        where: { investmentId: id },
+        _sum: { amount: true },
+        _count: { id: true },
+      }),
+      this.prisma.transaction.findFirst({
+        where: { userId, investmentId: id, type: TransactionType.BUY },
+        orderBy: { createdAt: 'asc' },
+        select: { reference: true, groupId: true, ledgerOperationId: true, createdAt: true },
+      }),
+    ]);
+
+    const projectedRate = inv.property.annualYield;
+
+    return {
+      kind: 'INVESTMENT_POSITION_RECEIPT' as const,
+      investmentId: inv.id,
+      userId: inv.userId,
+      propertyId: inv.propertyId,
+      propertyTitle: inv.property.title,
+      currency: inv.currency,
+      principal: inv.amount.toString(),
+      shares: inv.shares.toString(),
+      ownershipPercent: inv.ownershipPercent.toString(),
+      status: inv.status,
+      /** Cumulative scheduled ROI credited to wallet from this position (ledger-backed accruals). */
+      totalReturnsCredited: inv.totalReturns.toString(),
+      paidDistributionPayoutsTotal: payoutAgg._sum.amount?.toString() ?? '0.0000',
+      paidDistributionPayoutCount: payoutAgg._count.id,
+      projectedAnnualYieldRate: projectedRate != null ? projectedRate.toString() : null,
+      yieldIsProjected: projectedRate != null,
+      purchaseLedgerReference: buyLeg?.reference ?? null,
+      purchaseGroupId: buyLeg?.groupId ?? null,
+      ledgerOperationId: buyLeg?.ledgerOperationId ?? null,
+      purchasedAt: buyLeg?.createdAt?.toISOString() ?? inv.createdAt.toISOString(),
+      pdfAvailable: false as const,
+      disclaimer:
+        'This receipt summarizes your investment position and ledger-linked purchase metadata. It is not a land title, legal ownership certificate, or guaranteed return document. Projected yield (if shown) is not paid performance.',
+    };
+  }
+
   async initializeInvestmentPayment(
     _userId: string,
     propertyId: string,
@@ -673,12 +728,14 @@ export class InvestmentService {
   }
 
   async getInvestmentsByUser(userId: string, page = 1, limit = 20) {
-    const skip = (page - 1) * limit;
+    const safePage = Number.isFinite(page) && page > 0 ? page : 1;
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(100, Math.floor(limit)) : 20;
+    const skip = (safePage - 1) * safeLimit;
     const [items, total] = await Promise.all([
       this.prisma.investment.findMany({
         where: { userId },
         skip,
-        take: limit,
+        take: safeLimit,
         orderBy: { createdAt: 'desc' },
         include: {
           property: {
@@ -703,7 +760,7 @@ export class InvestmentService {
 
     return {
       items,
-      meta: { page, limit, total },
+      meta: { page: safePage, limit: safeLimit, total },
     };
   }
 }

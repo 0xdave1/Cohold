@@ -9,11 +9,26 @@ export interface ReferralItem {
   earnings: string;
 }
 
-export interface ReferralsResponse {
-  referralCode: string | null;
-  earnings: string;
-  referrals: ReferralItem[];
-}
+/** Backend may return ledger-backed rewards later; when unsupported, omit fake earnings. */
+export type ReferralsResponse =
+  | {
+      supported: true;
+      referralCode: string | null;
+      referralLink?: string | null;
+      invitedUsersCount?: number | null;
+      earnedRewardsTotal?: string | null;
+      pendingRewardsTotal?: string | null;
+      referrals?: ReferralItem[];
+    }
+  | {
+      supported: false;
+      referralCode: string | null;
+      referralLink: string | null;
+      invitedUsersCount: number | null;
+      earnedRewardsTotal: string | null;
+      pendingRewardsTotal: string | null;
+      unsupportedReason: string;
+    };
 
 export function useReferrals() {
   const authReady = useAuthReady();
