@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
-import { DistributionStatus, ListingType, PropertyStatus } from '@prisma/client';
+import { DistributionStatus, InvestmentStatus, ListingType, PropertyStatus } from '@prisma/client';
 import { formatHighPrecision, toDecimal } from '../../common/money/decimal.util';
 import { RedisService, RedisUnavailableError } from '../redis/redis.service';
 import { StorageService } from '../storage/storage.service';
@@ -432,6 +432,7 @@ export class PropertyService {
     terms: string | null;
     status: string;
     createdAt: Date;
+    investorCount?: number;
   }) {
     const totalShares = toDecimal(p.sharesTotal.toString());
     const soldShares = toDecimal(p.sharesSold.toString());
@@ -478,6 +479,7 @@ export class PropertyService {
       createdAt: p.createdAt,
       fundingGoal: p.totalValue.toString(),
       fundedAmount: p.currentRaised.toString(),
+      investorCount: p.investorCount ?? 0,
     };
   }
 
@@ -533,7 +535,7 @@ export class PropertyService {
           terms: true,
           status: true,
           createdAt: true,
-          _count: { select: { documents: true } },
+          _count: { select: { documents: true, investments: true } },
           images: {
             orderBy: { position: 'asc' },
             take: 1,
@@ -547,6 +549,22 @@ export class PropertyService {
       this.prisma.property.count({ where }),
     ]);
 
+    const propertyIds = items.map((p) => p.id);
+    const distinctInvestorRows =
+      propertyIds.length > 0
+        ? await this.prisma.investment.groupBy({
+            by: ['propertyId', 'userId'],
+            where: { propertyId: { in: propertyIds }, status: InvestmentStatus.ACTIVE },
+          })
+        : [];
+    const investorCountByProperty = new Map<string, number>();
+    for (const row of distinctInvestorRows) {
+      investorCountByProperty.set(
+        row.propertyId,
+        (investorCountByProperty.get(row.propertyId) ?? 0) + 1,
+      );
+    }
+
     const mappedItems = await Promise.all(
       items.map(async (p) => {
         const firstImage = p.images[0];
@@ -556,7 +574,12 @@ export class PropertyService {
 
         const { _count, images, ...row } = p;
         const docsAvailable = row.documentsAvailable || _count.documents > 0;
-        const core = this.mapCorePublicFields({ ...row, documentsAvailable: docsAvailable });
+        const investorCount = investorCountByProperty.get(p.id) ?? 0;
+        const core = this.mapCorePublicFields({
+          ...row,
+          documentsAvailable: docsAvailable,
+          investorCount,
+        });
         return {
           ...core,
           coverImageUrl,
@@ -613,6 +636,7 @@ export class PropertyService {
         terms: true,
         status: true,
         createdAt: true,
+        _count: { select: { documents: true } },
         images: {
           orderBy: { position: 'asc' },
           take: 1,
@@ -628,13 +652,23 @@ export class PropertyService {
       throw new NotFoundException('Property not found');
     }
 
+    const investorRows = await this.prisma.investment.groupBy({
+      by: ['userId'],
+      where: { propertyId: id, status: InvestmentStatus.ACTIVE },
+    });
+
     const coverImageUrl = property.images[0]
       ? (await this.signedReadUrlOrNull(property.images[0].storageKey)) ?? property.images[0].url ?? null
       : null;
 
-    const { images, ...row } = property;
+    const { images, _count, ...row } = property;
+    const docsAvailable = row.documentsAvailable || _count.documents > 0;
     const result = {
-      ...this.mapCorePublicFields(row),
+      ...this.mapCorePublicFields({
+        ...row,
+        documentsAvailable: docsAvailable,
+        investorCount: investorRows.length,
+      }),
       coverImageUrl,
     };
 
@@ -692,6 +726,10 @@ export class PropertyService {
       ...rest
     } = property;
 
+    const investorCount = new Set(
+      investments.filter((i) => i.status === InvestmentStatus.ACTIVE).map((i) => i.userId),
+    ).size;
+
     const core = this.mapCorePublicFields({
       ...rest,
       annualYield: property.annualYield,
@@ -702,6 +740,7 @@ export class PropertyService {
       sharesTotal: property.sharesTotal,
       sharesSold: property.sharesSold,
       documentsAvailable: property.documentsAvailable || documents.length > 0,
+      investorCount,
     });
 
     const result = {

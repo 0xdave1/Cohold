@@ -27,6 +27,7 @@ export interface Property {
   sharePrice?: string;
   availableShares?: string | null;
   fundingProgressPercent?: string | null;
+  investorCount?: number;
   /** When backend adds investment term metadata */
   duration?: string | null;
   annualYield?: string | null;

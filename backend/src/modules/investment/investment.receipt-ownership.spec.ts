@@ -22,7 +22,18 @@ describe('InvestmentService getInvestmentReceipt (Issue 12)', () => {
     status: 'ACTIVE',
     totalReturns: { toString: () => '5.0000' },
     createdAt: new Date('2024-01-01'),
-    property: { id: 'prop-1', title: 'Test Tower', currency: 'NGN', annualYield: { toString: () => '0.12' } },
+    property: {
+      id: 'prop-1',
+      title: 'Test Tower',
+      currency: 'NGN',
+      annualYield: { toString: () => '0.12' },
+      yieldIsProjected: true,
+      yieldBasis: 'PROJECTED',
+      termMonths: 12,
+      listingType: 'FRACTIONAL_OWNERSHIP',
+      expectedReturnDisclosure: 'Projected returns are estimates.',
+      riskDisclosure: 'Capital at risk.',
+    },
   };
 
   beforeEach(() => {

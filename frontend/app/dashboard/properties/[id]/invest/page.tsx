@@ -14,6 +14,7 @@ import { INVESTMENT_FEE_RATE } from '@/lib/constants/investment';
 import { BackIconButton, SectionCard } from '../../_components/listing-ui';
 import { useMe } from '@/lib/hooks/use-onboarding';
 import { isKycMoneyActionAllowed } from '@/lib/kyc/status';
+import { resolveListingMode } from '@/lib/listings/category';
 
 const SUGGESTED_AMOUNTS = ['1000000', '2000000', '5000000', '10000000', '50000000', '100000000', '1000000000'] as const;
 
@@ -83,6 +84,8 @@ export default function InvestFractionPage() {
 
   if (!property) return <div className="h-64 animate-pulse rounded-xl bg-dashboard-border/60" />;
   const kycAllowed = isKycMoneyActionAllowed(me?.kycStatus);
+  const listingMode = resolveListingMode(property);
+  const pageTitle = listingMode === 'fractional' ? 'Invest' : 'Buy';
 
   const summaryQuery = preview
     ? `shares=${encodeURIComponent(effectiveShares)}&principal=${encodeURIComponent(preview.principal)}&fee=${encodeURIComponent(preview.fee)}&total=${encodeURIComponent(preview.totalCharge)}`
@@ -92,8 +95,10 @@ export default function InvestFractionPage() {
     <div className="space-y-4">
       <BackIconButton href={`/dashboard/properties/${id}?mode=fractional`} />
       <div>
-        <h1 className="text-xl font-semibold text-dashboard-heading">Buy</h1>
-        <p className="text-xs text-dashboard-body">Enter shares or amount — fee is {INVESTMENT_FEE_RATE * 100}% on principal (on top).</p>
+        <h1 className="text-xl font-semibold text-dashboard-heading">{pageTitle}</h1>
+        <p className="text-xs text-dashboard-body">
+          {property.title} — enter shares or amount. Fee is {INVESTMENT_FEE_RATE * 100}% on principal (on top).
+        </p>
       </div>
 
       <div className="flex rounded-full border border-dashboard-border p-0.5 bg-dashboard-card">

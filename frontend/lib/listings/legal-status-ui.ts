@@ -22,3 +22,16 @@ export function formatYieldBasisLabel(basis: string | null | undefined): string 
   if (b === 'HISTORICAL') return 'Historical (where applicable)';
   return 'Not specified';
 }
+
+/**
+ * Optional subtitle for land / own-a-home listing cards — never names a certificate type.
+ * Returns null when UNSPECIFIED so the UI omits the segment.
+ */
+export function titleVerificationSubtitleForCard(status: string | null | undefined): string | null {
+  const s = (status ?? 'UNSPECIFIED').toUpperCase();
+  if (s === 'UNSPECIFIED') return null;
+  if (s === 'VERIFIED') return 'Title record verified';
+  if (s === 'PENDING') return 'Title verification pending';
+  if (s === 'REJECTED') return 'Title verification rejected';
+  return null;
+}

@@ -7,14 +7,35 @@ export interface InvestmentProperty {
   title: string;
   description: string;
   location: string;
+  listingType?: string | null;
+  displayLocation?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  developerName?: string | null;
+  isListedPartnerDeveloper?: boolean;
   totalValue: string;
   currency: string;
   sharesTotal: string;
   sharesSold: string;
   currentRaised: string;
+  minInvestment?: string;
   sharePrice?: string;
   /** Unitless annual rate from API, e.g. 0.125 = 12.5% */
   annualYield?: string | null;
+  projectedAnnualYield?: string | null;
+  yieldIsProjected?: boolean;
+  yieldBasis?: string | null;
+  termMonths?: number | null;
+  expectedReturnDisclosure?: string | null;
+  riskDisclosure?: string | null;
+  titleVerificationStatus?: string | null;
+  legalReviewStatus?: string | null;
+  documentsAvailable?: boolean;
+  features?: unknown;
+  fundingProgressPercent?: string | null;
+  investorCount?: number;
 }
 
 export interface MyInvestment {

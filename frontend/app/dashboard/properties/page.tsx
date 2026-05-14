@@ -8,7 +8,8 @@ import Image from 'next/image';
 import { resolveListingMode, listingTypePillLabel } from '@/lib/listings/category';
 import { formatAnnualYieldPercent } from '@/lib/format/yield';
 import { formatTermForListingCard } from '@/lib/listings/format-term';
-import { formatTitleVerificationLabel } from '@/lib/listings/legal-status-ui';
+import { titleVerificationSubtitleForCard } from '@/lib/listings/legal-status-ui';
+import { shortLocationForListingCard } from '@/lib/listings/display-location';
 
 type ListingTab = 'all' | 'fractional' | 'land' | 'own-home';
 
@@ -75,18 +76,31 @@ export default function PropertiesPage() {
         <div className="space-y-3">
           {filtered.map((p) => {
             const category = resolveListingMode(p);
-            const cta = category === 'fractional' ? 'Invest now' : category === 'land' ? 'Buy now' : 'Own now';
             const mode = category === 'fractional' ? 'fractional' : category === 'land' ? 'land' : 'own-home';
-            const loc = (p.displayLocation && p.displayLocation.trim()) || p.location;
-            const titleRaw = (p.titleVerificationStatus ?? 'UNSPECIFIED').toUpperCase();
-            const titlePillClass =
-              titleRaw === 'UNSPECIFIED'
-                ? 'bg-gray-100 text-gray-700'
-                : titleRaw === 'VERIFIED'
-                  ? 'bg-emerald-50 text-emerald-800'
-                  : titleRaw === 'PENDING'
-                    ? 'bg-amber-50 text-amber-900'
-                    : 'bg-rose-50 text-rose-800';
+            const cityLine = shortLocationForListingCard(p);
+            const titleSubtitle = titleVerificationSubtitleForCard(p.titleVerificationStatus);
+            const ctaLabel =
+              category === 'fractional' ? 'Invest now' : category === 'land' ? 'Buy now' : 'Own now';
+            const priceLabel =
+              category === 'fractional'
+                ? 'Min. investment'
+                : category === 'land' || category === 'own-home'
+                  ? 'Min. monthly payment'
+                  : 'Min. investment';
+            const priceValue =
+              category === 'fractional'
+                ? formatMoney(p.minInvestment ?? '0', p.currency)
+                : formatMoney(p.minInvestment ?? p.totalValue, p.currency);
+
+            const metaParts: string[] = [];
+            if (cityLine) metaParts.push(cityLine);
+            if (category === 'fractional') {
+              metaParts.push(formatAnnualYieldPercent(p.annualYield));
+              metaParts.push(formatTermForListingCard(p.termMonths));
+            } else if (titleSubtitle) {
+              metaParts.push(titleSubtitle);
+            }
+
             return (
               <Link
                 key={p.id}
@@ -108,31 +122,36 @@ export default function PropertiesPage() {
                     <span className="rounded-md bg-[#D6EDF8] px-2 py-0.5 text-[10px] font-medium text-[#0A4A74]">
                       {listingTypePillLabel(p.listingType)}
                     </span>
-                    <span className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${titlePillClass}`}>
-                      Title: {formatTitleVerificationLabel(p.titleVerificationStatus)}
+                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+                      Active
                     </span>
+                    {p.titleVerificationStatus?.toUpperCase() === 'VERIFIED' ? (
+                      <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
+                        Title verified
+                      </span>
+                    ) : null}
                   </div>
                 </div>
                 <div className="p-3">
                   <p className="text-base font-medium text-dashboard-heading line-clamp-2">{p.title}</p>
                   <p className="text-xs text-dashboard-body mt-1">
-                    {loc}
-                    {category === 'fractional'
-                      ? `  |  ${formatAnnualYieldPercent(p.annualYield)} p.a.  |  ${formatTermForListingCard(p.termMonths)}`
-                      : ''}
+                    {metaParts.join('  |  ')}
                   </p>
                   <div className="mt-3 flex items-end justify-between gap-2">
                     <div>
-                      <p className="text-[11px] text-dashboard-body">
-                        {category === 'fractional' ? 'Share price' : category === 'land' ? 'Plot price' : 'Home price'}
-                      </p>
-                      <p className="text-[22px] leading-tight font-bold text-dashboard-heading">
-                        {formatMoney(category === 'fractional' ? p.sharePrice ?? p.totalValue : p.totalValue, p.currency)}
-                      </p>
+                      <p className="text-[11px] text-dashboard-body">{priceLabel}</p>
+                      <p className="text-[22px] leading-tight font-bold text-dashboard-heading">{priceValue}</p>
+                      {category === 'fractional' ? (
+                        <p className="text-[10px] text-dashboard-body mt-0.5">
+                          Share price {formatMoney(p.sharePrice ?? p.totalValue, p.currency)}
+                          <span className="font-normal"> /share</span>
+                        </p>
+                      ) : null}
                     </div>
-                    <p className="rounded-full bg-cohold-blue px-3.5 py-2 text-xs font-medium text-white">
-                      {cta}
-                    </p>
+                    <span className="rounded-full bg-cohold-blue px-3.5 py-2 text-xs font-medium text-white">
+                      {ctaLabel}
+                    </span>
                   </div>
                   {category === 'fractional' ? (
                     <p className="mt-2 text-[10px] text-dashboard-body">

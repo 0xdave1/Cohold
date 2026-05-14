@@ -5,7 +5,7 @@ import { useMyInvestments } from '@/lib/hooks/use-investments';
 import { formatMoney } from '@/lib/hooks/use-wallet';
 import { useUserDistributionHistory } from '@/lib/hooks/use-distributions';
 import { distributionStatusLabel, normalizeDistributionStatus } from '@/lib/distributions/status';
-import { detectListingMode } from '@/lib/listings/category';
+import { resolveListingMode, listingTypePillLabel } from '@/lib/listings/category';
 import {
   sumActivePortfolioValue,
   sumActiveShares,
@@ -44,19 +44,15 @@ export default function InvestmentsPage() {
 
   const filteredItems = useMemo(() => {
     if (tab === 'all') return items;
-    return items.filter(
-      (inv) => detectListingMode(inv.property.title, inv.property.description) === tab,
-    );
+    return items.filter((inv) => resolveListingMode(inv.property) === tab);
   }, [items, tab]);
 
   const counts = useMemo(() => {
     return {
       all: items.length,
-      fractional: items.filter((i) => detectListingMode(i.property.title, i.property.description) === 'fractional')
-        .length,
-      land: items.filter((i) => detectListingMode(i.property.title, i.property.description) === 'land').length,
-      ownHome: items.filter((i) => detectListingMode(i.property.title, i.property.description) === 'own-home')
-        .length,
+      fractional: items.filter((i) => resolveListingMode(i.property) === 'fractional').length,
+      land: items.filter((i) => resolveListingMode(i.property) === 'land').length,
+      ownHome: items.filter((i) => resolveListingMode(i.property) === 'own-home').length,
     };
   }, [items]);
 
@@ -187,9 +183,8 @@ export default function InvestmentsPage() {
       ) : (
         <div className="grid grid-cols-2 gap-3">
           {filteredItems.map((investment) => {
-            const mode = detectListingMode(investment.property.title, investment.property.description);
-            const badge =
-              mode === 'land' ? 'Land' : mode === 'own-home' ? 'Own a home' : 'Fractional';
+            const mode = resolveListingMode(investment.property);
+            const badge = listingTypePillLabel(investment.property.listingType);
             return (
               <Link
                 key={investment.id}

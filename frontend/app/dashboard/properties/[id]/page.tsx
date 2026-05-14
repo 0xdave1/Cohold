@@ -89,7 +89,7 @@ export default function PropertyDetailPage() {
       ? `/dashboard/properties/${id}/buy-land`
       : `/dashboard/properties/${id}/own-home`;
   const installmentPath = `/dashboard/properties/${id}/installment`;
-  const investorCount = property.investments?.length ?? 0;
+  const investorCount = property.investorCount ?? 0;
   const galleryImages = property.images ?? [];
   const heroImage = galleryImages[0]?.url ?? property.coverImageUrl ?? null;
 
@@ -122,7 +122,7 @@ export default function PropertyDetailPage() {
       : null;
 
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6 pb-28">
       <div className="pt-1">
         <BackIconButton href="/dashboard/properties" />
       </div>
@@ -135,6 +135,16 @@ export default function PropertyDetailPage() {
       />
 
       <div className="space-y-2">
+        {soldOut ? (
+          <p className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-900">
+            Sold out
+          </p>
+        ) : (
+          <p className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-900">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+            Active
+          </p>
+        )}
         <h1 className="text-[28px] leading-8 font-semibold text-dashboard-heading">{property.title}</h1>
         <p className="text-xs text-dashboard-body flex items-start gap-1">
           <svg
@@ -150,43 +160,16 @@ export default function PropertyDetailPage() {
           <span>{locationLine}</span>
         </p>
         {property.developerName?.trim() ? (
-          <p className="text-xs text-dashboard-body mt-1">Developer: {property.developerName.trim()}</p>
-        ) : null}
-        {property.isListedPartnerDeveloper ? (
-          <p className="text-xs text-dashboard-body flex items-center gap-1">
-            <span>Listed partner developer</span>
-            <svg className="h-3.5 w-3.5 text-emerald-600 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-            </svg>
+          <p className="text-xs text-dashboard-body mt-1 flex flex-wrap items-center gap-1">
+            <span>by {property.developerName.trim()}</span>
+            {property.isListedPartnerDeveloper ? (
+              <svg className="h-3.5 w-3.5 text-emerald-600 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-label="Listed partner developer">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+              </svg>
+            ) : null}
           </p>
         ) : null}
       </div>
-
-      {isFractional && (
-        <div className="rounded-xl border border-dashboard-border bg-dashboard-card/40 px-3 py-3 space-y-2">
-          <p className="text-[11px] font-medium text-dashboard-heading">Listing</p>
-          <div className="grid grid-cols-2 gap-2 text-[11px]">
-            <div>
-              <span className="text-dashboard-body">Projected annual yield</span>
-              <p className="font-semibold text-dashboard-heading">{formatAnnualYieldPercent(annualYield)}</p>
-            </div>
-            <div>
-              <span className="text-dashboard-body">Estimated term</span>
-              <p className="font-semibold text-dashboard-heading">{durationLabel}</p>
-            </div>
-          </div>
-          <p className="text-[11px] text-dashboard-body">
-            {property.expectedReturnDisclosure?.trim()
-              ? property.expectedReturnDisclosure
-              : 'The issuer has not provided an expected return disclosure for this listing yet.'}
-          </p>
-          <p className="text-[11px] text-dashboard-body">
-            {property.riskDisclosure?.trim()
-              ? property.riskDisclosure
-              : 'The issuer has not provided a risk disclosure for this listing yet.'}
-          </p>
-        </div>
-      )}
 
       {isInvested && isFractional && positionAgg != null && (
         <div className="rounded-xl bg-dashboard-border/30 px-3 py-4">
@@ -247,7 +230,7 @@ export default function PropertyDetailPage() {
       {isFractional && (
         <div className="space-y-2">
           <div className="flex items-center justify-between text-[11px] text-dashboard-body">
-            <span>Funding progress</span>
+            <span>Investment progress</span>
             <span>{Math.round(progress)}%</span>
           </div>
           <div className="h-1.5 rounded-full bg-dashboard-border">
@@ -300,7 +283,7 @@ export default function PropertyDetailPage() {
           ) : (
             <Link href={kycAllowed ? `/dashboard/properties/${id}/invest` : '/dashboard/kyc'} className="block">
               <span className={`flex h-11 w-full items-center justify-center rounded-full px-4 text-sm font-medium ${kycAllowed ? 'bg-cohold-blue text-white' : 'bg-dashboard-border/80 text-dashboard-heading'}`}>
-                {kycAllowed ? 'Buy more shares' : 'Complete KYC'}
+                {kycAllowed ? 'Buy shares' : 'Complete KYC'}
               </span>
             </Link>
           )}
@@ -322,9 +305,12 @@ export default function PropertyDetailPage() {
         </div>
       ) : (
         <div className="grid grid-cols-[1fr_auto] gap-2">
-          <button type="button" className="h-10 rounded-full bg-dashboard-border/60 text-sm font-medium text-cohold-blue">
+          <Link
+            href="/dashboard/support"
+            className="flex h-10 items-center justify-center rounded-full bg-dashboard-border/60 text-sm font-medium text-cohold-blue"
+          >
             Chat with us
-          </button>
+          </Link>
           <button
             type="button"
             className="h-10 w-10 rounded-full border border-dashboard-border bg-dashboard-card flex items-center justify-center"
@@ -368,7 +354,7 @@ export default function PropertyDetailPage() {
         {investmentDateLabel && isFractional ? <DetailRow label="Investment date" value={investmentDateLabel} /> : null}
         <DetailRow label={isFractional ? 'No. of investors' : 'Payment frequency'} value={isFractional ? String(investorCount) : 'Monthly'} />
         <DetailRow label={isFractional ? 'Total shares' : 'Payment duration'} value={sharesTotal} />
-        {!isFractional && <DetailRow label="Total investment worth" value={formatMoney(property.totalValue, property.currency)} />}
+        <DetailRow label="Total investment worth" value={formatMoney(property.totalValue, property.currency)} />
       </SectionCard>
 
       <SectionCard title={isLand ? 'Land description' : 'Property description'}>
