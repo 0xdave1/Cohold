@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import type { CSSProperties, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useState } from 'react';
 import Image from 'next/image';
 import { Navigation, Pagination } from 'swiper/modules';
