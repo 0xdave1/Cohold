@@ -24,11 +24,11 @@ import {
 } from '@/app/dashboard/properties/_components/listing-ui';
 import { useMe } from '@/lib/hooks/use-onboarding';
 import { useDashboardSummary, type DashboardSummary } from '@/lib/hooks/use-dashboard-summary';
-import { useOnboardingChecklist } from '@/lib/hooks/use-onboarding-checklist';
+//import { useOnboardingChecklist } from '@/lib/hooks/use-onboarding-checklist';
 import { useAuthStore } from '@/stores/auth.store';
 import { EmptyState } from '@/components/dashboard/EmptyState';
 import { isKycMoneyActionAllowed } from '@/lib/kyc/status';
-import { DashboardTodoShortcuts } from '@/components/dashboard/DashboardTodoShortcuts';
+//import { DashboardTodoShortcuts } from '@/components/dashboard/DashboardTodoShortcuts';
 import { getVirtualAccountWalletNotice } from '@/lib/dashboard/virtual-account-ui';
 
 const CURRENCIES: Array<{ code: 'NGN'; flag: string; label: string }> = [
@@ -70,7 +70,7 @@ export default function HomeDashboardPage() {
   const userFromStore = useAuthStore((s) => s.user);
   const { data: me } = useMe();
   const { data: dashboardSummary } = useDashboardSummary();
-  const { data: onboardingChecklist, isLoading: checklistLoading, isError: checklistError } = useOnboardingChecklist();
+ // const { data: onboardingChecklist, isLoading: checklistLoading, isError: checklistError } = useOnboardingChecklist();
   const { data: balances = [], isLoading: balancesLoading } = useWalletBalances();
   const { data: investmentsData } = useMyInvestments();
   const { data: propertiesData } = useProperties(1, 30);
@@ -267,11 +267,11 @@ export default function HomeDashboardPage() {
         </div>
       </div>
 
-      <DashboardTodoShortcuts
+      {/* <DashboardTodoShortcuts
         checklist={onboardingChecklist}
         isLoading={checklistLoading}
         isError={checklistError}
-      />
+      /> */}
 
       <section>
         <div className="mb-3 flex items-center justify-between">
