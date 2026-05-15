@@ -9,8 +9,14 @@ import { Swiper, SwiperSlide } from 'swiper/react';
 import 'swiper/css';
 import 'swiper/css/navigation';
 import 'swiper/css/pagination';
-import { listingTypePillLabel } from '@/lib/listings/category';
+import { listingTypePillLabel, resolveListingMode } from '@/lib/listings/category';
 import type { ListingMode } from '@/lib/listings/category';
+import type { Property } from '@/lib/hooks/use-properties';
+import { formatMoney } from '@/lib/hooks/use-wallet';
+import { formatAnnualYieldPercent } from '@/lib/format/yield';
+import { formatTermForListingCard } from '@/lib/listings/format-term';
+import { titleVerificationSubtitleForCard } from '@/lib/listings/legal-status-ui';
+import { shortLocationForListingCard } from '@/lib/listings/display-location';
 
 type HeroImage = {
   id: string;
@@ -431,5 +437,137 @@ export function DeveloperLine({ name, isPartner }: { name: string; isPartner?: b
         </svg>
       ) : null}
     </p>
+  );
+}
+
+/** Horizontal snap row for dashboard home / carousels. */
+export function ListingCarouselRow({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={`-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 ${className}`.trim()}>
+      {children}
+    </div>
+  );
+}
+
+function listingCardCtaLabel(category: ListingMode): string {
+  if (category === 'fractional') return 'Invest';
+  if (category === 'land') return 'Buy';
+  return 'Own a home';
+}
+
+/** Figma-aligned listing card (full width or carousel slot). */
+export function PropertyListingCard({
+  property,
+  carousel = false,
+  showRiskNote = true,
+}: {
+  property: Property;
+  carousel?: boolean;
+  showRiskNote?: boolean;
+}) {
+  const category = resolveListingMode(property);
+  const mode = category === 'fractional' ? 'fractional' : category === 'land' ? 'land' : 'own-home';
+  const cityLine = shortLocationForListingCard(property);
+  const titleSubtitle = titleVerificationSubtitleForCard(property.titleVerificationStatus);
+  const ctaLabel = listingCardCtaLabel(category);
+  const priceLabel =
+    category === 'fractional'
+      ? 'Min. investment'
+      : category === 'land' || category === 'own-home'
+        ? 'Min. monthly payment'
+        : 'Min. investment';
+  const priceValue =
+    category === 'fractional'
+      ? formatMoney(property.minInvestment ?? '0', property.currency)
+      : formatMoney(property.minInvestment ?? property.totalValue, property.currency);
+
+  const metaParts: string[] = [];
+  if (cityLine) metaParts.push(cityLine);
+  if (category === 'fractional') {
+    metaParts.push(formatAnnualYieldPercent(property.annualYield));
+    metaParts.push(formatTermForListingCard(property.termMonths));
+  } else if (titleSubtitle) {
+    metaParts.push(titleSubtitle);
+  }
+
+  return (
+    <Link
+      href={`/dashboard/properties/${property.id}?mode=${mode}`}
+      className={`${coholdUi.card} block ${carousel ? 'w-[260px] flex-shrink-0 snap-start' : ''}`}
+    >
+      <div className={`relative bg-cohold-border/50 ${carousel ? 'h-32' : 'h-40'}`}>
+        {property.coverImageUrl ? (
+          <Image
+            src={property.coverImageUrl}
+            alt={property.title}
+            fill
+            sizes={carousel ? '260px' : '(max-width: 768px) 100vw, 600px'}
+            className="object-cover"
+            unoptimized
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center bg-gradient-to-br from-cohold-border to-cohold-bg text-xs text-cohold-muted">
+            No image
+          </div>
+        )}
+        <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
+          <CategoryPill listingType={property.listingType} mode={category} />
+          <ActiveStatusPill />
+          {property.titleVerificationStatus?.toUpperCase() === 'VERIFIED' ? <TitleVerifiedPill /> : null}
+        </div>
+      </div>
+      <div className={carousel ? 'p-3' : 'p-3.5'}>
+        <p className={`font-semibold leading-snug text-cohold-text line-clamp-2 ${carousel ? 'text-sm' : 'text-base'}`}>
+          {property.title}
+        </p>
+        {metaParts.length > 0 ? (
+          <p className="mt-1 text-xs text-cohold-muted">{metaParts.join('  ·  ')}</p>
+        ) : null}
+        <div className="mt-2.5 flex items-end justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[10px] text-cohold-muted">{priceLabel}</p>
+            <p className={`font-bold leading-tight text-cohold-text ${carousel ? 'text-lg' : 'text-xl'}`}>{priceValue}</p>
+          </div>
+          <span className="shrink-0 text-xs font-semibold text-cohold-primary">
+            {ctaLabel} →
+          </span>
+        </div>
+        {showRiskNote && category === 'fractional' ? (
+          <p className={`mt-1.5 ${coholdUi.riskNote}`}>Projected yield is an estimate, not a guarantee.</p>
+        ) : null}
+      </div>
+    </Link>
+  );
+}
+
+export function HomeListingSection({
+  title,
+  seeAllHref,
+  properties,
+  emptyMessage = 'No listings yet',
+}: {
+  title: string;
+  seeAllHref: string;
+  properties: Property[];
+  emptyMessage?: string;
+}) {
+  return (
+    <section>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-base font-semibold text-cohold-text">{title}</h2>
+        <Link href={seeAllHref} className="text-sm font-normal text-cohold-muted">
+          See all →
+        </Link>
+      </div>
+      {properties.length === 0 ? (
+        <div className={`${coholdUi.cardInner} py-6 text-center text-sm text-cohold-muted`}>{emptyMessage}</div>
+      ) : (
+        <ListingCarouselRow>
+          {properties.map((p) => (
+            <PropertyListingCard key={p.id} property={p} carousel showRiskNote={false} />
+          ))}
+        </ListingCarouselRow>
+      )}
+    </section>
   );
 }

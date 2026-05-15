@@ -11,6 +11,17 @@ import { useWalletBalances, formatMoney } from '@/lib/hooks/use-wallet';
 import { useMyInvestments } from '@/lib/hooks/use-investments';
 import { investmentPositionValue, isActiveInvestmentStatus } from '@/lib/money/portfolio';
 import { useProperties } from '@/lib/hooks/use-properties';
+import { resolveListingMode } from '@/lib/listings/category';
+import { formatAnnualYieldPercent } from '@/lib/format/yield';
+import { formatTermForListingCard } from '@/lib/listings/format-term';
+import { titleVerificationSubtitleForCard } from '@/lib/listings/legal-status-ui';
+import { shortLocationForListingCard } from '@/lib/listings/display-location';
+import {
+  CategoryPill,
+  coholdUi,
+  HomeListingSection,
+  ListingCarouselRow,
+} from '@/app/dashboard/properties/_components/listing-ui';
 import { useMe } from '@/lib/hooks/use-onboarding';
 import { useDashboardSummary, type DashboardSummary } from '@/lib/hooks/use-dashboard-summary';
 import { useOnboardingChecklist } from '@/lib/hooks/use-onboarding-checklist';
@@ -62,7 +73,7 @@ export default function HomeDashboardPage() {
   const { data: onboardingChecklist, isLoading: checklistLoading, isError: checklistError } = useOnboardingChecklist();
   const { data: balances = [], isLoading: balancesLoading } = useWalletBalances();
   const { data: investmentsData } = useMyInvestments();
-  const { data: propertiesData } = useProperties(1, 10);
+  const { data: propertiesData } = useProperties(1, 30);
 
   const displayName = me?.firstName || userFromStore?.firstName || 'User';
   const userEmail = me?.email ?? userFromStore?.email ?? '';
@@ -116,7 +127,18 @@ export default function HomeDashboardPage() {
     () => new Map(listings.map((p) => [p.id, p.coverImageUrl ?? null] as const)),
     [listings],
   );
-  const fractionalListings = useMemo(() => listings.slice(0, 6), [listings]);
+  const fractionalListings = useMemo(
+    () => listings.filter((p) => resolveListingMode(p) === 'fractional').slice(0, 8),
+    [listings],
+  );
+  const landListings = useMemo(
+    () => listings.filter((p) => resolveListingMode(p) === 'land').slice(0, 8),
+    [listings],
+  );
+  const ownHomeListings = useMemo(
+    () => listings.filter((p) => resolveListingMode(p) === 'own-home').slice(0, 8),
+    [listings],
+  );
 
   const vaNotice = dashboardSummary ? getVirtualAccountWalletNotice(dashboardSummary.virtualAccount) : null;
   const pendingWd = dashboardSummary?.pendingWithdrawals;
@@ -259,7 +281,7 @@ export default function HomeDashboardPage() {
           </Link>
         </div>
         {investmentSummaryAside(dashboardSummary)}
-        <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
+        <ListingCarouselRow>
           {myInvestments.length === 0 ? (
             <EmptyState
               title="You do not have any investment yet."
@@ -278,98 +300,88 @@ export default function HomeDashboardPage() {
               className="min-w-[280px] flex-1 rounded-xl p-6 shadow-sm"
             />
           ) : (
-            myInvestments.slice(0, 5).map((inv) => {
+            myInvestments.slice(0, 8).map((inv) => {
               const cover = listingCoverById.get(inv.propertyId) ?? null;
+              const prop = inv.property;
+              const mode = prop ? resolveListingMode(prop) : 'fractional';
+              const metaParts: string[] = [];
+              if (prop) {
+                const city = shortLocationForListingCard(prop);
+                if (city) metaParts.push(city);
+                if (mode === 'fractional') {
+                  metaParts.push(formatAnnualYieldPercent(prop.annualYield));
+                  metaParts.push(formatTermForListingCard(prop.termMonths));
+                } else {
+                  const sub = titleVerificationSubtitleForCard(prop.titleVerificationStatus);
+                  if (sub) metaParts.push(sub);
+                  metaParts.push('Monthly');
+                }
+              }
               return (
                 <Link
                   key={inv.id}
                   href={`/dashboard/portfolio/${inv.id}`}
-                  className="w-[280px] flex-shrink-0 snap-start overflow-hidden rounded-xl border border-dashboard-border bg-dashboard-card shadow-sm transition-shadow hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
+                  className={`${coholdUi.card} w-[260px] flex-shrink-0 snap-start`}
                 >
-                  <div className="relative flex h-36 items-center justify-center rounded-t-xl bg-dashboard-border/50">
+                  <div className="relative h-32 bg-cohold-border/50">
                     {cover ? (
                       <Image
                         src={cover}
-                        alt={inv.property?.title ?? 'Property'}
+                        alt={prop?.title ?? 'Property'}
                         fill
-                        sizes="280px"
-                        className="h-full w-full object-cover"
+                        sizes="260px"
+                        className="object-cover"
                         unoptimized
                       />
                     ) : (
-                      <svg className="h-12 w-12 text-dashboard-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                      </svg>
+                      <div className="flex h-full items-center justify-center text-xs text-cohold-muted">No image</div>
                     )}
+                    {prop ? (
+                      <div className="absolute left-2 top-2">
+                        <CategoryPill listingType={prop.listingType} mode={mode} />
+                      </div>
+                    ) : null}
                   </div>
                   <div className="p-3">
-                    <p className="line-clamp-2 text-sm font-semibold text-dashboard-heading">
-                      {inv.property?.title ?? 'Property'}
+                    <p className="line-clamp-2 text-sm font-semibold text-cohold-text">
+                      {prop?.title ?? 'Property'}
                     </p>
-                    <p className="mt-1 text-xs font-normal text-dashboard-body">{inv.property?.location ?? '—'}</p>
-                    <p className="mt-2 text-sm font-semibold text-dashboard-heading">
+                    {metaParts.length > 0 ? (
+                      <p className="mt-1 text-xs text-cohold-muted">{metaParts.join('  ·  ')}</p>
+                    ) : null}
+                    <p className="mt-2 text-base font-bold text-cohold-text">
                       {formatMoney(investmentPositionValue(inv.amount, inv.totalReturns), inv.currency)}
                     </p>
-                    <p className="mt-0.5 text-[10px] text-dashboard-muted">
-                      Principal plus paid distributions credited to this position (not a guaranteed total).
+                    <p className={`mt-1 ${coholdUi.riskNote}`}>
+                      Position value (principal + paid distributions). Not guaranteed.
                     </p>
-                    <p className="mt-0.5 text-xs font-normal text-dashboard-muted">{inv.status}</p>
                   </div>
                 </Link>
               );
             })
           )}
-        </div>
+        </ListingCarouselRow>
       </section>
 
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-dashboard-heading">Listings | Fractional ownership</h2>
-          <Link href="/dashboard/properties" className="text-sm font-normal text-dashboard-body">
-            See all →
-          </Link>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          {fractionalListings.length === 0 ? (
-            <div className="col-span-2 rounded-xl border border-dashboard-border bg-dashboard-card p-6 text-center shadow-sm">
-              <p className="text-sm font-normal text-dashboard-body">No listings yet</p>
-            </div>
-          ) : (
-            fractionalListings.map((p) => (
-              <Link
-                key={p.id}
-                href={`/dashboard/properties/${p.id}`}
-                className="flex flex-col overflow-hidden rounded-xl border border-dashboard-border bg-dashboard-card shadow-sm transition-shadow hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
-              >
-                <div className="relative h-32 rounded-t-xl bg-dashboard-border/50">
-                  {p.coverImageUrl ? (
-                    <Image
-                      src={p.coverImageUrl}
-                      alt={p.title}
-                      fill
-                      sizes="(max-width: 768px) 50vw, 320px"
-                      className="h-full w-full object-cover"
-                      unoptimized
-                    />
-                  ) : null}
-                  <span className="absolute left-2 top-2 rounded-md bg-slate-700 px-2 py-0.5 text-xs font-medium text-white">
-                    {listingStatusLabel(p.status)}
-                  </span>
-                </div>
-                <div className="flex flex-1 flex-col p-3">
-                  <p className="line-clamp-2 text-sm font-semibold text-dashboard-heading">{p.title}</p>
-                  <p className="mt-1 line-clamp-1 text-xs font-normal text-dashboard-body">{p.location}</p>
-                  <div className="mt-auto flex items-center justify-end pt-2">
-                    <span className="rounded-lg bg-cohold-primary px-3 py-1.5 text-xs font-medium text-white" aria-hidden>
-                      View
-                    </span>
-                  </div>
-                </div>
-              </Link>
-            ))
-          )}
-        </div>
-      </section>
+      <HomeListingSection
+        title="Listings | Fractional ownership"
+        seeAllHref="/dashboard/properties"
+        properties={fractionalListings}
+      />
+
+      <HomeListingSection
+        title="Listings | Land acquisition"
+        seeAllHref="/dashboard/properties"
+        properties={landListings}
+        emptyMessage="No land listings yet"
+      />
+
+      <HomeListingSection
+        title="Listings | Own a home"
+        seeAllHref="/dashboard/properties"
+        properties={ownHomeListings}
+        emptyMessage="No own-a-home listings yet"
+      />
 
       {showAccountsModal && (
         <AccountsModal
@@ -399,14 +411,6 @@ export default function HomeDashboardPage() {
       )}
     </div>
   );
-}
-
-function listingStatusLabel(status: string | undefined): string {
-  const s = (status ?? '').toUpperCase();
-  if (s === 'PUBLISHED' || s === 'ACTIVE') return 'Listed';
-  if (s === 'SOLD_OUT' || s === 'FULLY_FUNDED') return 'Fully allocated';
-  if (s === 'DRAFT') return 'Draft';
-  return s ? s.replace(/_/g, ' ') : 'Listed';
 }
 
 function PlusIcon({ className }: { className?: string }) {
