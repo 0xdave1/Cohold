@@ -5,12 +5,15 @@ import { useMyInvestments } from '@/lib/hooks/use-investments';
 import { formatMoney } from '@/lib/hooks/use-wallet';
 import { useUserDistributionHistory } from '@/lib/hooks/use-distributions';
 import { distributionStatusLabel, normalizeDistributionStatus } from '@/lib/distributions/status';
-import { resolveListingMode, listingTypePillLabel } from '@/lib/listings/category';
+import { resolveListingMode } from '@/lib/listings/category';
+import { CategoryPill, coholdUi, FilterChip, ListingSkeleton } from '../properties/_components/listing-ui';
+import { formatAnnualYieldPercent } from '@/lib/format/yield';
+import { formatTermForListingCard } from '@/lib/listings/format-term';
+import { shortLocationForListingCard } from '@/lib/listings/display-location';
 import {
   sumActivePortfolioValue,
   sumActiveShares,
   countActiveAssets,
-  investmentPositionValue,
   isActiveInvestmentStatus,
   formatSharesQuantityForDisplay,
 } from '@/lib/money/portfolio';
@@ -65,9 +68,9 @@ export default function InvestmentsPage() {
   return (
     <div className="space-y-6 pb-20">
       <div>
-        <h1 className="text-xl font-semibold">Investments</h1>
-        <p className="text-sm text-slate-400">View my investment portfolio</p>
-        <p className="text-xs text-dashboard-body mt-1">
+        <h1 className="text-xl font-semibold text-cohold-text">Investments</h1>
+        <p className="text-sm text-cohold-muted">View my investment portfolio</p>
+        <p className="mt-1 text-xs text-cohold-muted">
           Projected yield is an estimate. Paid income appears only after backend-posted distributions.
         </p>
       </div>
@@ -135,25 +138,16 @@ export default function InvestmentsPage() {
           ).map((t) => {
             const active = tab === t.key;
             return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setTab(t.key)}
-                className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs border transition-colors ${
-                  active
-                    ? 'bg-[#F5D99A] text-dashboard-heading border-[#E7C97E]'
-                    : 'bg-dashboard-card text-dashboard-body border-dashboard-border'
-                }`}
-              >
+              <FilterChip key={t.key} active={active} onClick={() => setTab(t.key)}>
                 {t.label} ({t.count})
-              </button>
+              </FilterChip>
             );
           })}
         </div>
       )}
 
       {isLoading ? (
-        <div className="rounded-2xl border border-dashboard-border bg-dashboard-card p-8 animate-pulse h-64" />
+        <ListingSkeleton rows={2} />
       ) : items.length === 0 ? (
         <div className="w-full pt-6">
           <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl border border-[#E7C97E] bg-[#F5D99A]">
@@ -184,60 +178,41 @@ export default function InvestmentsPage() {
         <div className="grid grid-cols-2 gap-3">
           {filteredItems.map((investment) => {
             const mode = resolveListingMode(investment.property);
-            const badge = listingTypePillLabel(investment.property.listingType);
+            const meta =
+              mode === 'fractional'
+                ? [
+                    shortLocationForListingCard(investment.property),
+                    formatAnnualYieldPercent(investment.property.annualYield),
+                    formatTermForListingCard(investment.property.termMonths),
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
+                : shortLocationForListingCard(investment.property) || investment.property.location;
             return (
-              <Link
-                key={investment.id}
-                href={`/dashboard/portfolio/${investment.id}`}
-                className="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden hover:bg-slate-900/60 transition-colors"
-              >
-                <div className="h-32 bg-slate-700 relative">
-                  <div className="absolute top-2 left-2">
-                    <span className="rounded bg-blue-600/90 text-white text-[9px] px-1.5 py-0.5">{badge}</span>
+              <Link key={investment.id} href={`/dashboard/portfolio/${investment.id}`} className={coholdUi.card}>
+                <div className="relative h-28 bg-cohold-border/50">
+                  <div className="absolute left-2 top-2">
+                    <CategoryPill listingType={investment.property.listingType} mode={mode} />
                   </div>
                 </div>
                 <div className="p-3">
-                  <p className="text-xs font-medium mb-1 line-clamp-2">{investment.property.title}</p>
-                  <p className="text-[10px] text-slate-500 mb-1 line-clamp-1">
-                    {investment.property.location}
-                  </p>
-                  {mode === 'fractional' ? (
-                    <>
-                      <p className="text-xs text-slate-400">
-                        Position value:{' '}
-                        <span className="font-medium text-slate-200">
-                          {formatMoney(
-                            investmentPositionValue(investment.amount, investment.totalReturns),
-                            investment.currency,
-                          )}
-                        </span>
-                      </p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Paid distributions:{' '}
-                        <span className="font-medium text-emerald-400/90">
-                          {formatMoney(investment.totalReturns ?? '0', investment.currency)}
-                        </span>
-                      </p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Shares:{' '}
-                        <span className="font-medium text-slate-200">{investment.shares}</span>
-                      </p>
-                    </>
-                  ) : mode === 'land' ? (
-                    <p className="text-xs text-slate-400">
-                      Amount invested:{' '}
-                      <span className="font-medium text-slate-200">
+                  <p className="line-clamp-2 text-sm font-semibold text-cohold-text">{investment.property.title}</p>
+                  {meta ? <p className="mt-1 line-clamp-1 text-[10px] text-cohold-muted">{meta}</p> : null}
+                  <div className="mt-2 space-y-1">
+                    <div className="flex justify-between text-[10px]">
+                      <span className="text-cohold-muted">Amount invested</span>
+                      <span className="font-medium text-cohold-text">
                         {formatMoney(investment.amount, investment.currency)}
                       </span>
-                    </p>
-                  ) : (
-                    <p className="text-xs text-slate-400">
-                      Amount invested:{' '}
-                      <span className="font-medium text-slate-200">
-                        {formatMoney(investment.amount, investment.currency)}
-                      </span>
-                    </p>
-                  )}
+                    </div>
+                    {mode === 'fractional' ? (
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-cohold-muted">No. of shares</span>
+                        <span className="font-medium text-cohold-text">{investment.shares}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 text-right text-xs font-medium text-cohold-primary">View →</p>
                 </div>
               </Link>
             );

@@ -82,7 +82,7 @@ export default function InvestFractionPage() {
     setMode((m) => (m === 'shares' ? 'amount' : 'shares'));
   };
 
-  if (!property) return <div className="h-64 animate-pulse rounded-xl bg-dashboard-border/60" />;
+  if (!property) return <div className="h-64 animate-pulse rounded-2xl bg-cohold-border/60" />;
   const kycAllowed = isKycMoneyActionAllowed(me?.kycStatus);
   const listingMode = resolveListingMode(property);
   const pageTitle = listingMode === 'fractional' ? 'Invest' : 'Buy';
@@ -92,11 +92,11 @@ export default function InvestFractionPage() {
     : '';
 
   return (
-    <div className="space-y-4">
+    <div className="relative space-y-4 pb-28">
       <BackIconButton href={`/dashboard/properties/${id}?mode=fractional`} />
       <div>
-        <h1 className="text-xl font-semibold text-dashboard-heading">{pageTitle}</h1>
-        <p className="text-xs text-dashboard-body">
+        <h1 className="text-xl font-semibold text-cohold-text">{pageTitle}</h1>
+        <p className="text-xs text-cohold-muted">
           {property.title} — enter shares or amount. Fee is {INVESTMENT_FEE_RATE * 100}% on principal (on top).
         </p>
       </div>

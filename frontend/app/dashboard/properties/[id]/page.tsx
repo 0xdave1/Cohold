@@ -15,12 +15,46 @@ import {
   formatYieldBasisLabel,
 } from '@/lib/listings/legal-status-ui';
 import { investmentPositionValue } from '@/lib/money/portfolio';
-import { buyPreviewFromShares } from '@/lib/money/buy-preview';
 import { formatAnnualYieldPercent } from '@/lib/format/yield';
-import { INVESTMENT_FEE_RATE } from '@/lib/constants/investment';
-import { BackIconButton, DetailRow, ListingHero, PrimaryButton, SectionCard } from '../_components/listing-ui';
+import {
+  ActiveStatusPill,
+  BackIconButton,
+  ChatSupportRow,
+  coholdUi,
+  DetailRow,
+  DeveloperLine,
+  DocumentsSection,
+  FeatureChips,
+  GoldProgressBar,
+  InvestmentStatsCard,
+  ListingHero,
+  ListingSkeleton,
+  LocationPinLine,
+  SectionCard,
+  SoldOutPill,
+  StickyBottomBar,
+} from '../_components/listing-ui';
 import Decimal from 'decimal.js';
 import { isKycMoneyActionAllowed } from '@/lib/kyc/status';
+
+function plotSizeLabel(terms: string | null | undefined): string {
+  if (!terms?.trim()) return 'Not specified.';
+  const match = terms.match(/\d[\d,.]*\s*(sqm|sq\s*m|square\s*met(er|re)s?)/i);
+  return match ? match[0] : 'Not specified.';
+}
+
+function paymentProgressPercent(property: {
+  fundingProgressPercent?: string | null;
+  currentRaised?: string;
+  totalValue: string;
+}): number {
+  const fromApi = Number(property.fundingProgressPercent);
+  if (Number.isFinite(fromApi) && fromApi >= 0) return Math.min(100, Math.round(fromApi));
+  const raised = Number(property.currentRaised ?? 0);
+  const total = Number(property.totalValue);
+  if (!Number.isFinite(raised) || !Number.isFinite(total) || total <= 0) return 0;
+  return Math.min(100, Math.round((raised / total) * 100));
+}
 
 export default function PropertyDetailPage() {
   const params = useParams();
@@ -64,7 +98,7 @@ export default function PropertyDetailPage() {
   const isInvested = myPositions.length > 0;
 
   if (isLoading || !property) {
-    return <div className="animate-pulse rounded-xl bg-dashboard-border/60 h-64" />;
+    return <ListingSkeleton rows={1} />;
   }
 
   const modeFromQuery = searchParams.get('mode');
@@ -77,12 +111,10 @@ export default function PropertyDetailPage() {
   const sharePrice = property.sharePrice ?? property.totalValue;
   const sharesTotal = property.sharesTotal ?? '0';
   const sharesSold = property.sharesSold ?? '0';
-  const progress = Number(property.fundingProgressPercent ?? '0');
-  const progressWidth = `${Math.max(0, Math.min(100, progress))}%`;
   const isFractional = mode === 'fractional';
   const isLand = mode === 'land';
+  const isOwnHome = mode === 'own-home';
   const primaryLabel = isFractional ? 'Invest now' : isLand ? 'Buy land' : 'Own a home';
-  const secondaryLabel = isLand || mode === 'own-home' ? 'Pay installments' : null;
   const nextPath = isFractional
     ? `/dashboard/properties/${id}/invest`
     : isLand
@@ -106,11 +138,8 @@ export default function PropertyDetailPage() {
   const durationLabel = formatTermForDetail(property.termMonths ?? null);
   const locationLine = (property.displayLocation && property.displayLocation.trim()) || property.location;
   const featureList = Array.isArray(property.features) ? property.features : [];
-
-  const oneSharePreview = isFractional ? buyPreviewFromShares(String(sharePrice), '1') : null;
-
-  const ownershipLabel =
-    positionAgg != null ? `${Number(positionAgg.ownershipPercent).toFixed(2)}%` : '—';
+  const fundPct = paymentProgressPercent(property);
+  const progressLabel = isOwnHome ? 'Payment progress' : 'Investment progress';
 
   const investmentDateLabel =
     myInvestment?.createdAt != null
@@ -121,311 +150,214 @@ export default function PropertyDetailPage() {
         })
       : null;
 
+  const stickyCta = (() => {
+    if (isFractional && isInvested) {
+      return (
+        <div className="grid grid-cols-2 gap-2">
+          <Link href={`/dashboard/properties/${id}/sell`} className={coholdUi.secondaryBtn}>
+            Sell back to platform
+          </Link>
+          {soldOut ? (
+            <span className={`${coholdUi.secondaryBtn} cursor-not-allowed opacity-60`}>Sold out</span>
+          ) : (
+            <Link
+              href={kycAllowed ? `/dashboard/properties/${id}/invest` : '/dashboard/kyc'}
+              className={kycAllowed ? coholdUi.primaryBtn : coholdUi.secondaryBtn}
+            >
+              {kycAllowed ? 'Buy shares' : 'Complete KYC'}
+            </Link>
+          )}
+        </div>
+      );
+    }
+    if (isFractional && !isInvested) {
+      if (soldOut) {
+        return <p className={`text-center text-sm ${coholdUi.body}`}>Offering closed (all shares allocated)</p>;
+      }
+      return (
+        <Link href={kycAllowed ? nextPath : '/dashboard/kyc'} className={kycAllowed ? coholdUi.primaryBtn : coholdUi.secondaryBtn}>
+          {kycAllowed ? 'Invest now' : 'Complete KYC'}
+        </Link>
+      );
+    }
+    if (isLand || isOwnHome) {
+      return (
+        <div className="grid grid-cols-2 gap-2">
+          <Link href="/dashboard/support" className={coholdUi.ghostBtn}>
+            Contact support
+          </Link>
+          <Link href={kycAllowed ? nextPath : '/dashboard/kyc'} className={kycAllowed ? coholdUi.primaryBtn : coholdUi.secondaryBtn}>
+            {kycAllowed ? primaryLabel : 'Complete KYC'}
+          </Link>
+        </div>
+      );
+    }
+    return null;
+  })();
+
   return (
-    <div className="relative space-y-6 pb-28">
-      <div className="pt-1">
-        <BackIconButton href="/dashboard/properties" />
-      </div>
+    <div className="relative space-y-5 pb-32">
+      <BackIconButton href="/dashboard/properties" />
 
       <ListingHero
         title={property.title}
         images={galleryImages.map((img) => ({ id: img.id, url: img.url, altText: img.altText ?? null }))}
         imageUrl={heroImage}
         imageCount={galleryImages.length}
+        tall
       />
 
       <div className="space-y-2">
-        {soldOut ? (
-          <p className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-900">
-            Sold out
-          </p>
-        ) : (
-          <p className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-900">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-            Active
-          </p>
-        )}
-        <h1 className="text-[28px] leading-8 font-semibold text-dashboard-heading">{property.title}</h1>
-        <p className="text-xs text-dashboard-body flex items-start gap-1">
-          <svg
-            className="h-3.5 w-3.5 mt-0.5 shrink-0 text-dashboard-body"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            aria-hidden
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          <span>{locationLine}</span>
-        </p>
+        {soldOut ? <SoldOutPill /> : <ActiveStatusPill />}
+        <h1 className="text-2xl font-semibold leading-8 text-cohold-text">{property.title}</h1>
+        <LocationPinLine>{locationLine || 'Location not specified.'}</LocationPinLine>
         {property.developerName?.trim() ? (
-          <p className="text-xs text-dashboard-body mt-1 flex flex-wrap items-center gap-1">
-            <span>by {property.developerName.trim()}</span>
-            {property.isListedPartnerDeveloper ? (
-              <svg className="h-3.5 w-3.5 text-emerald-600 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-label="Listed partner developer">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-              </svg>
-            ) : null}
-          </p>
+          <DeveloperLine name={property.developerName.trim()} isPartner={property.isListedPartnerDeveloper} />
         ) : null}
       </div>
 
-      {isInvested && isFractional && positionAgg != null && (
-        <div className="rounded-xl bg-dashboard-border/30 px-3 py-4">
-          <p className="text-[10px] text-dashboard-body mb-2 text-center uppercase tracking-wide">Your position</p>
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div>
-              <p className="text-[10px] text-dashboard-body">Principal</p>
-              <p className="text-xs font-semibold text-dashboard-heading leading-tight">
-                {formatMoney(positionAgg.amount, property.currency)}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] text-dashboard-body">Paid distributions</p>
-              <p className="text-xs font-semibold text-emerald-600 leading-tight">
-                {formatMoney(positionAgg.totalReturns, property.currency)}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] text-dashboard-body">Position value</p>
-              <p className="text-xs font-semibold text-dashboard-heading leading-tight">
-                {formatMoney(positionAgg.worth, property.currency)}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] text-dashboard-body">Ownership %</p>
-              <p className="text-xs font-semibold text-dashboard-heading leading-tight">{ownershipLabel}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-dashboard-body">Shares</p>
-              <p className="text-xs font-semibold text-dashboard-heading leading-tight">{positionAgg.shares}</p>
-            </div>
-            {investmentDateLabel ? (
-              <div>
-                <p className="text-[10px] text-dashboard-body">First investment</p>
-                <p className="text-xs font-semibold text-dashboard-heading leading-tight">{investmentDateLabel}</p>
-              </div>
-            ) : null}
-          </div>
-          {positionAgg.firstInvestmentId ? (
-            <Link
-              href={`/dashboard/portfolio/${positionAgg.firstInvestmentId}`}
-              className="mt-3 block text-center text-xs font-medium text-cohold-blue"
-            >
-              Open portfolio details
-            </Link>
-          ) : null}
-        </div>
-      )}
+      {isInvested && isFractional && positionAgg ? (
+        <InvestmentStatsCard
+          tiles={[
+            { label: 'Amt. invested', value: formatMoney(positionAgg.amount, property.currency) },
+            { label: 'Investment worth', value: formatMoney(positionAgg.worth, property.currency) },
+            {
+              label: 'Ownership %',
+              value: `${Number(positionAgg.ownershipPercent).toFixed(2)}%`,
+            },
+          ]}
+          footer="Investment worth is principal plus paid distributions. Projected yield is not paid income."
+        />
+      ) : null}
 
       <div>
-        <p className="text-xs text-dashboard-body">{isFractional ? 'Share price' : isLand ? 'Plot price' : 'Home price'}</p>
-        <p className="text-[28px] leading-8 font-bold text-dashboard-heading">
-          {formatMoney(isFractional ? sharePrice : property.totalValue, property.currency)}
-          {isFractional ? <span className="text-xs font-normal text-dashboard-body"> /share</span> : null}
+        <p className="text-xs text-cohold-muted">
+          {isFractional ? 'Share price' : isLand ? 'Plot price' : 'Min. monthly payment'}
+        </p>
+        <p className="text-2xl font-bold text-cohold-text">
+          {formatMoney(isFractional ? sharePrice : isOwnHome ? property.minInvestment ?? '0' : property.totalValue, property.currency)}
+          {isFractional ? <span className="text-sm font-normal text-cohold-muted"> /share</span> : null}
         </p>
       </div>
 
-      {isFractional && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-[11px] text-dashboard-body">
-            <span>Investment progress</span>
-            <span>{Math.round(progress)}%</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-dashboard-border">
-            <div className="h-1.5 rounded-full bg-[#E3AA2B]" style={{ width: progressWidth }} />
-          </div>
-          <div className="flex justify-between text-[11px] text-dashboard-body">
-            <span>
-              {sharesSold} / {sharesTotal} shares sold
-            </span>
-            <span className="font-medium text-dashboard-heading">{sharesLeft} left</span>
-          </div>
-          {sharesLeft > 0 && sharesLeft <= sharesTotalNum * 0.1 ? (
-            <p className="text-[11px] text-amber-700">Limited availability</p>
-          ) : null}
-        </div>
-      )}
-
-      {isFractional && oneSharePreview && (
-        <div className="rounded-xl border border-dashed border-dashboard-border px-3 py-3">
-          <p className="text-[11px] font-medium text-dashboard-heading mb-2">Cost preview (1 share)</p>
-          <div className="space-y-1 text-[11px]">
-            <div className="flex justify-between">
-              <span className="text-dashboard-body">Principal</span>
-              <span>{formatMoney(oneSharePreview.principal, property.currency)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-dashboard-body">Fee ({INVESTMENT_FEE_RATE * 100}%)</span>
-              <span>{formatMoney(oneSharePreview.fee, property.currency)}</span>
-            </div>
-            <div className="flex justify-between font-semibold pt-1 border-t border-dashboard-border/60">
-              <span>Total charge</span>
-              <span>{formatMoney(oneSharePreview.totalCharge, property.currency)}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isFractional && isInvested ? (
-        <div className="grid grid-cols-2 gap-2">
-          <Link
-            href={`/dashboard/properties/${id}/sell`}
-            className="flex h-11 w-full items-center justify-center rounded-full bg-dashboard-border/60 px-4 text-sm font-medium text-dashboard-heading"
-          >
-            Sell back to platform
-          </Link>
-          {soldOut ? (
-            <span className="flex h-11 w-full items-center justify-center rounded-full bg-dashboard-border/50 px-4 text-sm font-medium text-dashboard-body">
-              Fully funded
-            </span>
+      {(isFractional || isOwnHome) && (
+        <div className="space-y-1">
+          <GoldProgressBar percent={fundPct} label={progressLabel} />
+          {isFractional ? (
+            <p className="text-[11px] text-cohold-muted">
+              {sharesSold} / {sharesTotal} shares · {sharesLeft} left
+            </p>
           ) : (
-            <Link href={kycAllowed ? `/dashboard/properties/${id}/invest` : '/dashboard/kyc'} className="block">
-              <span className={`flex h-11 w-full items-center justify-center rounded-full px-4 text-sm font-medium ${kycAllowed ? 'bg-cohold-blue text-white' : 'bg-dashboard-border/80 text-dashboard-heading'}`}>
-                {kycAllowed ? 'Buy shares' : 'Complete KYC'}
-              </span>
-            </Link>
+            <p className="text-[11px] text-cohold-muted">
+              Raised {formatMoney(property.currentRaised ?? '0', property.currency)} of{' '}
+              {formatMoney(property.totalValue, property.currency)}
+            </p>
           )}
         </div>
-      ) : isFractional && !isInvested ? (
-        <div className="grid grid-cols-2 gap-2">
-          {soldOut ? (
-            <span className="col-span-2 flex h-11 w-full items-center justify-center rounded-full bg-dashboard-border/50 px-4 text-sm font-medium text-dashboard-body">
-              Offering closed (all shares allocated)
-            </span>
-          ) : (
-            <Link
-              href={kycAllowed ? nextPath : '/dashboard/kyc'}
-              className={`col-span-2 flex h-11 w-full items-center justify-center rounded-full px-4 text-sm font-medium ${kycAllowed ? 'bg-cohold-blue text-white' : 'bg-dashboard-border/80 text-dashboard-heading'}`}
-            >
-              {kycAllowed ? 'Invest now' : 'Complete KYC'}
-            </Link>
-          )}
-        </div>
-      ) : (
-        <div className="grid grid-cols-[1fr_auto] gap-2">
-          <Link
-            href="/dashboard/support"
-            className="flex h-10 items-center justify-center rounded-full bg-dashboard-border/60 text-sm font-medium text-cohold-blue"
-          >
-            Chat with us
-          </Link>
-          <button
-            type="button"
-            className="h-10 w-10 rounded-full border border-dashboard-border bg-dashboard-card flex items-center justify-center"
-          >
-            <svg className="h-4 w-4 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l7-7m0 0h-6m6 0v6M10 14l-7 7m0 0h6m-6 0v-6" />
-            </svg>
-          </button>
-        </div>
       )}
 
-      <SectionCard title={isFractional ? 'Property investment details' : isLand ? 'Land details' : 'Property ownership details'}>
-        <DetailRow label={isFractional ? 'Min. investment amount' : 'Min. payment'} value={formatMoney(property.minInvestment ?? '0', property.currency)} />
-        <DetailRow
-          label={isFractional ? 'Share price' : isLand ? 'Plot size' : 'Home amount'}
-          value={isLand ? '—' : formatMoney(sharePrice, property.currency)}
-        />
-        <DetailRow label="Projected annual yield" value={isFractional ? formatAnnualYieldPercent(annualYield) : '—'} />
-        <DetailRow label="Yield basis" value={formatYieldBasisLabel(property.yieldBasis)} />
-        <DetailRow
-          label="Expected return disclosure"
-          value={
-            property.expectedReturnDisclosure?.trim()
-              ? property.expectedReturnDisclosure
-              : 'Not provided for this listing.'
-          }
-        />
-        <DetailRow label="Term" value={durationLabel} />
-        <DetailRow label="Title verification status" value={formatTitleVerificationLabel(property.titleVerificationStatus)} />
-        <DetailRow label="Legal review status" value={formatLegalReviewLabel(property.legalReviewStatus)} />
-        <DetailRow
-          label="Risk disclosure"
-          value={property.riskDisclosure?.trim() ? property.riskDisclosure : 'Not provided for this listing.'}
-        />
-        {isInvested && isFractional && positionAgg ? (
-          <>
-            <DetailRow label="Your paid distributions" value={formatMoney(positionAgg.totalReturns, property.currency)} />
-            <DetailRow label="Distribution timing" value="Paid only after income is received, approved, and posted" />
-          </>
-        ) : null}
-        {investmentDateLabel && isFractional ? <DetailRow label="Investment date" value={investmentDateLabel} /> : null}
-        <DetailRow label={isFractional ? 'No. of investors' : 'Payment frequency'} value={isFractional ? String(investorCount) : 'Monthly'} />
-        <DetailRow label={isFractional ? 'Total shares' : 'Payment duration'} value={sharesTotal} />
-        <DetailRow label="Total investment worth" value={formatMoney(property.totalValue, property.currency)} />
-      </SectionCard>
+      <ChatSupportRow />
 
-      <SectionCard title={isLand ? 'Land description' : 'Property description'}>
-        <p className="text-xs leading-5 text-dashboard-body">
-          {property.description || 'No description provided yet for this listing.'}
+      {isFractional ? (
+        <SectionCard title="Property investment details">
+          <DetailRow label="Min. investment amount" value={formatMoney(property.minInvestment ?? '0', property.currency)} />
+          <DetailRow label="Share price" value={formatMoney(sharePrice, property.currency)} />
+          <DetailRow label="Projected annual yield" value={formatAnnualYieldPercent(annualYield)} />
+          <DetailRow label="Yield basis" value={formatYieldBasisLabel(property.yieldBasis)} />
+          <DetailRow
+            label="Expected return disclosure"
+            value={property.expectedReturnDisclosure?.trim() || 'Not provided for this listing.'}
+          />
+          <DetailRow label="Term" value={durationLabel} />
+          <DetailRow label="Title verification status" value={formatTitleVerificationLabel(property.titleVerificationStatus)} />
+          <DetailRow label="Legal review status" value={formatLegalReviewLabel(property.legalReviewStatus)} />
+          <DetailRow label="Risk disclosure" value={property.riskDisclosure?.trim() || 'Not provided for this listing.'} />
+          {investmentDateLabel && isInvested ? <DetailRow label="Investment date" value={investmentDateLabel} /> : null}
+          <DetailRow label="No. of investors" value={String(investorCount)} />
+          <DetailRow label="Total shares" value={sharesTotal} />
+          <DetailRow label="Total investment worth" value={formatMoney(property.totalValue, property.currency)} />
+        </SectionCard>
+      ) : null}
+
+      {isLand ? (
+        <SectionCard title="Land details">
+          <DetailRow label="Plot price" value={formatMoney(property.totalValue, property.currency)} />
+          <DetailRow label="Min. payment" value={formatMoney(property.minInvestment ?? '0', property.currency)} />
+          <DetailRow label="Plot size" value={plotSizeLabel(property.terms)} />
+          <DetailRow label="Land document status" value={formatTitleVerificationLabel(property.titleVerificationStatus)} />
+          <DetailRow label="Legal review status" value={formatLegalReviewLabel(property.legalReviewStatus)} />
+          <DetailRow
+            label="Land quality"
+            value={featureList[0] ?? 'Not specified.'}
+          />
+          <DetailRow label="Term" value={durationLabel} />
+          <DetailRow label="Risk disclosure" value={property.riskDisclosure?.trim() || 'Not provided for this listing.'} />
+        </SectionCard>
+      ) : null}
+
+      {isOwnHome ? (
+        <SectionCard title="Property ownership details">
+          <DetailRow label="Min. monthly payment" value={formatMoney(property.minInvestment ?? '0', property.currency)} />
+          <DetailRow label="Total amount" value={formatMoney(property.totalValue, property.currency)} />
+          <DetailRow label="Amount raised" value={formatMoney(property.currentRaised ?? '0', property.currency)} />
+          <DetailRow
+            label="Payment note"
+            value={property.terms?.trim() || 'Not provided for this listing.'}
+          />
+          <DetailRow label="Title verification status" value={formatTitleVerificationLabel(property.titleVerificationStatus)} />
+          <DetailRow label="Legal review status" value={formatLegalReviewLabel(property.legalReviewStatus)} />
+          <DetailRow label="Term" value={durationLabel} />
+          <DetailRow label="Risk disclosure" value={property.riskDisclosure?.trim() || 'Not provided for this listing.'} />
+        </SectionCard>
+      ) : null}
+
+      <SectionCard title={isLand ? 'Land description' : isOwnHome ? 'Property description' : 'Property description'}>
+        <p className="text-xs leading-5 text-cohold-muted">
+          {property.description?.trim() || 'No description provided yet for this listing.'}
         </p>
       </SectionCard>
 
       <SectionCard title={isLand ? 'Land features' : 'Property features'}>
-        <div className="flex flex-wrap gap-1.5">
-          {featureList.length === 0 ? (
-            <p className="text-xs text-dashboard-body">No features listed for this property yet.</p>
-          ) : (
-            featureList.map((f) => (
-              <span key={f} className="rounded-full border border-dashboard-border px-2.5 py-1 text-[10px] text-dashboard-body">
-                {f}
-              </span>
-            ))
-          )}
-        </div>
+        <FeatureChips
+          features={featureList}
+          emptyLabel={isLand ? 'No land features listed yet.' : 'No features listed for this property yet.'}
+        />
       </SectionCard>
 
-      <SectionCard title={isLand ? 'Land documents' : 'Property documents'}>
-        <div className="space-y-2">
-          {(property.documents ?? []).slice(0, 6).map((d) => (
-            <a
-              key={d.id}
-              href={d.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between rounded-lg border border-dashboard-border px-3 py-2"
-            >
-              <div>
-                <p className="text-xs font-medium text-dashboard-heading">{d.type}</p>
-                <p className="text-[10px] text-dashboard-body">PDF</p>
-              </div>
-              <svg className="h-4 w-4 text-dashboard-body" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l7-7m0 0h-6m6 0v6M10 14l-7 7m0 0h6m-6 0v-6" />
-              </svg>
-            </a>
-          ))}
-          {(!property.documents || property.documents.length === 0) && (
-            <p className="text-xs text-dashboard-body">No documents uploaded yet.</p>
-          )}
-          <p className="text-[11px] text-dashboard-body">
-            Document availability: {property.documentsAvailable ? 'Available' : 'Not specified'}
-          </p>
-        </div>
-      </SectionCard>
+      <DocumentsSection
+        title={isLand ? 'Land documents' : 'Property documents'}
+        documents={(property.documents ?? []).slice(0, 6)}
+        documentsAvailable={property.documentsAvailable}
+      />
 
-      {!(isInvested && isFractional) && !isFractional && (
-        <div className="grid grid-cols-2 gap-2 pt-1">
-          {secondaryLabel ? (
-            <Link href={installmentPath}>
-              <button type="button" className="h-11 w-full rounded-full bg-dashboard-border/60 text-sm font-medium text-dashboard-heading">
-                {secondaryLabel}
-              </button>
-            </Link>
-          ) : (
-            <div />
-          )}
-          <Link href={kycAllowed ? nextPath : '/dashboard/kyc'}>
-            <PrimaryButton>{kycAllowed ? primaryLabel : 'Complete KYC'}</PrimaryButton>
-          </Link>
-        </div>
-      )}
-      {meLoading ? (
-        <p className="text-center text-xs text-dashboard-body">Checking KYC status before enabling money actions…</p>
-      ) : !kycAllowed ? (
-        <p className="text-center text-xs text-dashboard-body">Money actions are available only after your KYC status is VERIFIED.</p>
+      {isOwnHome && kycAllowed ? (
+        <Link href={installmentPath} className={`block ${coholdUi.secondaryBtn}`}>
+          Make payment
+        </Link>
       ) : null}
+
+      {positionAgg?.firstInvestmentId ? (
+        <Link
+          href={`/dashboard/portfolio/${positionAgg.firstInvestmentId}`}
+          className="block text-center text-sm font-medium text-cohold-primary"
+        >
+          View your investment
+        </Link>
+      ) : null}
+
+      {meLoading ? (
+        <p className={`text-center ${coholdUi.riskNote}`}>Checking KYC status…</p>
+      ) : !kycAllowed ? (
+        <p className={`text-center ${coholdUi.riskNote}`}>
+          Money actions are available only after your KYC status is VERIFIED.
+        </p>
+      ) : null}
+
+      {isFractional ? (
+        <p className={coholdUi.riskNote}>Projected yield is an estimate, not a guarantee. Capital is at risk.</p>
+      ) : null}
+
+      {stickyCta ? <StickyBottomBar>{stickyCta}</StickyBottomBar> : null}
     </div>
   );
 }

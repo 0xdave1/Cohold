@@ -5,11 +5,21 @@ import { useProperties } from '@/lib/hooks/use-properties';
 import { formatMoney } from '@/lib/hooks/use-wallet';
 import Link from 'next/link';
 import Image from 'next/image';
-import { resolveListingMode, listingTypePillLabel } from '@/lib/listings/category';
+import { resolveListingMode } from '@/lib/listings/category';
 import { formatAnnualYieldPercent } from '@/lib/format/yield';
 import { formatTermForListingCard } from '@/lib/listings/format-term';
 import { titleVerificationSubtitleForCard } from '@/lib/listings/legal-status-ui';
 import { shortLocationForListingCard } from '@/lib/listings/display-location';
+import {
+  ActiveStatusPill,
+  CategoryPill,
+  coholdUi,
+  FilterChip,
+  ListingEmptyState,
+  ListingPageShell,
+  ListingSkeleton,
+  TitleVerifiedPill,
+} from './_components/listing-ui';
 
 type ListingTab = 'all' | 'fractional' | 'land' | 'own-home';
 
@@ -24,54 +34,47 @@ export default function PropertiesPage() {
   }, [items, tab]);
 
   return (
-    <div className="space-y-4">
+    <ListingPageShell>
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-dashboard-heading">Listings</h1>
-          <p className="text-xs text-dashboard-body">Find properties worth investing</p>
+          <h1 className="text-lg font-semibold text-cohold-text">Listings</h1>
+          <p className="text-xs text-cohold-muted">Find properties worth investing</p>
         </div>
         <button
           type="button"
-          className="h-8 w-8 rounded-lg border border-dashboard-border bg-dashboard-card flex items-center justify-center"
+          className="flex h-9 w-9 items-center justify-center rounded-xl border border-cohold-border bg-white shadow-sm"
           aria-label="Search listings"
         >
-          <svg className="h-4 w-4 text-dashboard-body" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <svg className="h-4 w-4 text-cohold-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-4.35-4.35m1.35-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </button>
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {[
-          { key: 'all', label: 'All assets' },
-          { key: 'fractional', label: 'Fractional' },
-          { key: 'land', label: 'Land' },
-          { key: 'own-home', label: 'Own a home' },
-        ].map((t) => {
-          const active = tab === t.key;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key as ListingTab)}
-              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs border transition-colors ${
-                active
-                  ? 'bg-[#F5D99A] text-dashboard-heading border-[#E7C97E]'
-                  : 'bg-dashboard-card text-dashboard-body border-dashboard-border'
-              }`}
-            >
-              {t.label}
-            </button>
-          );
-        })}
+        {(
+          [
+            { key: 'all' as const, label: 'All assets' },
+            { key: 'fractional' as const, label: 'Fractional' },
+            { key: 'land' as const, label: 'Land' },
+            { key: 'own-home' as const, label: 'Own a home' },
+          ] as const
+        ).map((t) => (
+          <FilterChip key={t.key} active={tab === t.key} onClick={() => setTab(t.key)}>
+            {t.label}
+          </FilterChip>
+        ))}
       </div>
 
       {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="rounded-xl border border-dashboard-border bg-dashboard-card p-3 animate-pulse h-56" />
-          ))}
-        </div>
+        <ListingSkeleton rows={3} />
+      ) : filtered.length === 0 ? (
+        <ListingEmptyState
+          title="No listings in this category"
+          message="Try another filter or check back when new properties are published."
+          actionHref="/dashboard/properties"
+          actionLabel="View all assets"
+        />
       ) : (
         <div className="space-y-3">
           {filtered.map((p) => {
@@ -105,56 +108,51 @@ export default function PropertiesPage() {
               <Link
                 key={p.id}
                 href={`/dashboard/properties/${p.id}?mode=${mode}`}
-                className="rounded-xl border border-dashboard-border bg-dashboard-card overflow-hidden shadow-[0_1px_2px_rgba(0,0,0,0.05)] block"
+                className={`${coholdUi.card} block`}
               >
-                <div className="relative h-32 bg-dashboard-border/60">
+                <div className="relative h-40 bg-cohold-border/50">
                   {p.coverImageUrl ? (
                     <Image
                       src={p.coverImageUrl}
                       alt={p.title}
                       fill
                       sizes="(max-width: 768px) 100vw, 600px"
-                      className="h-full w-full object-cover"
+                      className="object-cover"
                       unoptimized
                     />
-                  ) : null}
+                  ) : (
+                    <div className="flex h-full items-center justify-center bg-gradient-to-br from-cohold-border to-cohold-bg text-xs text-cohold-muted">
+                      No image
+                    </div>
+                  )}
                   <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
-                    <span className="rounded-md bg-[#D6EDF8] px-2 py-0.5 text-[10px] font-medium text-[#0A4A74]">
-                      {listingTypePillLabel(p.listingType)}
-                    </span>
-                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-                      Active
-                    </span>
-                    {p.titleVerificationStatus?.toUpperCase() === 'VERIFIED' ? (
-                      <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
-                        Title verified
-                      </span>
-                    ) : null}
+                    <CategoryPill listingType={p.listingType} mode={category} />
+                    <ActiveStatusPill />
+                    {p.titleVerificationStatus?.toUpperCase() === 'VERIFIED' ? <TitleVerifiedPill /> : null}
                   </div>
                 </div>
-                <div className="p-3">
-                  <p className="text-base font-medium text-dashboard-heading line-clamp-2">{p.title}</p>
-                  <p className="text-xs text-dashboard-body mt-1">
-                    {metaParts.join('  |  ')}
-                  </p>
-                  <div className="mt-3 flex items-end justify-between gap-2">
-                    <div>
-                      <p className="text-[11px] text-dashboard-body">{priceLabel}</p>
-                      <p className="text-[22px] leading-tight font-bold text-dashboard-heading">{priceValue}</p>
+                <div className="p-3.5">
+                  <p className="text-base font-semibold leading-snug text-cohold-text line-clamp-2">{p.title}</p>
+                  {metaParts.length > 0 ? (
+                    <p className="mt-1 text-xs text-cohold-muted">{metaParts.join('  ·  ')}</p>
+                  ) : null}
+                  <div className="mt-3 flex items-end justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[11px] text-cohold-muted">{priceLabel}</p>
+                      <p className="text-xl font-bold leading-tight text-cohold-text">{priceValue}</p>
                       {category === 'fractional' ? (
-                        <p className="text-[10px] text-dashboard-body mt-0.5">
+                        <p className="mt-0.5 text-[10px] text-cohold-muted">
                           Share price {formatMoney(p.sharePrice ?? p.totalValue, p.currency)}
                           <span className="font-normal"> /share</span>
                         </p>
                       ) : null}
                     </div>
-                    <span className="rounded-full bg-cohold-blue px-3.5 py-2 text-xs font-medium text-white">
+                    <span className="inline-flex shrink-0 items-center rounded-full bg-cohold-primary px-4 py-2 text-xs font-semibold text-white hover:bg-cohold-primary-hover">
                       {ctaLabel}
                     </span>
                   </div>
                   {category === 'fractional' ? (
-                    <p className="mt-2 text-[10px] text-dashboard-body">
+                    <p className={`mt-2 ${coholdUi.riskNote}`}>
                       Projected yield is an estimate, not a guarantee. Capital is at risk.
                     </p>
                   ) : null}
@@ -164,6 +162,6 @@ export default function PropertiesPage() {
           })}
         </div>
       )}
-    </div>
+    </ListingPageShell>
   );
 }

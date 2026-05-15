@@ -50,14 +50,14 @@
     --auth-radius-lg: 12px;
     --auth-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
     --auth-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06);
-    /* Dashboard (Figma home) */
-    --dashboard-bg: 45 33% 97%;
+    /* Dashboard (Figma — cream shell, white cards) */
+    --dashboard-bg: 36 30% 95%;
     --dashboard-card: 0 0% 100%;
-    --dashboard-heading: 0 0% 15%;
-    --dashboard-body: 0 0% 45%;
-    --dashboard-muted: 0 0% 65%;
-    --dashboard-border: 0 0% 90%;
-    --dashboard-nav-active: 206 78% 24%;
+    --dashboard-heading: 0 0% 9%;
+    --dashboard-body: 30 5% 42%;
+    --dashboard-muted: 30 4% 52%;
+    --dashboard-border: 30 10% 86%;
+    --dashboard-nav-active: 38 65% 54%;
     /* Home (Figma): balance card elevation, action blue */
     --home-card-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
     --home-action-blue: 211 100% 50%;
