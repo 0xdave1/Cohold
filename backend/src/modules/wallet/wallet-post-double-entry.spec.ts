@@ -110,4 +110,32 @@ describe('WalletService.postDoubleEntry (Issue 3)', () => {
     expect(tx.transaction.create).toHaveBeenCalled();
     expect(tx.$executeRawUnsafe).toHaveBeenCalled();
   });
+
+  it('uses text-safe wallet id comparisons in balance updates (no ::uuid cast)', async () => {
+    const legs = baseLegs();
+    const executedSql: string[] = [];
+    const tx = {
+      $queryRawUnsafe: jest.fn().mockResolvedValue([{ id: 'w-debit' }, { id: 'w-credit' }]),
+      ledgerOperation: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'new-op' }),
+      },
+      transaction: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn().mockResolvedValue({}),
+      },
+      $executeRawUnsafe: jest.fn(async (sql: string) => {
+        executedSql.push(sql);
+        return 1;
+      }),
+    };
+
+    await walletService.postDoubleEntry(tx as unknown as Prisma.TransactionClient, 'text-id-ref', legs, {
+      operationType: LedgerOperationType.WALLET_FUNDING,
+    });
+
+    expect(executedSql.length).toBeGreaterThan(0);
+    expect(executedSql.every((sql) => !sql.includes('::uuid'))).toBe(true);
+    expect(executedSql.some((sql) => sql.includes('WHERE id = $2'))).toBe(true);
+  });
 });

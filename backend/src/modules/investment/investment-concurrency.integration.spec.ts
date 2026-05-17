@@ -61,9 +61,10 @@ async function assertPreflight(prisma: PrismaClient): Promise<void> {
         AND table_name = 'Wallet'
         AND column_name = 'id'`,
   );
-  if (!walletIdType[0] || walletIdType[0].udt_name !== 'uuid') {
+  const acceptableWalletIdTypes = new Set(['text', 'uuid']);
+  if (!walletIdType[0] || !acceptableWalletIdTypes.has(walletIdType[0].udt_name)) {
     throw new Error(
-      `Schema mismatch: Wallet.id must be uuid for lock/update SQL path. Found: ${JSON.stringify(walletIdType[0] ?? null)}`,
+      `Schema mismatch: Wallet.id must be text or uuid for lock/update SQL path. Found: ${JSON.stringify(walletIdType[0] ?? null)}`,
     );
   }
 

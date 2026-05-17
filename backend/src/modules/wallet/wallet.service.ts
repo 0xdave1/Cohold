@@ -311,7 +311,7 @@ export class WalletService {
     const absStr = moneyStr(d.abs());
     if (d.gt(0)) {
       const n = await tx.$executeRawUnsafe(
-        `UPDATE "Wallet" SET balance = balance + $1::decimal(19,4), "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2::uuid`,
+        `UPDATE "Wallet" SET balance = balance + $1::decimal(19,4), "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2`,
         absStr,
         walletId,
       );
@@ -321,7 +321,7 @@ export class WalletService {
       return;
     }
     const n = await tx.$executeRawUnsafe(
-      `UPDATE "Wallet" SET balance = balance - $1::decimal(19,4), "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2::uuid AND balance >= $1::decimal(19,4)`,
+      `UPDATE "Wallet" SET balance = balance - $1::decimal(19,4), "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2 AND balance >= $1::decimal(19,4)`,
       absStr,
       walletId,
     );

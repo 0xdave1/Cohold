@@ -31,6 +31,7 @@ import {
 import Decimal from 'decimal.js';
 import { randomUUID } from 'crypto';
 import { SellFractionalInvestmentDto } from './dto/sell-fractional-investment.dto';
+import { sanitizeErrorForLog } from '../../common/logging/security-redaction.util';
 
 const INVESTMENT_FEE_RATE = 0.02; // 2% — fee on top of principal (buy)
 const SELL_PROFIT_FEE_RATE = 0.1; // 10% of realised profit only (sell)
@@ -45,6 +46,47 @@ export class InvestmentService {
     private readonly notificationsService: NotificationsService,
     private readonly kycPolicy: KycPolicyService,
   ) {}
+
+  private shouldLogInvestmentDbFailure(err: unknown): boolean {
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      return true;
+    }
+    if (
+      err instanceof BadRequestException ||
+      err instanceof NotFoundException ||
+      err instanceof ConflictException ||
+      err instanceof ForbiddenException
+    ) {
+      return false;
+    }
+    return err instanceof Error;
+  }
+
+  private logInvestmentDbFailure(
+    operation: 'investment_create_fractional' | 'investment_sell_fractional',
+    err: unknown,
+    context: { userId: string; propertyId: string; correlationId?: string },
+  ): void {
+    const prismaKnown = err instanceof Prisma.PrismaClientKnownRequestError ? err : null;
+    const meta = prismaKnown?.meta;
+    const sqlState =
+      meta && typeof meta === 'object' && 'code' in meta && typeof (meta as { code: unknown }).code === 'string'
+        ? (meta as { code: string }).code
+        : undefined;
+
+    this.logger.error(
+      JSON.stringify({
+        msg: `${operation}_db_failure`,
+        operation,
+        correlationId: context.correlationId ?? null,
+        userId: context.userId,
+        propertyId: context.propertyId,
+        prismaCode: prismaKnown?.code ?? null,
+        sqlState: sqlState ?? null,
+        error: sanitizeErrorForLog(err),
+      }),
+    );
+  }
 
   /**
    * Create fractional investment. Assumes user wallet is already funded (e.g. via Flutterwave checkout).
@@ -103,7 +145,14 @@ export class InvestmentService {
       );
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    let result: {
+      investment: { id: string; amount: { toString: () => string }; currency: string; shares: { toString: () => string }; sharePrice: { toString: () => string }; ownershipPercent: { toString: () => string }; createdAt: Date };
+      updatedUserWallet: { balance: { toString: () => string } };
+      txRef: string;
+    };
+
+    try {
+      result = await this.prisma.$transaction(async (tx) => {
       const [lockedProperty] = await tx.$queryRawUnsafe<any[]>(
         `SELECT * FROM "Property" WHERE id = $1 FOR UPDATE`,
         dto.propertyId,
@@ -259,6 +308,15 @@ export class InvestmentService {
       });
       return { investment, updatedUserWallet, txRef };
     });
+    } catch (err) {
+      if (this.shouldLogInvestmentDbFailure(err)) {
+        this.logInvestmentDbFailure('investment_create_fractional', err, {
+          userId,
+          propertyId: dto.propertyId,
+        });
+      }
+      throw err;
+    }
 
     // Send notification after successful investment (outside transaction)
     try {
