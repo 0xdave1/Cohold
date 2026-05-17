@@ -22,9 +22,10 @@ function pushUnique(out: DashboardTodoShortcut[], item: DashboardTodoShortcut) {
   out.push(item);
 }
 
-function padFromDefaults(out: DashboardTodoShortcut[]) {
+function padFromDefaults(out: DashboardTodoShortcut[], checklist: OnboardingChecklist) {
   for (const d of DEFAULT_DASHBOARD_TODO_SHORTCUTS) {
     if (out.length >= MAX_SHORTCUTS) break;
+    if (d.id === 'kyc' && checklist.kycVerified) continue;
     pushUnique(out, d);
   }
 }
@@ -62,7 +63,7 @@ export function buildDashboardTodoShortcuts(
     pushUnique(out, { id: 'browse', title: 'Browse properties', href: '/dashboard/properties' });
   }
 
-  padFromDefaults(out);
+  padFromDefaults(out, checklist);
 
   if (out.length === 0) {
     return DEFAULT_DASHBOARD_TODO_SHORTCUTS.slice();

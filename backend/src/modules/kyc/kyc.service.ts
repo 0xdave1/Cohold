@@ -94,6 +94,95 @@ export class KycService {
     return 'selfie';
   }
 
+  /**
+   * User.kycStatus is the canonical snapshot for gates (/users/me, dashboard-summary,
+   * onboarding-checklist, investment/withdrawal/virtual-account policy).
+   */
+  private async syncUserKycStatusInTx(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    kycStatus: KycStatus,
+    opts?: { setOnboardingCompleted?: boolean },
+  ): Promise<void> {
+    const data: Prisma.UserUpdateInput = { kycStatus };
+    if (opts?.setOnboardingCompleted) {
+      data.onboardingCompletedAt = new Date();
+    }
+    await tx.user.update({ where: { id: userId }, data });
+  }
+
+  /**
+   * Repairs legacy drift where KycVerification reflects an admin decision but User.kycStatus was not updated.
+   */
+  async reconcileUserKycSnapshotIfDrifted(userId: string): Promise<KycStatus> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { kycStatus: true },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const kyc = await this.prisma.kycVerification.findUnique({
+      where: { userId },
+      select: { id: true, status: true },
+    });
+    if (!kyc) {
+      return user.kycStatus;
+    }
+
+    if (user.kycStatus === kyc.status) {
+      return user.kycStatus;
+    }
+
+    const repairable: KycStatus[] = [
+      KycStatus.VERIFIED,
+      KycStatus.FAILED,
+      KycStatus.REQUIRES_REVIEW,
+    ];
+    if (!repairable.includes(kyc.status)) {
+      return user.kycStatus;
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.syncUserKycStatusInTx(tx, userId, kyc.status, {
+        setOnboardingCompleted: kyc.status === KycStatus.VERIFIED,
+      });
+      await this.writeAuditLog(tx, {
+        kycVerificationId: kyc.id,
+        userId,
+        action: 'KYC_USER_SNAPSHOT_REPAIR',
+        previousKycStatus: user.kycStatus,
+        nextKycStatus: kyc.status,
+        metadata: { verificationStatus: kyc.status },
+      });
+    });
+
+    return kyc.status;
+  }
+
+  async getKycMe(userId: string) {
+    await this.reconcileUserKycSnapshotIfDrifted(userId);
+
+    const [user, kyc] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { kycStatus: true, onboardingCompletedAt: true },
+      }),
+      this.prisma.kycVerification.findUnique({ where: { userId } }),
+    ]);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return {
+      /** Canonical status for money-movement gates and dashboard UX. */
+      kycStatus: user.kycStatus,
+      onboardingCompletedAt: user.onboardingCompletedAt,
+      verification: kyc ? this.sanitizeKycRecordForResponse(kyc) : null,
+    };
+  }
+
   private async writeAuditLog(
     tx: Prisma.TransactionClient,
     params: {
@@ -183,6 +272,7 @@ export class KycService {
         requiresReview: true,
       },
     });
+    await this.syncUserKycStatusInTx(tx, kyc.userId, KycStatus.REQUIRES_REVIEW);
     await this.writeAuditLog(tx, {
       kycVerificationId: kyc.id,
       userId: kyc.userId,
@@ -662,12 +752,8 @@ export class KycService {
         },
       });
 
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          kycStatus: KycStatus.VERIFIED,
-          onboardingCompletedAt: new Date(),
-        },
+      await this.syncUserKycStatusInTx(tx, userId, KycStatus.VERIFIED, {
+        setOnboardingCompleted: true,
       });
 
       await this.writeAuditLog(tx, {
@@ -712,7 +798,18 @@ export class KycService {
       this.logger.warn(`Failed to send KYC approved notification: ${err}`);
     }
 
-    return this.sanitizeKycRecordForResponse(updated);
+    const userSnapshot = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { kycStatus: true, onboardingCompletedAt: true },
+    });
+
+    return {
+      ...this.sanitizeKycRecordForResponse(updated),
+      user: {
+        kycStatus: userSnapshot?.kycStatus ?? KycStatus.VERIFIED,
+        onboardingCompletedAt: userSnapshot?.onboardingCompletedAt ?? null,
+      },
+    };
   }
 
   async rejectKyc(
@@ -764,10 +861,7 @@ export class KycService {
         },
       });
 
-      await tx.user.update({
-        where: { id: userId },
-        data: { kycStatus: KycStatus.FAILED },
-      });
+      await this.syncUserKycStatusInTx(tx, userId, KycStatus.FAILED);
 
       await this.writeAuditLog(tx, {
         kycVerificationId: kyc.id,
@@ -800,7 +894,17 @@ export class KycService {
       this.logger.warn(`Failed to send KYC rejected notification: ${err}`);
     }
 
-    return this.sanitizeKycRecordForResponse(updated);
+    const userSnapshot = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { kycStatus: true },
+    });
+
+    return {
+      ...this.sanitizeKycRecordForResponse(updated),
+      user: {
+        kycStatus: userSnapshot?.kycStatus ?? KycStatus.FAILED,
+      },
+    };
   }
 
   async revokeKyc(
@@ -827,10 +931,7 @@ export class KycService {
           reviewedById: adminId,
         },
       });
-      await tx.user.update({
-        where: { id: userId },
-        data: { kycStatus: KycStatus.REQUIRES_REVIEW },
-      });
+      await this.syncUserKycStatusInTx(tx, userId, KycStatus.REQUIRES_REVIEW);
       await this.writeAuditLog(tx, {
         kycVerificationId: kyc.id,
         userId,
@@ -842,10 +943,29 @@ export class KycService {
         ipAddress: auditCtx?.ipAddress ?? null,
         userAgent: auditCtx?.userAgent ?? null,
       });
+      await tx.adminActivityLog.create({
+        data: {
+          adminId,
+          action: 'KYC_REVOKE',
+          entityType: 'User',
+          entityId: userId,
+          metadata: { failureReason: reason },
+        },
+      });
       return row;
     });
 
-    return this.sanitizeKycRecordForResponse(updated);
+    const userSnapshot = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { kycStatus: true },
+    });
+
+    return {
+      ...this.sanitizeKycRecordForResponse(updated),
+      user: {
+        kycStatus: userSnapshot?.kycStatus ?? KycStatus.REQUIRES_REVIEW,
+      },
+    };
   }
 
   sanitizeKycRecordForResponse(kyc: {

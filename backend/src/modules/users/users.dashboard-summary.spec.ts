@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { PAYOUT_PROVIDER } from '../payout/payout-provider.interface';
 import { KycStatus, SupportStatus, VirtualAccountStatus, WithdrawalStatus } from '@prisma/client';
+import { KycService } from '../kyc/kyc.service';
 
 describe('UsersService getDashboardSummary (Issue 12)', () => {
   let service: UsersService;
@@ -49,6 +50,10 @@ describe('UsersService getDashboardSummary (Issue 12)', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: StorageService, useValue: {} },
         { provide: PAYOUT_PROVIDER, useValue: {} },
+        {
+          provide: KycService,
+          useValue: { reconcileUserKycSnapshotIfDrifted: jest.fn().mockResolvedValue(KycStatus.VERIFIED) },
+        },
       ],
     }).compile();
     service = moduleRef.get(UsersService);

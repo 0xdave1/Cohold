@@ -22,6 +22,7 @@ import {
 } from '@prisma/client';
 import { StorageService } from '../storage/storage.service';
 import { PAYOUT_PROVIDER, PayoutProvider } from '../payout/payout-provider.interface';
+import { KycService } from '../kyc/kyc.service';
 
 @Injectable()
 export class UsersService {
@@ -29,9 +30,12 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     @Inject(PAYOUT_PROVIDER) private readonly payoutProvider: PayoutProvider,
+    private readonly kycService: KycService,
   ) {}
 
   async getMe(userId: string) {
+    await this.kycService.reconcileUserKycSnapshotIfDrifted(userId);
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -229,6 +233,8 @@ export class UsersService {
 
   /** Issue 12: truthful onboarding checklist (informational; policies remain authoritative). */
   async getOnboardingChecklist(userId: string) {
+    await this.kycService.reconcileUserKycSnapshotIfDrifted(userId);
+
     const [user, kyc, va, walletAgg, investmentCount] = await Promise.all([
       this.prisma.user.findUnique({
         where: { id: userId },
@@ -280,6 +286,8 @@ export class UsersService {
 
   /** Issue 12: dashboard summary — backend-derived only; unsupported metrics explicit null + reason. */
   async getDashboardSummary(userId: string) {
+    await this.kycService.reconcileUserKycSnapshotIfDrifted(userId);
+
     const pendingWithdrawalStatuses: WithdrawalStatus[] = [
       WithdrawalStatus.PENDING,
       WithdrawalStatus.INITIATING,

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   Param,
   Patch,
   Post,
@@ -33,6 +34,13 @@ import { CompleteKycUploadDto } from './dto/complete-kyc-upload.dto';
 @Controller()
 export class KycController {
   constructor(private readonly kycService: KycService) {}
+
+  @ApiBearerAuth('user-jwt')
+  @UseGuards(JwtAuthGuard)
+  @Get('kyc/me')
+  async getKycMe(@CurrentUser() user: { id: string }) {
+    return this.kycService.getKycMe(user.id);
+  }
 
   @ApiBearerAuth('user-jwt')
   @UseGuards(JwtAuthGuard)

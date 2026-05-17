@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { DataTable, type Column } from '@/components/admin/DataTable';
 import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { adminApi } from '@/lib/admin/api';
+import { useAdminApproveKyc, useAdminRejectKyc } from '@/lib/admin/use-admin-kyc-review';
 import type { KycVerification } from '@/lib/admin/types';
 import { maskSensitiveId } from '@/lib/kyc/identity';
 import { canReviewKyc } from '@/lib/admin/permissions';
@@ -33,6 +34,8 @@ export default function VerificationsPage() {
   const [acting, setActing] = useState<string | null>(null);
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [listError, setListError] = useState<string | null>(null);
+  const approveKyc = useAdminApproveKyc();
+  const rejectKyc = useAdminRejectKyc();
   const limit = 20;
 
   const load = () => {
@@ -59,7 +62,7 @@ export default function VerificationsPage() {
     if (!confirmed) return;
     setActing(id);
     try {
-      await adminApi.approveKyc(id);
+      await approveKyc.mutateAsync(id);
       load();
     } catch (e: unknown) {
       setListError(mapApiError(e).message);
@@ -120,7 +123,7 @@ export default function VerificationsPage() {
         onClose={() => setRejectId(null)}
         onConfirm={async (failureReason) => {
           if (!rejectId) return;
-          await adminApi.rejectKyc(rejectId, { failureReason });
+          await rejectKyc.mutateAsync({ verificationId: rejectId, failureReason });
           setRejectId(null);
           load();
         }}

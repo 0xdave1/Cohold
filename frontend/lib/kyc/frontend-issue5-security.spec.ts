@@ -44,6 +44,15 @@ describe('Issue 5 frontend KYC compliance hardening', () => {
     expect(upload).toContain('opts.buildCompleteBody(key)');
   });
 
+  it('user KYC status is derived from backend /users/me and /kyc/me (no client-side VERIFIED override)', () => {
+    const kycHook = readRel('lib/hooks/use-kyc.ts');
+    expect(kycHook).toContain('/kyc/me');
+    expect(kycHook).toContain('/users/me');
+    expect(kycHook).not.toMatch(/kycStatus\s*=\s*['"]VERIFIED['"]/);
+    const status = readRel('lib/kyc/status.ts');
+    expect(status).toContain("normalizeKycStatus(status) === 'VERIFIED'");
+  });
+
   it('admin KYC document access uses backend signed-read endpoint', () => {
     const adminUserDetail = readRel('app/admin/(panel)/users/[id]/page.tsx');
     expect(adminUserDetail).toContain('adminApi.getKycSignedReadUrl');

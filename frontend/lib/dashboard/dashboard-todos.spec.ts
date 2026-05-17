@@ -32,6 +32,11 @@ describe('buildDashboardTodoShortcuts', () => {
     expect(out.some((x) => x.title === 'Complete your KYC' && x.href === '/dashboard/kyc')).toBe(true);
   });
 
+  it('does not include Complete KYC when checklist reports kycVerified', () => {
+    const out = buildDashboardTodoShortcuts(completeChecklist, { isError: false });
+    expect(out.some((x) => x.title === 'Complete your KYC')).toBe(false);
+  });
+
   it('does not surface internal checklist copy', () => {
     const src = JSON.stringify(DEFAULT_DASHBOARD_TODO_SHORTCUTS);
     expect(src).not.toMatch(/from server|unavailable|Authorization/i);

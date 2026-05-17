@@ -200,6 +200,74 @@ describe('KycService (Issue 5)', () => {
     await expect(service.approveKyc('adm1', 'u1', {})).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('admin approval updates KycVerification and User.kycStatus in one transaction', async () => {
+    prismaMock.kycVerification.findFirst.mockResolvedValue({
+      id: 'kyc-1',
+      userId: 'u1',
+      status: KycStatus.REQUIRES_REVIEW,
+      identityHash: 'hash-1',
+      identityVerificationStatus: IdentityVerificationStatus.MANUAL_REVIEW,
+      documentFrontKey: 'users/u1/kyc/id_front/a.jpg',
+      documentBackKey: 'users/u1/kyc/id_back/b.jpg',
+      selfieKey: 'users/u1/kyc/selfie/c.jpg',
+      kycDocumentSlots: null,
+    });
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u1', isFrozen: false, email: 'u@x.co' });
+    walletMock.createVirtualAccount.mockResolvedValue({ status: 'ACTIVE' });
+
+    const txCtx: any = {
+      kycVerification: {
+        update: jest.fn().mockResolvedValue({
+          id: 'kyc-1',
+          userId: 'u1',
+          status: KycStatus.VERIFIED,
+          identityLast4: '8901',
+          identityType: IdentityType.BVN,
+          identityVerificationStatus: IdentityVerificationStatus.MANUAL_REVIEW,
+          identityProviderReference: null,
+          identityVerifiedAt: null,
+          failureReason: null,
+          requiresReview: false,
+          reviewedById: 'adm1',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }),
+      },
+      user: { update: jest.fn() },
+      kycAuditLog: { create: jest.fn() },
+      adminActivityLog: { create: jest.fn() },
+    };
+    prismaMock.$transaction.mockImplementation(async (cb: any) => cb(txCtx));
+    prismaMock.user.findUnique
+      .mockResolvedValueOnce({ id: 'u1', isFrozen: false, email: 'u@x.co' })
+      .mockResolvedValueOnce({
+        kycStatus: KycStatus.VERIFIED,
+        onboardingCompletedAt: new Date('2026-01-01'),
+      });
+
+    const out = await service.approveKyc('adm1', 'u1', {});
+
+    expect(txCtx.kycVerification.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: KycStatus.VERIFIED,
+          failureReason: null,
+          reviewedById: 'adm1',
+        }),
+      }),
+    );
+    expect(txCtx.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: expect.objectContaining({
+        kycStatus: KycStatus.VERIFIED,
+        onboardingCompletedAt: expect.any(Date),
+      }),
+    });
+    expect(txCtx.adminActivityLog.create).toHaveBeenCalled();
+    expect(walletMock.createVirtualAccount).toHaveBeenCalledWith('u1');
+    expect(out.user?.kycStatus).toBe(KycStatus.VERIFIED);
+  });
+
   it('admin approval writes KYC audit log', async () => {
     prismaMock.kycVerification.findFirst.mockResolvedValue({
       id: 'kyc-1',
@@ -250,6 +318,52 @@ describe('KycService (Issue 5)', () => {
     );
   });
 
+  it('admin rejection updates User.kycStatus to FAILED', async () => {
+    prismaMock.kycVerification.findFirst.mockResolvedValue({
+      id: 'kyc-1',
+      userId: 'u1',
+      status: KycStatus.REQUIRES_REVIEW,
+      identityHash: 'hash-1',
+      identityVerificationStatus: IdentityVerificationStatus.MANUAL_REVIEW,
+      documentFrontKey: 'users/u1/kyc/id_front/a.jpg',
+      documentBackKey: 'users/u1/kyc/id_back/b.jpg',
+      selfieKey: 'users/u1/kyc/selfie/c.jpg',
+      kycDocumentSlots: null,
+    });
+    const txCtx: any = {
+      kycVerification: {
+        update: jest.fn().mockResolvedValue({
+          id: 'kyc-1',
+          userId: 'u1',
+          status: KycStatus.FAILED,
+          identityLast4: '8901',
+          identityType: IdentityType.BVN,
+          identityVerificationStatus: IdentityVerificationStatus.MANUAL_REVIEW,
+          identityProviderReference: null,
+          identityVerifiedAt: null,
+          failureReason: 'bad docs',
+          requiresReview: true,
+          reviewedById: 'adm1',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }),
+      },
+      user: { update: jest.fn() },
+      kycAuditLog: { create: jest.fn() },
+      adminActivityLog: { create: jest.fn() },
+    };
+    prismaMock.$transaction.mockImplementation(async (cb: any) => cb(txCtx));
+    prismaMock.user.findUnique.mockResolvedValue({ kycStatus: KycStatus.FAILED });
+
+    const out = await service.rejectKyc('adm1', 'u1', { failureReason: 'bad docs' });
+
+    expect(txCtx.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: { kycStatus: KycStatus.FAILED },
+    });
+    expect(out.user?.kycStatus).toBe(KycStatus.FAILED);
+  });
+
   it('admin rejection writes KYC audit log', async () => {
     prismaMock.kycVerification.findFirst.mockResolvedValue({
       id: 'kyc-1',
@@ -296,6 +410,34 @@ describe('KycService (Issue 5)', () => {
           nextKycStatus: KycStatus.FAILED,
           reason: 'bad docs',
         }),
+      }),
+    );
+  });
+
+  it('reconcileUserKycSnapshotIfDrifted repairs verification VERIFIED when user snapshot lags', async () => {
+    prismaMock.user.findUnique
+      .mockResolvedValueOnce({ kycStatus: KycStatus.PENDING })
+      .mockResolvedValueOnce({ kycStatus: KycStatus.VERIFIED, onboardingCompletedAt: new Date() });
+    prismaMock.kycVerification.findUnique.mockResolvedValue({
+      id: 'kyc-1',
+      status: KycStatus.VERIFIED,
+    });
+    const txCtx: any = {
+      user: { update: jest.fn() },
+      kycAuditLog: { create: jest.fn() },
+    };
+    prismaMock.$transaction.mockImplementation(async (cb: any) => cb(txCtx));
+
+    const status = await service.reconcileUserKycSnapshotIfDrifted('u1');
+
+    expect(status).toBe(KycStatus.VERIFIED);
+    expect(txCtx.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: expect.objectContaining({ kycStatus: KycStatus.VERIFIED }),
+    });
+    expect(txCtx.kycAuditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: 'KYC_USER_SNAPSHOT_REPAIR' }),
       }),
     );
   });

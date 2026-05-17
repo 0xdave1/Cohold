@@ -48,11 +48,12 @@ describe('Profile photo presign / complete safety (Issue 12)', () => {
       createSignedReadUrl: jest.fn().mockResolvedValue('https://signed.example/read'),
     } as any;
     const payoutProvider = {} as any;
+    const kycService = { reconcileUserKycSnapshotIfDrifted: jest.fn().mockResolvedValue('PENDING') } as any;
     let service: UsersService;
 
     beforeEach(() => {
       jest.clearAllMocks();
-      service = new UsersService(prisma, storage, payoutProvider);
+      service = new UsersService(prisma, storage, payoutProvider, kycService);
       storage.createSignedReadUrl.mockResolvedValue('https://signed.example/read');
       prisma.user.findUnique.mockResolvedValue({
         id: 'u1',
@@ -126,7 +127,8 @@ describe('Profile photo presign / complete safety (Issue 12)', () => {
         },
       } as any;
       const storage = { createSignedReadUrl: jest.fn() } as any;
-      const service = new UsersService(prisma, storage, {} as any);
+      const kyc = { reconcileUserKycSnapshotIfDrifted: jest.fn().mockResolvedValue('PENDING') } as any;
+      const service = new UsersService(prisma, storage, {} as any, kyc);
       await service.clearProfilePhoto('u9');
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'u9' },

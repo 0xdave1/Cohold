@@ -4,6 +4,7 @@ import { UsersService } from './users.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { PAYOUT_PROVIDER } from '../payout/payout-provider.interface';
+import { KycService } from '../kyc/kyc.service';
 describe('UsersService linked banks', () => {
   let service: UsersService;
 
@@ -47,6 +48,10 @@ describe('UsersService linked banks', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: StorageService, useValue: storageMock },
         { provide: PAYOUT_PROVIDER, useValue: payoutProviderMock },
+        {
+          provide: KycService,
+          useValue: { reconcileUserKycSnapshotIfDrifted: jest.fn().mockResolvedValue('PENDING') },
+        },
       ],
     }).compile();
     service = moduleRef.get(UsersService);
