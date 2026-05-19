@@ -155,7 +155,7 @@ export default function PropertyDetailPage() {
       return (
         <div className="grid grid-cols-2 gap-2">
           <Link href={`/dashboard/properties/${id}/sell`} className={coholdUi.secondaryBtn}>
-            Sell back to platform
+            Sell shares
           </Link>
           {soldOut ? (
             <span className={`${coholdUi.secondaryBtn} cursor-not-allowed opacity-60`}>Sold out</span>
