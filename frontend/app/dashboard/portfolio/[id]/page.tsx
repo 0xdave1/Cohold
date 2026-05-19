@@ -294,7 +294,7 @@ export default function PortfolioInvestmentPage() {
         <StickyBottomBar>
           <div className="grid grid-cols-2 gap-2">
             <Link href={`/dashboard/properties/${investment.propertyId}/sell`} className={coholdUi.secondaryBtn}>
-              Sell back to platform
+              Sell shares
             </Link>
             {soldOut ? (
               <span className={`${coholdUi.secondaryBtn} cursor-not-allowed opacity-60`}>Sold out</span>

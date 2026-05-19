@@ -61,7 +61,7 @@ describe('Issue 7 investment frontend integrity', () => {
     expect(src).toContain('resolveListingMode');
     expect(src).not.toContain('detectListingMode');
     expect(src).toContain('Buy shares');
-    expect(src).toContain('Sell back to platform');
+    expect(src).toContain('Sell shares');
   });
 
   it('investments list tabs filter by resolveListingMode', () => {
