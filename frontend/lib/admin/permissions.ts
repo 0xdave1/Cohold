@@ -31,6 +31,11 @@ export function canViewFinance(role: AdminDbRole | null): boolean {
   return has(role, 'DATA_UPLOADER', 'APPROVER', 'COMPLIANCE_ADMIN', 'SUPER_ADMIN');
 }
 
+/** Finance sidebar section — excludes upload-only role (no withdrawals/ledger ops nav). */
+export function canViewFinanceNav(role: AdminDbRole | null): boolean {
+  return has(role, 'APPROVER', 'COMPLIANCE_ADMIN', 'SUPER_ADMIN');
+}
+
 export function canReconcileWithdrawal(role: AdminDbRole | null): boolean {
   return has(role, 'APPROVER', 'SUPER_ADMIN');
 }

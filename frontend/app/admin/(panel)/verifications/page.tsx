@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { DataTable, type Column } from '@/components/admin/DataTable';
 import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { adminApi } from '@/lib/admin/api';
@@ -103,7 +104,7 @@ export default function VerificationsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-gray-900">Verifications</h1>
+      <AdminPageHeader title="Verifications" />
       {!canAct ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           You do not have permission to approve or reject KYC for this account role.

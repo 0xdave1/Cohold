@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { adminApi } from '@/lib/admin/api';
 import { canDeleteProperty } from '@/lib/admin/permissions';
@@ -112,9 +113,8 @@ export default function PropertyListingsPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-gray-900">Property/Listings</h1>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <AdminPageHeader title="Property/Listings" />
         <div className="flex items-center gap-3">
           <div className="relative">
             <button

@@ -28,15 +28,15 @@ export function DataTable<T extends Record<string, any>>({
   emptyMessage = 'No data found.',
 }: DataTableProps<T>) {
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+    <div className="overflow-hidden rounded-xl border border-[#DDD8D2] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
+            <tr className="border-b border-[#DDD8D2] bg-[#F5F1EC]">
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide"
+                  className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[#6F6A64]"
                 >
                   {col.header}
                 </th>
@@ -46,7 +46,7 @@ export function DataTable<T extends Record<string, any>>({
           <tbody>
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="border-b border-gray-100">
+                <tr key={i} className="border-b border-[#DDD8D2]/60">
                   {columns.map((col) => (
                     <td key={col.key} className="px-4 py-3">
                       <div className="h-4 w-24 animate-pulse rounded bg-gray-200" />
@@ -56,15 +56,15 @@ export function DataTable<T extends Record<string, any>>({
               ))
             ) : data.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={columns.length} className="px-4 py-8 text-center text-[#6F6A64]">
                   {emptyMessage}
                 </td>
               </tr>
             ) : (
               data.map((row, i) => (
-                <tr key={row.id ?? i} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                <tr key={row.id ?? i} className="border-b border-[#DDD8D2]/60 transition-colors hover:bg-[#F5F1EC]/50">
                   {columns.map((col) => (
-                    <td key={col.key} className="px-4 py-3 text-gray-700">
+                    <td key={col.key} className="px-4 py-3 text-[#171717]">
                       {col.render ? col.render(row) : row[col.key]}
                     </td>
                   ))}
@@ -75,14 +75,14 @@ export function DataTable<T extends Record<string, any>>({
         </table>
       </div>
       {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-gray-200 px-4 py-3">
-          <p className="text-xs text-gray-500">Page {page} of {totalPages}</p>
+        <div className="flex items-center justify-between border-t border-[#DDD8D2] px-4 py-3">
+          <p className="text-xs text-[#6F6A64]">Page {page} of {totalPages}</p>
           <div className="flex gap-1">
             <button
               type="button"
               onClick={() => onPageChange?.(page - 1)}
               disabled={page <= 1}
-              className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-40"
+              className="rounded-lg border border-[#DDD8D2] p-1.5 text-[#6F6A64] hover:bg-[#F5F1EC] disabled:opacity-40"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -90,7 +90,7 @@ export function DataTable<T extends Record<string, any>>({
               type="button"
               onClick={() => onPageChange?.(page + 1)}
               disabled={page >= totalPages}
-              className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-40"
+              className="rounded-lg border border-[#DDD8D2] p-1.5 text-[#6F6A64] hover:bg-[#F5F1EC] disabled:opacity-40"
             >
               <ChevronRight className="h-4 w-4" />
             </button>

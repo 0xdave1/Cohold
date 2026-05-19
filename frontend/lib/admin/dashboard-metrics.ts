@@ -12,8 +12,8 @@ export type DashboardMetric = {
   /** Present only when metric is supported and numeric/string value exists */
   value?: number | string;
   unsupportedReason?: string;
-  /** healthy | attention | critical */
-  tone?: 'healthy' | 'attention' | 'critical';
+  /** neutral | attention | critical | healthy */
+  tone?: 'healthy' | 'attention' | 'critical' | 'neutral';
 };
 
 function num(v: unknown): number | undefined {
@@ -41,42 +41,42 @@ export function buildDashboardExceptionMetrics(overview: Record<string, unknown>
       label: 'Pending KYC',
       kind: 'count',
       value: num(overview.pendingKyc),
-      tone: (num(overview.pendingKyc) ?? 0) > 0 ? 'attention' : 'healthy',
+      tone: (num(overview.pendingKyc) ?? 0) > 0 ? 'attention' : 'neutral',
     },
     {
       key: 'withdrawalRecon',
       label: 'Withdrawals — reconciliation required',
       kind: 'count',
       value: recon,
-      tone: (recon ?? 0) > 0 ? 'critical' : 'healthy',
+      tone: (recon ?? 0) > 0 ? 'critical' : 'neutral',
     },
     {
       key: 'vaFailed',
       label: 'Virtual accounts — failed / retry required',
       kind: 'count',
       value: vaFail,
-      tone: (vaFail ?? 0) > 0 ? 'critical' : 'healthy',
+      tone: (vaFail ?? 0) > 0 ? 'critical' : 'neutral',
     },
     {
       key: 'outboxDl',
       label: 'Outbox — dead-letter',
       kind: 'count',
       value: dl,
-      tone: (dl ?? 0) > 0 ? 'critical' : 'healthy',
+      tone: (dl ?? 0) > 0 ? 'critical' : 'neutral',
     },
     {
       key: 'distPartial',
       label: 'Distributions — partially failed batches',
       kind: 'count',
       value: partial,
-      tone: (partial ?? 0) > 0 ? 'critical' : 'healthy',
+      tone: (partial ?? 0) > 0 ? 'critical' : 'neutral',
     },
     {
       key: 'ledgerMismatch',
       label: 'Ledger reconciliation signals',
       kind: 'count',
       value: ledgerN,
-      tone: (ledgerN ?? 0) > 0 ? 'critical' : 'healthy',
+      tone: (ledgerN ?? 0) > 0 ? 'critical' : 'neutral',
     },
   ];
   return rows;
@@ -199,7 +199,140 @@ export function mergeOpsSummaryIntoExceptions(
     label: 'Unmatched virtual account deposits (rows)',
     kind: 'count',
     value: unmatched,
-    tone: unmatched > 0 ? 'critical' : 'healthy',
+    tone: unmatched > 0 ? 'critical' : 'neutral',
   });
   return copy;
+}
+
+const FIAT_CURRENCIES = ['NGN', 'USD', 'GBP', 'EUR'] as const;
+
+function moneyFromRecord(
+  record: Record<string, string> | null | undefined,
+  currency: string,
+): string | undefined {
+  if (!record || record[currency] == null) return undefined;
+  return String(record[currency]);
+}
+
+/** Figma-style dashboard rows from `GET admin/dashboard/overview` only. */
+export function buildFigmaDashboardSections(overview: Record<string, unknown> | null | undefined): {
+  userStats: DashboardMetric[];
+  investmentsByCurrency: DashboardMetric[];
+  walletsByCurrency: DashboardMetric[];
+  listings: DashboardMetric[];
+  operations: DashboardMetric[];
+} {
+  if (!overview) {
+    return { userStats: [], investmentsByCurrency: [], walletsByCurrency: [], listings: [], operations: [] };
+  }
+
+  const unsupported = overview.unsupported as Record<string, string> | undefined;
+  const totalUsers = num(overview.totalUsers);
+  const verified = num(overview.totalVerifiedUsers);
+  const unverified =
+    totalUsers != null && verified != null ? Math.max(0, totalUsers - verified) : num(overview.totalUnverifiedUsers);
+
+  const userStats: DashboardMetric[] = [
+    { key: 'users', label: 'Total users', kind: 'count', value: totalUsers, tone: 'neutral' },
+    { key: 'verified', label: 'Total verified users', kind: 'count', value: verified, tone: 'healthy' },
+    {
+      key: 'unverified',
+      label: 'Total unverified users',
+      kind: 'count',
+      value: unverified,
+      tone: (unverified ?? 0) > 0 ? 'attention' : 'neutral',
+    },
+  ];
+
+  const invRecord = overview.totalInvestments as Record<string, string> | undefined;
+  const investmentsByCurrency: DashboardMetric[] = FIAT_CURRENCIES.map((c) => ({
+    key: `inv-${c}`,
+    label: `Total investments (${c})`,
+    kind: 'money' as const,
+    value: moneyFromRecord(invRecord, c),
+    tone: 'neutral' as const,
+  }));
+
+  const walletRecord = overview.walletBalances as Record<string, string> | undefined;
+  const walletsByCurrency: DashboardMetric[] = FIAT_CURRENCIES.map((c) => ({
+    key: `wallet-${c}`,
+    label: `Total wallet balance (${c})`,
+    kind: 'money' as const,
+    value: moneyFromRecord(walletRecord, c),
+    tone: 'neutral' as const,
+  }));
+
+  const listings: DashboardMetric[] = [
+    { key: 'activeProp', label: 'Active listings (Total)', kind: 'count', value: num(overview.activeListings), tone: 'neutral' },
+  ];
+
+  const frac = overview.fractionalListings;
+  const land = overview.landListings;
+  const oah = overview.ownAHomeListings;
+  if (frac === null && land === null && oah === null) {
+    listings.push({
+      key: 'listingTypes',
+      label: 'Listings by type',
+      kind: 'unsupported',
+      unsupportedReason: unsupported?.listingTypeBreakdown ?? 'Listing taxonomy not modeled.',
+    });
+  } else {
+    if (frac != null) {
+      listings.push({ key: 'frac', label: 'Active listings (Fractional)', kind: 'count', value: num(frac), tone: 'neutral' });
+    }
+    if (land != null) {
+      listings.push({ key: 'land', label: 'Active listings (Land)', kind: 'count', value: num(land), tone: 'neutral' });
+    }
+    if (oah != null) {
+      listings.push({ key: 'oah', label: 'Active listings (Own a home)', kind: 'count', value: num(oah), tone: 'neutral' });
+    }
+  }
+
+  const operations: DashboardMetric[] = [];
+
+  if (overview.coholdRevenue === null || overview.coholdRevenue === undefined) {
+    operations.push({
+      key: 'revenue',
+      label: 'Cohold revenue generated',
+      kind: 'unsupported',
+      unsupportedReason: unsupported?.coholdRevenue ?? 'Not exposed as a durable metric.',
+    });
+  } else {
+    operations.push({
+      key: 'revenue',
+      label: 'Cohold revenue generated',
+      kind: 'money',
+      value: String(overview.coholdRevenue),
+      tone: 'neutral',
+    });
+  }
+
+  operations.push({
+    key: 'pendingKyc',
+    label: 'Pending KYC',
+    kind: 'count',
+    value: num(overview.pendingKyc),
+    tone: (num(overview.pendingKyc) ?? 0) > 0 ? 'attention' : 'neutral',
+  });
+
+  operations.push({
+    key: 'openDisputes',
+    label: 'Open disputes',
+    kind: 'count',
+    value: num(overview.openDisputes),
+    tone: (num(overview.openDisputes) ?? 0) > 0 ? 'critical' : 'neutral',
+  });
+
+  const criticalOps = buildDashboardExceptionMetrics(overview).filter(
+    (m) => !['pendingKyc', 'openDisputes'].includes(m.key),
+  );
+  operations.push(...criticalOps);
+
+  return {
+    userStats,
+    investmentsByCurrency,
+    walletsByCurrency,
+    listings,
+    operations,
+  };
 }

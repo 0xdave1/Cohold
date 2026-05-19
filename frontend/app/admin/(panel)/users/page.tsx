@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { adminApi } from '@/lib/admin/api';
 import { canFreezeUser, canManageAdmins } from '@/lib/admin/permissions';
@@ -146,7 +147,7 @@ export default function AdminUsersPage() {
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-gray-900">User management</h1>
+        <AdminPageHeader title="User management" />
         <div className="relative">
           <button
             type="button"

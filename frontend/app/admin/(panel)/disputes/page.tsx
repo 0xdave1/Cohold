@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { DataTable, type Column } from '@/components/admin/DataTable';
 import { adminApi } from '@/lib/admin/api';
 import type { AdminSupportConversation } from '@/lib/admin/support-types';
@@ -101,13 +102,10 @@ export default function DisputesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-gray-900">Disputes</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Dispute-flagged support conversations from the server (<code className="text-xs">isDispute</code>). This is
-          not a separate legal case tracker.
-        </p>
-      </div>
+      <AdminPageHeader
+        title="Disputes"
+        description="Dispute-flagged support conversations from the server (isDispute). This is not a separate legal case tracker."
+      />
       {error ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
           {error}

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { AdminToolbar } from '@/components/admin-management/AdminToolbar';
 import { AdminTable } from '@/components/admin-management/AdminTable';
 import type { UiPeriod } from '@/components/admin-management/constants';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { AddAdminModal } from '@/components/admin-management/modals/AddAdminModal';
 import { EditAdminModal } from '@/components/admin-management/modals/EditAdminModal';
@@ -153,10 +154,10 @@ export default function AdminManagementPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-[#111827]">Admin management</h1>
-        <p className="mt-1 text-sm text-[#6B7280]">Manage team access, roles, and account status.</p>
-      </div>
+      <AdminPageHeader
+        title="Admin management"
+        description="Manage team access, roles, and account status."
+      />
 
       {actionError ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="alert">

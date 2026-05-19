@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { DataTable, type Column } from '@/components/admin/DataTable';
 import { adminApi } from '@/lib/admin/api';
 import type { WalletTransaction } from '@/lib/admin/types';
@@ -50,7 +51,7 @@ export default function WalletTransactionsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-gray-900">Wallet transactions</h1>
+      <AdminPageHeader title="Wallet transactions" />
       <DataTable columns={columns} data={items} page={page} totalPages={Math.ceil(total / limit) || 1} onPageChange={setPage} loading={loading} />
     </div>
   );

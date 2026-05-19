@@ -6,11 +6,11 @@ import { AdminAuthGate } from '@/components/admin/AdminAuthGate';
 export default function AdminPanelLayout({ children }: { children: ReactNode }) {
   return (
     <AdminAuthGate>
-      <div className="flex min-h-screen" style={{ backgroundColor: '#f8f5f0' }}>
+      <div className="min-h-screen bg-[#F5F1EC]">
         <AdminSidebar />
-        <div className="flex flex-1 flex-col lg:ml-60">
+        <div className="flex min-h-screen flex-1 flex-col lg:ml-[240px]">
           <AdminTopbar />
-          <main className="flex-1 px-3 py-4 sm:px-4 lg:p-6">{children}</main>
+          <main className="flex-1 px-4 py-5 lg:px-6 lg:py-6">{children}</main>
         </div>
       </div>
     </AdminAuthGate>
