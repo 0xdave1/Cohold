@@ -4,10 +4,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WalletService, PLATFORM_USER_ID } from '../wallet/wallet.service';
-import { FlutterwaveService } from './flutterwave.service';
+import { PaystackProvider } from './providers/paystack.provider';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
   Currency,
@@ -20,23 +21,21 @@ import { randomUUID } from 'crypto';
 import Decimal from 'decimal.js';
 import { KycPolicyService } from '../kyc/kyc-policy.service';
 import { VirtualAccountService } from '../virtual-account/virtual-account.service';
+import { toDecimal } from '../../common/money/decimal.util';
 
-const FLW_WALLET_TX_PREFIX = 'flw_wallet_';
+const PSK_WALLET_TX_PREFIX = 'PSK-WALLET-';
 
-/** Encode `userId` in `tx_ref` so verify/webhook can credit without relying on provider `meta` echo. */
-function buildWalletFundingTxRef(userId: string): string {
-  return `${FLW_WALLET_TX_PREFIX}${userId}|${randomUUID()}`;
+function buildWalletFundingReference(userId: string): string {
+  return `${PSK_WALLET_TX_PREFIX}${userId}|${randomUUID()}`;
 }
 
-function parseUserIdFromWalletFundingTxRef(txRef: string): string | null {
-  if (!txRef.startsWith(FLW_WALLET_TX_PREFIX)) {
+function parseUserIdFromWalletFundingReference(reference: string): string | null {
+  if (!reference.startsWith(PSK_WALLET_TX_PREFIX)) {
     return null;
   }
-  const rest = txRef.slice(FLW_WALLET_TX_PREFIX.length);
+  const rest = reference.slice(PSK_WALLET_TX_PREFIX.length);
   const pipe = rest.indexOf('|');
-  if (pipe <= 0) {
-    return null;
-  }
+  if (pipe <= 0) return null;
   const userId = rest.slice(0, pipe).trim();
   return userId.length > 0 ? userId : null;
 }
@@ -48,44 +47,60 @@ export class PaymentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
-    private readonly flutterwaveService: FlutterwaveService,
+    private readonly paystack: PaystackProvider,
+    private readonly configService: ConfigService,
     private readonly notificationsService: NotificationsService,
     private readonly kycPolicy: KycPolicyService,
     private readonly virtualAccountService: VirtualAccountService,
   ) {}
 
-  private extractAccountNumber(data: Record<string, unknown>): string | null {
-    const direct = data.account_number ?? data.accountNumber;
-    if (typeof direct === 'string' && direct.trim()) return direct.trim();
-    const destination = data.destination as Record<string, unknown> | undefined;
-    const destAcc = destination?.account_number ?? destination?.accountNumber;
-    if (typeof destAcc === 'string' && destAcc.trim()) return destAcc.trim();
-    return null;
+  private callbackUrl(): string {
+    return (
+      this.configService.get<string>('config.paystack.callbackUrl') ??
+      this.configService.get<string>('PAYSTACK_CALLBACK_URL') ??
+      `${(this.configService.get<string>('config.appBaseUrl') ?? 'http://localhost:3000').replace(/\/$/, '')}/dashboard/wallet?status=success`
+    );
   }
 
   /**
-   * Hosted checkout to fund wallet (Flutterwave). `meta` on the charge ties settlement to `userId`.
+   * Hosted Paystack checkout to fund wallet. No wallet credit on initialize.
    */
-  async initializeFlutterwavePayment(params: { amount: number; userId: string; email: string }) {
+  async initializeWalletFunding(params: { amount: number; userId: string; email: string }) {
     const user = await this.prisma.user.findUnique({ where: { id: params.userId } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
     this.kycPolicy.assertFromUserSnapshot({ isFrozen: user.isFrozen, kycStatus: user.kycStatus });
 
-    const reference = buildWalletFundingTxRef(params.userId);
-    const { checkoutUrl } = await this.flutterwaveService.initializePayment({
-      amount: params.amount,
+    const amount = toDecimal(params.amount);
+    if (amount.lte(0)) {
+      throw new BadRequestException('Amount must be positive');
+    }
+
+    const reference = buildWalletFundingReference(params.userId);
+    const init = await this.paystack.initializeTransaction({
       email: params.email,
-      userId: params.userId,
+      amount,
+      currency: 'NGN',
       reference,
+      callbackUrl: this.callbackUrl(),
+      metadata: {
+        type: 'wallet_funding',
+        purpose: 'wallet_funding',
+        userId: params.userId,
+        expectedAmount: amount.toFixed(2),
+      },
     });
 
-    return { checkoutUrl, reference };
+    return {
+      checkoutUrl: init.authorizationUrl,
+      authorizationUrl: init.authorizationUrl,
+      reference: init.reference,
+    };
   }
 
   /**
-   * Client callback / manual confirm: verify with Flutterwave, then post ledger credit (idempotent by `reference`).
+   * Client callback: verify with Paystack, then post ledger credit (idempotent by reference).
    */
   async verifyWalletFunding(userId: string, reference: string) {
     const user = await this.prisma.user.findUnique({
@@ -96,27 +111,13 @@ export class PaymentService {
       throw new NotFoundException('User not found');
     }
 
-    const embeddedUserId = parseUserIdFromWalletFundingTxRef(reference);
+    const embeddedUserId = parseUserIdFromWalletFundingReference(reference);
     if (!embeddedUserId || embeddedUserId !== userId) {
       throw new BadRequestException('Invalid funding reference');
     }
 
-    const verified = await this.flutterwaveService.verifyPayment(reference);
-
-    const meta = verified.meta ?? {};
-    if (meta.type != null && String(meta.type) !== 'wallet_funding') {
-      throw new BadRequestException('Payment does not match this wallet funding session');
-    }
-    if (meta.userId != null && String(meta.userId) !== userId) {
-      throw new BadRequestException('Payment does not match this wallet funding session');
-    }
-
-    if (
-      verified.customerEmail &&
-      user.email.trim().toLowerCase() !== verified.customerEmail.trim().toLowerCase()
-    ) {
-      throw new BadRequestException('Payment customer does not match the authenticated user');
-    }
+    const verified = await this.paystack.verifyTransaction(reference);
+    this.assertVerifiedWalletFundingSession(user, verified, userId);
 
     let didCredit = false;
     await this.prisma.$transaction(async (tx) => {
@@ -124,7 +125,7 @@ export class PaymentService {
         userId,
         amount: verified.amount,
         reference,
-        providerTransactionId: verified.txId ?? undefined,
+        providerTransactionId: verified.transactionId ?? undefined,
       });
       didCredit = result.didCredit;
       if (didCredit) {
@@ -141,156 +142,174 @@ export class PaymentService {
     return { ok: true, reference, amount: verified.amount.toFixed(2), credited: didCredit };
   }
 
+  private assertVerifiedWalletFundingSession(
+    user: { email: string },
+    verified: Awaited<ReturnType<PaystackProvider['verifyTransaction']>>,
+    userId: string,
+  ): void {
+    const meta = verified.metadata ?? {};
+    if (meta.type != null && String(meta.type) !== 'wallet_funding') {
+      throw new BadRequestException('Payment does not match this wallet funding session');
+    }
+    if (meta.userId != null && String(meta.userId) !== userId) {
+      throw new BadRequestException('Payment does not match this wallet funding session');
+    }
+    if (verified.currency.toUpperCase() !== 'NGN') {
+      throw new BadRequestException('Only NGN wallet funding is supported');
+    }
+    const expectedRaw = meta.expectedAmount;
+    if (expectedRaw != null) {
+      const expected = toDecimal(String(expectedRaw));
+      if (!verified.amount.equals(expected)) {
+        throw new BadRequestException('Payment amount does not match the initialized funding session');
+      }
+    }
+    if (
+      verified.customerEmail &&
+      user.email.trim().toLowerCase() !== verified.customerEmail.trim().toLowerCase()
+    ) {
+      throw new BadRequestException('Payment customer does not match the authenticated user');
+    }
+  }
+
   /**
-   * Signature-verified Flutterwave webhook (non-transfer events). Credits wallet funding when verification succeeds.
+   * Signature-verified Paystack webhook. Credits wallet funding / DVA deposits after verification.
    */
-  async handleFlutterwaveWebhook(payload: Record<string, unknown>): Promise<{ received: boolean }> {
-    const event = String(payload.event ?? payload.type ?? '').toLowerCase();
-    if (!event.includes('charge') && !event.includes('successful')) {
+  async handlePaystackWebhook(payload: Record<string, unknown>): Promise<{ received: boolean }> {
+    const event = String(payload.event ?? '').toLowerCase();
+
+    if (event.startsWith('transfer.')) {
       return { received: true };
     }
 
-    const data = payload.data as Record<string, unknown> | undefined;
-    if (!data) {
-      return { received: true };
-    }
+    if (event === 'charge.success' || event.includes('charge.success')) {
+      const data = (payload.data as Record<string, unknown>) ?? {};
+      const reference = data.reference != null ? String(data.reference) : null;
+      const channel = data.channel != null ? String(data.channel) : '';
+      const authorization = (data.authorization as Record<string, unknown> | undefined) ?? {};
+      const accountNumber =
+        (authorization.receiver_bank_account_number as string | undefined) ??
+        (data.account_number as string | undefined) ??
+        null;
 
-    const status = String(data.status ?? '').toLowerCase();
-    if (status !== 'successful') {
-      return { received: true };
-    }
-
-    const txRef = data.tx_ref as string | undefined;
-    const txId = data.id != null ? String(data.id) : null;
-    const accountNumber = this.extractAccountNumber(data);
-
-    if (accountNumber) {
-      await this.handleVirtualAccountDepositWebhook({
-        payload,
-        transactionId: txId,
-        txRef: txRef ?? null,
-        accountNumber,
-      });
-      return { received: true };
-    }
-
-    if (!txRef) {
-      return { received: true };
-    }
-
-    const userId = parseUserIdFromWalletFundingTxRef(txRef);
-    if (!userId) {
-      return { received: true };
-    }
-
-    let verified;
-    try {
-      verified = await this.flutterwaveService.verifyPayment(txRef);
-    } catch (err) {
-      this.logger.warn(`Flutterwave webhook: verify failed tx_ref=${txRef} err=${String(err)}`);
-      return { received: true };
-    }
-
-    if (verified.meta?.type != null && String(verified.meta.type) !== 'wallet_funding') {
-      this.logger.warn(`Flutterwave webhook: unexpected meta.type tx_ref=${txRef}`);
-      return { received: true };
-    }
-    if (verified.meta?.userId != null && String(verified.meta.userId) !== userId) {
-      this.logger.warn(`Flutterwave webhook: meta.userId mismatch tx_ref=${txRef}`);
-      return { received: true };
-    }
-
-    try {
-      let didCredit = false;
-      await this.prisma.$transaction(async (tx) => {
-        const result = await this.processWalletFunding(tx, {
-          userId,
-          amount: verified.amount,
-          reference: txRef,
-          providerTransactionId: verified.txId ?? undefined,
-        });
-        didCredit = result.didCredit;
-        if (didCredit) {
-          await this.notificationsService.notifyWalletFundedInTransaction(
-            tx,
-            userId,
-            verified.amount.toFixed(2),
-            'NGN',
-            txRef,
-          );
+      if (accountNumber || channel === 'dedicated_nuban' || channel === 'bank_transfer') {
+        if (reference) {
+          await this.handleVirtualAccountDepositFromCharge(reference, accountNumber, payload);
         }
-      });
-    } catch (err) {
-      this.logger.error(`Flutterwave webhook: ledger post failed tx_ref=${txRef}`, err);
+        return { received: true };
+      }
+
+      if (!reference) {
+        return { received: true };
+      }
+
+      const userId = parseUserIdFromWalletFundingReference(reference);
+      if (!userId) {
+        return { received: true };
+      }
+
+      try {
+        const verified = await this.paystack.verifyTransaction(reference);
+        if (verified.metadata?.type != null && String(verified.metadata.type) !== 'wallet_funding') {
+          this.logger.warn(`Paystack webhook: unexpected meta.type reference=${reference}`);
+          return { received: true };
+        }
+        if (verified.metadata?.userId != null && String(verified.metadata.userId) !== userId) {
+          this.logger.warn(`Paystack webhook: meta.userId mismatch reference=${reference}`);
+          return { received: true };
+        }
+
+        let didCredit = false;
+        await this.prisma.$transaction(async (tx) => {
+          const result = await this.processWalletFunding(tx, {
+            userId,
+            amount: verified.amount,
+            reference,
+            providerTransactionId: verified.transactionId ?? undefined,
+          });
+          didCredit = result.didCredit;
+          if (didCredit) {
+            await this.notificationsService.notifyWalletFundedInTransaction(
+              tx,
+              userId,
+              verified.amount.toFixed(2),
+              'NGN',
+              reference,
+            );
+          }
+        });
+      } catch (err) {
+        this.logger.error(`Paystack webhook: ledger post failed reference=${reference}`, err);
+      }
+      return { received: true };
     }
 
+    this.logger.debug(`Paystack webhook ignored event=${event}`);
     return { received: true };
   }
 
-  private async handleVirtualAccountDepositWebhook(params: {
-    payload: Record<string, unknown>;
-    transactionId: string | null;
-    txRef: string | null;
-    accountNumber: string;
-  }): Promise<void> {
-    let verified: Awaited<ReturnType<FlutterwaveService['verifyTransactionById']>> | null = null;
-    if (!params.transactionId) {
-      await this.virtualAccountService.upsertDepositEvent({
-        providerTransactionId: null,
-        providerReference: params.txRef,
-        accountNumber: params.accountNumber,
-        status: VirtualAccountDepositStatus.FAILED,
-        reason: 'Missing provider transaction id',
-        payload: params.payload,
-      });
-      return;
-    }
+  private async handleVirtualAccountDepositFromCharge(
+    reference: string,
+    accountNumberHint: string | null,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    let verified;
     try {
-      verified = await this.flutterwaveService.verifyTransactionById(params.transactionId);
+      verified = await this.paystack.verifyTransaction(reference);
     } catch (error) {
       await this.virtualAccountService.upsertDepositEvent({
-        providerTransactionId: params.transactionId,
-        providerReference: params.txRef,
-        accountNumber: params.accountNumber,
+        providerTransactionId: null,
+        providerReference: reference,
+        accountNumber: accountNumberHint,
         status: VirtualAccountDepositStatus.FAILED,
         reason: `Verification failed: ${String(error)}`,
-        payload: params.payload,
+        payload,
       });
       return;
     }
 
-    const verifiedCurrency = String(verified.currency ?? '').toUpperCase();
-    if (verifiedCurrency !== Currency.NGN) {
+    if (verified.currency.toUpperCase() !== Currency.NGN) {
       await this.virtualAccountService.upsertDepositEvent({
-        providerTransactionId: verified.txId,
-        providerReference: verified.reference ?? params.txRef,
-        accountNumber: verified.accountNumber ?? params.accountNumber,
+        providerTransactionId: verified.transactionId,
+        providerReference: verified.reference,
+        accountNumber: verified.accountNumber ?? accountNumberHint,
         amount: verified.amount.toFixed(2),
         currency: Currency.NGN,
         status: VirtualAccountDepositStatus.FAILED,
-        reason: `Unsupported currency: ${verifiedCurrency || 'unknown'}`,
-        payload: params.payload,
+        reason: `Unsupported currency: ${verified.currency}`,
+        payload,
       });
       return;
     }
 
-    const resolvedAccountNumber = verified.accountNumber ?? params.accountNumber;
+    const resolvedAccountNumber = verified.accountNumber ?? accountNumberHint;
+    if (!resolvedAccountNumber) {
+      await this.virtualAccountService.upsertDepositEvent({
+        providerTransactionId: verified.transactionId,
+        providerReference: verified.reference,
+        status: VirtualAccountDepositStatus.FAILED,
+        reason: 'Missing virtual account number on Paystack charge',
+        payload,
+      });
+      return;
+    }
+
     const virtualAccount = await this.virtualAccountService.getActiveAccountByNumber(resolvedAccountNumber);
     if (!virtualAccount) {
       await this.virtualAccountService.upsertDepositEvent({
-        providerTransactionId: verified.txId,
-        providerReference: verified.reference ?? params.txRef,
+        providerTransactionId: verified.transactionId,
+        providerReference: verified.reference,
         accountNumber: resolvedAccountNumber,
         amount: verified.amount.toFixed(2),
         currency: Currency.NGN,
         status: VirtualAccountDepositStatus.UNMATCHED,
         reason: 'No active virtual account matched this deposit.',
-        payload: params.payload,
+        payload,
       });
       return;
     }
 
-    const ledgerReference = `FLW_VA_DEPOSIT:${verified.txId ?? params.transactionId}`;
+    const ledgerReference = `PSK_VA_DEPOSIT:${verified.transactionId ?? reference}`;
     try {
       let didCredit = false;
       await this.prisma.$transaction(async (tx) => {
@@ -298,7 +317,7 @@ export class PaymentService {
           userId: virtualAccount.userId,
           amount: verified.amount,
           reference: ledgerReference,
-          providerTransactionId: verified.txId ?? undefined,
+          providerTransactionId: verified.transactionId ?? undefined,
         });
         didCredit = result.didCredit;
         if (didCredit) {
@@ -312,27 +331,27 @@ export class PaymentService {
         }
       });
       await this.virtualAccountService.upsertDepositEvent({
-        providerTransactionId: verified.txId,
-        providerReference: verified.reference ?? params.txRef,
+        providerTransactionId: verified.transactionId,
+        providerReference: verified.reference,
         accountNumber: resolvedAccountNumber,
         amount: verified.amount.toFixed(2),
         currency: Currency.NGN,
         status: didCredit ? VirtualAccountDepositStatus.CREDITED : VirtualAccountDepositStatus.VERIFIED,
         reason: didCredit ? null : 'Duplicate deposit event; ledger already posted.',
-        payload: params.payload,
+        payload,
         userId: virtualAccount.userId,
         virtualAccountId: virtualAccount.id,
       });
     } catch (error) {
       await this.virtualAccountService.upsertDepositEvent({
-        providerTransactionId: verified.txId,
-        providerReference: verified.reference ?? params.txRef,
+        providerTransactionId: verified.transactionId,
+        providerReference: verified.reference,
         accountNumber: resolvedAccountNumber,
         amount: verified.amount.toFixed(2),
         currency: Currency.NGN,
         status: VirtualAccountDepositStatus.FAILED,
         reason: `Ledger posting failed: ${String(error)}`,
-        payload: params.payload,
+        payload,
         userId: virtualAccount.userId,
         virtualAccountId: virtualAccount.id,
       });
@@ -340,8 +359,7 @@ export class PaymentService {
   }
 
   /**
-   * Verified Flutterwave wallet funding — posts double-entry inside the caller's transaction.
-   * KYC must be verified before crediting user wallets (Issue 5).
+   * Verified Paystack wallet funding — posts double-entry inside the caller's transaction.
    */
   async processWalletFunding(
     tx: Prisma.TransactionClient,
@@ -370,8 +388,8 @@ export class PaymentService {
     }
 
     const meta = {
-      provider: 'flutterwave',
-      reason: 'flutterwave_wallet_funding',
+      provider: 'paystack',
+      reason: 'paystack_wallet_funding',
       providerTransactionId: params.providerTransactionId ?? null,
     } as Prisma.InputJsonValue;
 

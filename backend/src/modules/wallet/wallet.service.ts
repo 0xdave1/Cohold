@@ -530,7 +530,7 @@ export class WalletService {
   /**
    * Internal only: move value from platform synthetic wallet to a user wallet.
    * `reference` and `userCreditReason` must be server-controlled — never from HTTP DTOs.
-   * Verified Flutterwave funding does not use this path; it uses `PaymentService.processWalletFunding`.
+   * Verified Paystack funding does not use this path; it uses `PaymentService.processWalletFunding`.
    */
   private async applyTrustedPlatformToUserCredit(
     userId: string,

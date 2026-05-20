@@ -43,7 +43,7 @@ export type InitiateTransferResult = {
   ambiguous?: boolean;
 };
 
-/** Result of polling a transfer by provider transfer id (Flutterwave `data.id`). */
+/** Result of polling a transfer by provider transfer id. */
 export type TransferPollResult = {
   status: 'PROCESSING' | 'FAILED' | 'SUCCESS' | 'UNKNOWN';
   providerReference: string | null;
@@ -70,6 +70,6 @@ export interface PayoutProvider {
     rawBody?: Buffer | string,
   ): boolean;
   parseTransferWebhook(payload: Record<string, unknown>): ParsedTransferWebhook | null;
-  /** Poll provider for final transfer state (Flutterwave: GET /transfers/:id). */
+  /** Poll provider for final transfer state. */
   getTransferStatus(transferId: string): Promise<TransferPollResult>;
 }

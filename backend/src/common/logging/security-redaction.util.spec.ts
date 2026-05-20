@@ -36,7 +36,7 @@ describe('security-redaction util', () => {
       cookie: 'session=abc123def456',
       headers: { 'set-cookie': 'a=b' },
       otp: '987654',
-      flutterwave_secret_key: 'sk_live_xxxxx',
+      paystack_secret_key: 'sk_live_xxxxx',
       provider: { webhookSecret: 'whsec_xxx', signature: 'sig_hmac_body' },
       bank: { accountNumber: '0123456789012345' },
       nested: { accessToken: 'at_secret', refreshToken: 'rt_secret' },

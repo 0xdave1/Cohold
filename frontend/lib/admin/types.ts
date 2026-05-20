@@ -114,6 +114,7 @@ export interface AdminVirtualAccountProvisioningRow {
   id: string;
   userId: string;
   status: string;
+  provider?: string | null;
   accountNumber?: string | null;
   bankName?: string | null;
   accountName?: string | null;

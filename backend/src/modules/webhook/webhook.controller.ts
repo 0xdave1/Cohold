@@ -13,7 +13,6 @@ import { Request } from 'express';
 import { PaymentService } from '../payment/payment.service';
 import { WithdrawalService } from '../withdrawal/withdrawal.service';
 import { PAYOUT_PROVIDER, PayoutProvider } from '../payout/payout-provider.interface';
-import { FlutterwaveWebhookDto } from './dto/flutterwave-webhook.dto';
 
 @Controller('webhooks')
 export class WebhookController {
@@ -23,29 +22,29 @@ export class WebhookController {
     @Inject(PAYOUT_PROVIDER) private readonly payoutProvider: PayoutProvider,
   ) {}
 
-  @Post('flutterwave')
+  @Post('paystack')
   @SkipThrottle()
-  async handleFlutterwaveWebhook(
-    @Headers('verif-hash') signature: string,
+  async handlePaystackWebhook(
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Req() req: Request & { rawBody?: Buffer | string },
-    @Body() payload: FlutterwaveWebhookDto,
+    @Body() payload: Record<string, unknown>,
   ): Promise<{ received: boolean }> {
     const contentLength = Number(req.headers?.['content-length'] ?? 0);
     if (Number.isFinite(contentLength) && contentLength > 1024 * 1024) {
       throw new PayloadTooLargeException('Webhook body too large');
     }
-    if (req.rawBody && Buffer.byteLength(String(req.rawBody)) > 1024 * 1024) {
+    const rawBody = req.rawBody ?? Buffer.from(JSON.stringify(payload));
+    if (Buffer.byteLength(String(rawBody)) > 1024 * 1024) {
       throw new PayloadTooLargeException('Webhook body too large');
     }
-    if (!signature || !this.payoutProvider.verifyWebhookSignature(headers, req.rawBody)) {
+    if (!this.payoutProvider.verifyWebhookSignature(headers, rawBody)) {
       throw new UnauthorizedException('Invalid webhook signature');
     }
-    const raw = payload as unknown as Record<string, unknown>;
-    const event = String(raw?.event ?? '').toLowerCase();
-    if (event.includes('transfer')) {
-      return this.withdrawalService.handlePayoutWebhook(raw);
+
+    const event = String(payload?.event ?? '').toLowerCase();
+    if (event.startsWith('transfer.')) {
+      return this.withdrawalService.handlePayoutWebhook(payload);
     }
-    return this.paymentService.handleFlutterwaveWebhook(raw);
+    return this.paymentService.handlePaystackWebhook(payload);
   }
 }

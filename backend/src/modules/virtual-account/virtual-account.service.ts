@@ -39,13 +39,15 @@ export class VirtualAccountService {
 
   private isVirtualAccountsEnabled(): boolean {
     const enabled = this.configService.get<string>('VIRTUAL_ACCOUNTS_ENABLED') ?? 'false';
-    const providerEnabled =
-      this.configService.get<string>('FLUTTERWAVE_VIRTUAL_ACCOUNT_ENABLED') ?? enabled;
-    return enabled === 'true' && providerEnabled === 'true';
+    const paystackVa =
+      this.configService.get<string>('PAYSTACK_VIRTUAL_ACCOUNT_ENABLED') ??
+      this.configService.get<string>('config.virtualAccounts.paystackEnabled') ??
+      enabled;
+    return enabled === 'true' && paystackVa === 'true';
   }
 
   private provider(): VirtualAccountProvider {
-    return VirtualAccountProvider.FLUTTERWAVE;
+    return VirtualAccountProvider.PAYSTACK;
   }
 
   private sanitizeFailureReason(raw: string | null | undefined): string | null {

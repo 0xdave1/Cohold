@@ -4,10 +4,6 @@ import Link from 'next/link';
 import { useKycStatus } from '@/lib/hooks/use-kyc';
 import { useMyVirtualAccount, useRetryVirtualAccountProvisioning } from '@/lib/hooks/use-wallet';
 
-/**
- * Wallet funding UX: only Flutterwave-backed checkout from `/dashboard/wallet`.
- * There is no manual funding, transfer simulation, or client-side balance minting.
- */
 export default function TopUpPage() {
   const { data: kyc } = useKycStatus();
   const virtualAccount = useMyVirtualAccount();
@@ -26,7 +22,7 @@ export default function TopUpPage() {
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 space-y-4">
-        <h2 className="text-sm font-semibold text-slate-100">A) Bank transfer (virtual account)</h2>
+        <h2 className="text-sm font-semibold text-slate-100">A) Bank transfer (dedicated account)</h2>
         {!isVerified ? (
           <p className="text-sm text-slate-300">Complete KYC to unlock your dedicated bank-transfer account.</p>
         ) : virtualAccount.isLoading ? (
@@ -37,11 +33,11 @@ export default function TopUpPage() {
             <p>Account number: {virtualAccount.data.accountNumber}</p>
             <p>Account name: {virtualAccount.data.accountName}</p>
             <p className="pt-2 text-xs text-slate-400">
-              Transfers are credited after provider confirmation. Balance updates after server verification.
+              Transfers are credited after Paystack confirms the deposit. Your balance updates after server verification.
             </p>
           </div>
         ) : virtualAccount.data?.status === 'PENDING' ? (
-          <p className="text-sm text-slate-300">Your bank transfer account is being prepared.</p>
+          <p className="text-sm text-slate-300">Your dedicated account is being prepared.</p>
         ) : virtualAccount.data?.status === 'FAILED' || virtualAccount.data?.status === 'REQUIRES_RETRY' ? (
           <div className="space-y-2">
             <p className="text-sm text-slate-300">{virtualAccount.data.message ?? 'Provisioning failed.'}</p>
@@ -60,16 +56,16 @@ export default function TopUpPage() {
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 space-y-4">
-        <h2 className="text-sm font-semibold text-slate-100">B) Flutterwave checkout</h2>
+        <h2 className="text-sm font-semibold text-slate-100">B) Pay securely</h2>
         <p className="text-sm text-slate-300 leading-relaxed">
-          Wallet funding is processed through secure Flutterwave checkout. Your balance updates only after payment is
-          verified on our servers.
+          Card, bank transfer, USSD, and other Paystack-supported channels. Your wallet updates after Paystack confirms
+          payment and our servers verify it.
         </p>
         <Link
           href="/dashboard/wallet"
           className="inline-flex w-full items-center justify-center rounded-lg bg-blue-500 py-3 font-medium text-white"
         >
-          Continue to Flutterwave funding
+          Continue to checkout
         </Link>
       </div>
     </div>

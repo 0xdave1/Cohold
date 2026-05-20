@@ -18,8 +18,8 @@ const SENSITIVE_KEYS = new Set([
   'secret',
   'signature',
   'webhooksecret',
-  'flw_secret_key',
-  'flutterwave_secret_key',
+  'paystack_secret_key',
+  'x-paystack-signature',
 ]);
 
 function maskString(value: string): string {

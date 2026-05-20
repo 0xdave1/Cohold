@@ -9,7 +9,7 @@ import { WalletDevCreditDto } from './dto/wallet-dev-credit.dto';
 /**
  * Security (Issue 1): Authenticated users must never be able to mint wallet balance.
  * There is no POST /wallets/top-up and no user-supplied “credit” DTO. NGN credits only
- * flow from verified Flutterwave settlement (PaymentService) or this dev-only escape hatch.
+ * flow from verified Paystack settlement (PaymentService) or this dev-only escape hatch.
  */
 @ApiTags('wallets')
 @ApiBearerAuth('user-jwt')

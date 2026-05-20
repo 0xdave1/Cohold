@@ -1128,6 +1128,7 @@ enum LedgerOperationStatus {
 
 enum VirtualAccountProvider {
   FLUTTERWAVE
+  PAYSTACK
 }
 
 enum VirtualAccountStatus {

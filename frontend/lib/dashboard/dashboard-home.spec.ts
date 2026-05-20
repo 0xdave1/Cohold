@@ -11,11 +11,10 @@ describe('dashboard home UX', () => {
     expect(home).not.toMatch(/from server|Authorization still follows/i);
   });
 
-  it('wires checklist and summary hooks with Figma-style to-dos', () => {
+  it('wires dashboard summary and wallet card', () => {
     const home = readRel('app/dashboard/home/page.tsx');
     expect(home).toContain('useDashboardSummary');
-    expect(home).toContain('useOnboardingChecklist');
-    expect(home).toContain('DashboardTodoShortcuts');
+    expect(home).toContain('WalletBalanceCard');
     expect(home).toContain('investmentSummaryAside');
   });
 });

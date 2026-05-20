@@ -79,7 +79,7 @@ function WalletPageInner() {
       </div>
 
       <div className="rounded-2xl border border-dashboard-border bg-dashboard-card p-4">
-        <h2 className="mb-2 text-sm font-semibold text-dashboard-heading">Bank transfer (virtual account)</h2>
+        <h2 className="mb-2 text-sm font-semibold text-dashboard-heading">Bank transfer (dedicated account)</h2>
         {!isVerified ? (
           <div className="space-y-2 text-sm text-dashboard-body">
             <p>Bank transfer funding is available only after your KYC status is VERIFIED.</p>
@@ -88,12 +88,12 @@ function WalletPageInner() {
             </Link>
           </div>
         ) : virtualAccount.isLoading ? (
-          <p className="text-sm text-dashboard-body">Loading your transfer account status…</p>
+          <p className="text-sm text-dashboard-body">Loading your dedicated account status…</p>
         ) : virtualAccount.data?.status === 'ACTIVE' ? (
           <div className="space-y-3 text-sm">
             <p className="text-dashboard-body">
-              Use these exact details. Transfers are credited only after provider confirmation; your balance updates
-              after verification.
+              Use these exact details. Transfers are credited after Paystack confirms the deposit; your wallet updates
+              after our servers verify it.
             </p>
             <div className="rounded-xl border border-dashboard-border bg-dashboard-bg/80 p-3">
               <p className="text-xs text-dashboard-muted">Bank</p>
@@ -116,11 +116,11 @@ function WalletPageInner() {
             </button>
           </div>
         ) : virtualAccount.data?.status === 'PENDING' ? (
-          <p className="text-sm text-dashboard-body">Your bank transfer account is being prepared.</p>
+          <p className="text-sm text-dashboard-body">Your dedicated account is being prepared.</p>
         ) : virtualAccount.data?.status === 'REQUIRES_RETRY' || virtualAccount.data?.status === 'FAILED' ? (
           <div className="space-y-2 text-sm">
             <p className="text-dashboard-body">
-              {virtualAccount.data.message ?? 'Virtual account provisioning failed. Retry or contact support.'}
+              {virtualAccount.data.message ?? 'Dedicated account provisioning failed. Retry or contact support.'}
             </p>
             <div className="flex gap-2">
               <button
@@ -140,7 +140,7 @@ function WalletPageInner() {
           <p className="text-sm text-dashboard-body">Bank transfer funding is currently unavailable.</p>
         ) : (
           <p className="text-sm text-dashboard-body">
-            We could not determine your virtual account status. Refresh this page or contact support.
+            We could not determine your dedicated account status. Refresh this page or contact support.
           </p>
         )}
       </div>
@@ -148,15 +148,24 @@ function WalletPageInner() {
       {searchParams.get('status') === 'success' ? (
         <div className="rounded-xl border border-dashboard-border bg-dashboard-card px-4 py-3 text-sm">
           {verifyPayment.isPending ? (
-            <p className="text-amber-800">Verifying payment with the server… Your balance updates only after verification succeeds.</p>
+            <p className="text-amber-800">
+              Verifying payment with the server… Your wallet updates only after Paystack confirms payment and
+              verification succeeds.
+            </p>
           ) : verifyPayment.isSuccess ? (
             <p className="text-green-800">Payment verified. Refreshing wallet from the server…</p>
           ) : verifyPayment.isError ? (
             <p className="text-red-800" role="alert">
-              {mapFinancialIntegrityError(verifyPayment.error, 'Payment could not be verified. Your balance was not changed.')}
+              {mapFinancialIntegrityError(
+                verifyPayment.error,
+                'Payment could not be verified. Your balance was not changed.',
+              )}
             </p>
           ) : (
-            <p className="text-dashboard-body">Return from checkout detected. If verification did not start automatically, open Wallet again from the menu.</p>
+            <p className="text-dashboard-body">
+              Return from checkout detected. If verification did not start automatically, open Wallet again from the
+              menu.
+            </p>
           )}
         </div>
       ) : null}

@@ -78,20 +78,19 @@ export default registerAs('config', () => {
     autoVerificationRequired: process.env.KYC_AUTO_VERIFICATION_REQUIRED === 'true',
     maxDocumentBytes: parseInt(process.env.KYC_MAX_DOCUMENT_BYTES ?? `${5 * 1024 * 1024}`, 10),
   },
-  flutterwave: {
-    secretKey: process.env.FLW_SECRET_KEY ?? process.env.FLUTTERWAVE_SECRET_KEY,
-    publicKey: process.env.FLW_PUBLIC_KEY ?? process.env.FLUTTERWAVE_PUBLIC_KEY,
-    webhookSecret: process.env.FLW_WEBHOOK_SECRET ?? process.env.FLUTTERWAVE_WEBHOOK_SECRET,
-    baseUrl:
-      process.env.FLW_BASE_URL ??
-      process.env.FLUTTERWAVE_BASE_URL ??
-      'https://api.flutterwave.com/v3',
+  paystack: {
+    secretKey: process.env.PAYSTACK_SECRET_KEY,
+    publicKey: process.env.PAYSTACK_PUBLIC_KEY,
+    callbackUrl: process.env.PAYSTACK_CALLBACK_URL,
+    dvaPreferredBank: process.env.PAYSTACK_DVA_PREFERRED_BANK,
+    transfersEnabled: process.env.PAYSTACK_TRANSFERS_ENABLED === 'true',
+    env: process.env.PAYSTACK_ENV ?? 'test',
+    baseUrl: process.env.PAYSTACK_ENV === 'live' ? 'https://api.paystack.co' : 'https://api.paystack.co',
   },
   virtualAccounts: {
     enabled: process.env.VIRTUAL_ACCOUNTS_ENABLED === 'true',
-    flutterwaveEnabled:
-      (process.env.FLUTTERWAVE_VIRTUAL_ACCOUNT_ENABLED ?? process.env.VIRTUAL_ACCOUNTS_ENABLED) ===
-      'true',
+    paystackEnabled:
+      (process.env.PAYSTACK_VIRTUAL_ACCOUNT_ENABLED ?? process.env.VIRTUAL_ACCOUNTS_ENABLED) === 'true',
   },
   appBaseUrl: process.env.APP_BASE_URL ?? 'http://localhost:3000',
   s3: {

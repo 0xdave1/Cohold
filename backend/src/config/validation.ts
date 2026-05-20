@@ -56,17 +56,15 @@ export const validationSchema = Joi.object({
   AUTH_SESSION_PEPPER: Joi.string().min(16).optional(),
   AUTH_MAX_SESSION_LIFETIME_DAYS: Joi.number().integer().min(1).max(365).default(30),
 
-  FLW_SECRET_KEY: Joi.string().optional(),
-  FLW_PUBLIC_KEY: Joi.string().optional(),
-  FLW_WEBHOOK_SECRET: Joi.string().optional(),
-  FLW_BASE_URL: Joi.string().uri().optional(),
-  FLUTTERWAVE_SECRET_KEY: Joi.string().optional(),
-  FLUTTERWAVE_PUBLIC_KEY: Joi.string().optional(),
-  FLUTTERWAVE_WEBHOOK_SECRET: Joi.string().optional(),
-  FLUTTERWAVE_BASE_URL: Joi.string().uri().optional(),
+  PAYSTACK_SECRET_KEY: Joi.string().optional(),
+  PAYSTACK_PUBLIC_KEY: Joi.string().optional(),
+  PAYSTACK_CALLBACK_URL: Joi.string().uri().optional(),
+  PAYSTACK_DVA_PREFERRED_BANK: Joi.string().optional(),
+  PAYSTACK_TRANSFERS_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  PAYSTACK_ENV: Joi.string().valid('test', 'live').default('test'),
+  PAYSTACK_VIRTUAL_ACCOUNT_ENABLED: Joi.string().valid('true', 'false').optional(),
   APP_BASE_URL: Joi.string().uri().default('http://localhost:3000'),
   VIRTUAL_ACCOUNTS_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  FLUTTERWAVE_VIRTUAL_ACCOUNT_ENABLED: Joi.string().valid('true', 'false').optional(),
 
   S3_ACCESS_KEY_ID: Joi.string().required(),
   S3_SECRET_ACCESS_KEY: Joi.string().required(),
@@ -86,9 +84,6 @@ export const validationSchema = Joi.object({
   KYC_AUTO_VERIFICATION_REQUIRED: Joi.string().valid('true', 'false').default('false'),
   KYC_MAX_DOCUMENT_BYTES: Joi.number().integer().min(1024).max(50_000_000).optional(),
 })
-  .or('FLW_SECRET_KEY', 'FLUTTERWAVE_SECRET_KEY')
-  .or('FLW_PUBLIC_KEY', 'FLUTTERWAVE_PUBLIC_KEY')
-  .or('FLW_WEBHOOK_SECRET', 'FLUTTERWAVE_WEBHOOK_SECRET')
   .custom((value, helpers) => {
     const nodeEnv = value.NODE_ENV as string;
     const prodLike = nodeEnv === 'production' || nodeEnv === 'staging';
@@ -131,13 +126,23 @@ export const validationSchema = Joi.object({
           message: 'KYC_ENCRYPTION_KEY and KYC_HASH_SECRET are required in production/staging (Issue 5).',
         });
       }
-      const vaEnabled = value.VIRTUAL_ACCOUNTS_ENABLED === 'true';
-      const flwVaEnabled =
-        (value.FLUTTERWAVE_VIRTUAL_ACCOUNT_ENABLED ?? value.VIRTUAL_ACCOUNTS_ENABLED) === 'true';
-      if (vaEnabled && flwVaEnabled && !value.FLW_SECRET_KEY && !value.FLUTTERWAVE_SECRET_KEY) {
+      if (!value.PAYSTACK_SECRET_KEY) {
         return helpers.error('any.custom', {
-          message:
-            'Virtual accounts are enabled but Flutterwave secret key is missing (FLW_SECRET_KEY/FLUTTERWAVE_SECRET_KEY).',
+          message: 'PAYSTACK_SECRET_KEY is required in production/staging.',
+        });
+      }
+      const transfersEnabled = value.PAYSTACK_TRANSFERS_ENABLED === 'true';
+      if (transfersEnabled && !value.PAYSTACK_SECRET_KEY) {
+        return helpers.error('any.custom', {
+          message: 'PAYSTACK_TRANSFERS_ENABLED requires PAYSTACK_SECRET_KEY.',
+        });
+      }
+      const vaEnabled = value.VIRTUAL_ACCOUNTS_ENABLED === 'true';
+      const paystackVaEnabled =
+        (value.PAYSTACK_VIRTUAL_ACCOUNT_ENABLED ?? value.VIRTUAL_ACCOUNTS_ENABLED) === 'true';
+      if (vaEnabled && paystackVaEnabled && !value.PAYSTACK_SECRET_KEY) {
+        return helpers.error('any.custom', {
+          message: 'Virtual accounts are enabled but PAYSTACK_SECRET_KEY is missing.',
         });
       }
     }

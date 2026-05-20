@@ -204,7 +204,7 @@ describe('WithdrawalService payout orchestration', () => {
     expect((result as { status: WithdrawalStatus }).status).toBe(WithdrawalStatus.PROCESSING);
   });
 
-  it('second concurrent claim does not call Flutterwave', async () => {
+  it('second concurrent claim does not call payout provider twice', async () => {
     payoutProvider.initiateTransfer.mockResolvedValue({
       accepted: true,
       providerReference: 'WD-ref-1',

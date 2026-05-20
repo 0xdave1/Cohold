@@ -165,7 +165,7 @@ export class WithdrawalService {
 
     const metadata: Prisma.InputJsonValue = {
       bankSnapshot,
-      payoutProvider: 'flutterwave',
+      payoutProvider: 'paystack',
     };
 
     const withdrawal = await this.prisma.$transaction(async (tx) => {
@@ -530,7 +530,7 @@ export class WithdrawalService {
     if (!w) throw new NotFoundException('Withdrawal not found');
     if (!w.providerTransferCode) {
       throw new BadRequestException(
-        'Withdrawal has no provider transfer id yet; automatic reconciliation requires Flutterwave transfer id',
+        'Withdrawal has no provider transfer id yet; automatic reconciliation requires Paystack transfer id',
       );
     }
     const snap = await this.payoutProvider.getTransferStatus(w.providerTransferCode);

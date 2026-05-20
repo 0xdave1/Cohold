@@ -41,10 +41,10 @@ describe('CsrfGuard', () => {
     expect(guard.canActivate(context)).toBe(true);
   });
 
-  it('exempts Flutterwave webhook POST without csrf', () => {
+  it('exempts Paystack webhook POST without csrf', () => {
     const context = makeContext({
       method: 'POST',
-      originalUrl: '/api/v1/webhooks/flutterwave',
+      originalUrl: '/api/v1/webhooks/paystack',
       cookies: {},
       headers: {},
     });

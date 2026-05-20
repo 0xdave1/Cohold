@@ -6,6 +6,7 @@ import type { AdminVirtualAccountProvisioningRow } from '@/lib/admin/types';
 import { AdminReasonDialog } from '@/components/admin/AdminReasonDialog';
 import { canRetryVirtualAccount, canViewVirtualAccountOps } from '@/lib/admin/permissions';
 import { mapApiError } from '@/lib/api/security-errors';
+import { formatPaymentProviderLabel } from '@/lib/payment/provider-labels';
 import { useAuthStore } from '@/stores/auth.store';
 
 export default function AdminVirtualAccountsPage() {
@@ -39,7 +40,9 @@ export default function AdminVirtualAccountsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-gray-900">Virtual accounts</h1>
-        <p className="text-sm text-gray-500">Failed or retry-required virtual account provisioning records.</p>
+        <p className="text-sm text-gray-500">
+          Failed or retry-required dedicated account provisioning (Paystack).
+        </p>
       </div>
       {!canView ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">
@@ -65,6 +68,7 @@ export default function AdminVirtualAccountsPage() {
             <thead>
               <tr className="border-b border-gray-200">
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500">User</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500">Provider</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500">Reason</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500">Retry count</th>
@@ -75,13 +79,13 @@ export default function AdminVirtualAccountsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-gray-400">
+                  <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
                     Loading...
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-gray-400">
+                  <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
                     No failed virtual account records.
                   </td>
                 </tr>
@@ -89,6 +93,7 @@ export default function AdminVirtualAccountsPage() {
                 rows.map((row) => (
                   <tr key={row.id} className="border-b border-gray-100">
                     <td className="px-4 py-3 font-mono text-xs text-gray-700">{row.userId}</td>
+                    <td className="px-4 py-3 text-gray-700">{formatPaymentProviderLabel(row.provider ?? 'PAYSTACK')}</td>
                     <td className="px-4 py-3 text-gray-700">{row.status}</td>
                     <td className="px-4 py-3 text-gray-600">{row.failureReason ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-700">{row.retryCount ?? 0}</td>

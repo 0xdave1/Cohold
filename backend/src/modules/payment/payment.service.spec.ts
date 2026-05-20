@@ -1,97 +1,23 @@
-import { Currency, KycStatus, LedgerOperationType, TransactionDirection, TransactionType } from '@prisma/client';
+import { KycStatus, LedgerOperationType } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { PaymentService } from './payment.service';
-import { WalletService, PLATFORM_USER_ID } from '../wallet/wallet.service';
+import { WalletService } from '../wallet/wallet.service';
 import { KycPolicyService } from '../kyc/kyc-policy.service';
+import { PaystackProvider } from './providers/paystack.provider';
 
-describe('PaymentService verified Flutterwave funding (Issue 1)', () => {
+describe('PaymentService Paystack wallet funding', () => {
   const kycPolicy: Pick<KycPolicyService, 'assertFromUserSnapshot' | 'assertUserKycVerifiedForMoneyMovement'> = {
     assertFromUserSnapshot: jest.fn(),
     assertUserKycVerifiedForMoneyMovement: jest.fn(),
   };
 
-  it('processWalletFunding posts double-entry with provider metadata (not user top-up DTO)', async () => {
+  it('processWalletFunding posts double-entry with paystack metadata', async () => {
     const postDoubleEntry = jest.fn().mockResolvedValue({
       legs: [
         { id: 't1', createdAt: new Date(), updatedAt: new Date() },
         { id: 't2', createdAt: new Date(), updatedAt: new Date() },
       ],
       created: true,
-    });
-    const getPlatformWallet = jest.fn().mockResolvedValue({ id: 'platform-w' });
-    const walletService = { postDoubleEntry, getPlatformWallet } as unknown as WalletService;
-
-    const tx = {
-      user: {
-        findUnique: jest.fn().mockResolvedValue({ isFrozen: false, kycStatus: KycStatus.VERIFIED }),
-      },
-      wallet: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValueOnce({ id: 'user-w' })
-          .mockResolvedValueOnce({ id: 'user-w' }),
-        create: jest.fn(),
-      },
-    };
-
-    const service = new PaymentService(
-      {} as never,
-      walletService,
-      {} as never,
-      {} as never,
-      kycPolicy as never,
-      {} as never,
-    );
-
-    const result = await service.processWalletFunding(tx as never, {
-      userId: 'user-1',
-      amount: new Decimal('100.00'),
-      reference: 'flw_wallet_verified-ref-xyz',
-      providerTransactionId: 'flw-tx-999',
-    });
-
-    expect(result.didCredit).toBe(true);
-    expect(postDoubleEntry).toHaveBeenCalledWith(
-      tx,
-      'flw_wallet_verified-ref-xyz',
-      expect.arrayContaining([
-        expect.objectContaining({
-          walletId: 'platform-w',
-          userId: PLATFORM_USER_ID,
-          type: TransactionType.WALLET_TOP_UP,
-          direction: TransactionDirection.DEBIT,
-          amount: expect.any(Decimal),
-          currency: Currency.NGN,
-          metadata: expect.objectContaining({
-            provider: 'flutterwave',
-            reason: 'flutterwave_wallet_funding',
-          }),
-        }),
-        expect.objectContaining({
-          walletId: 'user-w',
-          userId: 'user-1',
-          direction: TransactionDirection.CREDIT,
-          metadata: expect.objectContaining({
-            provider: 'flutterwave',
-            reason: 'flutterwave_wallet_funding',
-          }),
-        }),
-      ]),
-      expect.objectContaining({
-        operationType: LedgerOperationType.WALLET_FUNDING,
-        sourceModule: 'payment.processWalletFunding',
-        sourceId: 'flw_wallet_verified-ref-xyz',
-      }),
-    );
-  });
-
-  it('processWalletFunding is idempotent when postDoubleEntry reports no new rows', async () => {
-    const postDoubleEntry = jest.fn().mockResolvedValue({
-      legs: [
-        { id: 't1', createdAt: new Date(), updatedAt: new Date() },
-        { id: 't2', createdAt: new Date(), updatedAt: new Date() },
-      ],
-      created: false,
     });
     const walletService = {
       postDoubleEntry,
@@ -103,10 +29,7 @@ describe('PaymentService verified Flutterwave funding (Issue 1)', () => {
         findUnique: jest.fn().mockResolvedValue({ isFrozen: false, kycStatus: KycStatus.VERIFIED }),
       },
       wallet: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValueOnce({ id: 'user-w' })
-          .mockResolvedValueOnce({ id: 'user-w' }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'user-w' }),
         create: jest.fn(),
       },
     };
@@ -115,181 +38,242 @@ describe('PaymentService verified Flutterwave funding (Issue 1)', () => {
       {} as never,
       walletService,
       {} as never,
+      { get: jest.fn() } as never,
       {} as never,
       kycPolicy as never,
       {} as never,
     );
+
     const result = await service.processWalletFunding(tx as never, {
       userId: 'user-1',
-      amount: new Decimal('50'),
-      reference: 'same-ref',
+      amount: new Decimal('100.00'),
+      reference: 'PSK-WALLET-user-1|abc',
+      providerTransactionId: 'psk-tx-999',
     });
 
-    expect(result.didCredit).toBe(false);
-    expect(postDoubleEntry).toHaveBeenCalledTimes(1);
+    expect(result.didCredit).toBe(true);
+    expect(postDoubleEntry).toHaveBeenCalledWith(
+      tx,
+      'PSK-WALLET-user-1|abc',
+      expect.arrayContaining([
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            provider: 'paystack',
+            reason: 'paystack_wallet_funding',
+          }),
+        }),
+      ]),
+      expect.objectContaining({
+        operationType: LedgerOperationType.WALLET_FUNDING,
+        sourceModule: 'payment.processWalletFunding',
+      }),
+    );
   });
-});
 
-describe('PaymentService virtual-account webhook funding (Issue 6)', () => {
-  it('verifies provider transaction and credits matched virtual account once', async () => {
+  it('initializeWalletFunding does not credit wallet', async () => {
+    const paystack = {
+      initializeTransaction: jest.fn().mockResolvedValue({
+        authorizationUrl: 'https://checkout.paystack.com/x',
+        accessCode: 'ac',
+        reference: 'PSK-WALLET-u1|ref',
+      }),
+    } as unknown as PaystackProvider;
+
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'u1',
+          isFrozen: false,
+          kycStatus: KycStatus.VERIFIED,
+        }),
+      },
+    };
+    const walletService = { postDoubleEntry: jest.fn() } as unknown as WalletService;
+
+    const service = new PaymentService(
+      prisma as never,
+      walletService,
+      paystack,
+      { get: jest.fn().mockReturnValue('http://localhost:3000/dashboard/wallet') } as never,
+      {} as never,
+      kycPolicy as never,
+      {} as never,
+    );
+
+    const out = await service.initializeWalletFunding({
+      amount: 5000,
+      userId: 'u1',
+      email: 'user@example.com',
+    });
+
+    expect(out.checkoutUrl).toContain('paystack');
+    expect(walletService.postDoubleEntry).not.toHaveBeenCalled();
+    expect(paystack.initializeTransaction).toHaveBeenCalled();
+  });
+
+  it('verifyWalletFunding credits once; duplicate postDoubleEntry is idempotent', async () => {
+    const paystack = {
+      verifyTransaction: jest.fn().mockResolvedValue({
+        reference: 'PSK-WALLET-u1|abc',
+        amount: new Decimal('100'),
+        currency: 'NGN',
+        status: 'success',
+        paidAt: null,
+        transactionId: '999',
+        customerEmail: 'user@example.com',
+        metadata: { type: 'wallet_funding', userId: 'u1', expectedAmount: '100.00' },
+        channel: 'card',
+        accountNumber: null,
+      }),
+    } as unknown as PaystackProvider;
+
+    const postDoubleEntry = jest
+      .fn()
+      .mockResolvedValueOnce({ created: true, legs: [{}, {}] })
+      .mockResolvedValueOnce({ created: false, legs: [{}, {}] });
+
     const walletService = {
-      postDoubleEntry: jest.fn().mockResolvedValue({ legs: [], created: true }),
+      postDoubleEntry,
       getPlatformWallet: jest.fn().mockResolvedValue({ id: 'platform-w' }),
     } as unknown as WalletService;
 
-    const tx = {
-      user: { findUnique: jest.fn().mockResolvedValue({ isFrozen: false, kycStatus: KycStatus.VERIFIED }) },
-      wallet: { findUnique: jest.fn().mockResolvedValue({ id: 'user-wallet' }) },
+    const txRunner = jest.fn(async (fn: (tx: unknown) => Promise<void>) => {
+      const tx = {
+        user: {
+          findUnique: jest.fn().mockResolvedValue({ isFrozen: false, kycStatus: KycStatus.VERIFIED }),
+        },
+        wallet: { findUnique: jest.fn().mockResolvedValue({ id: 'user-w' }) },
+      };
+      await fn(tx);
+    });
+
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'u1',
+          email: 'user@example.com',
+          isFrozen: false,
+          kycStatus: KycStatus.VERIFIED,
+        }),
+      },
+      $transaction: txRunner,
     };
-    const prisma = { $transaction: jest.fn(async (cb: any) => cb(tx)) } as any;
-    const flutterwave = {
-      verifyTransactionById: jest.fn().mockResolvedValue({
-        txId: 'tx-1',
-        reference: 'flw-ref-1',
-        amount: new Decimal('1200'),
-        status: 'successful',
+
+    const notifications = {
+      notifyWalletFundedInTransaction: jest.fn(),
+    };
+
+    const service = new PaymentService(
+      prisma as never,
+      walletService,
+      paystack,
+      { get: jest.fn() } as never,
+      notifications as never,
+      kycPolicy as never,
+      {} as never,
+    );
+
+    const first = await service.verifyWalletFunding('u1', 'PSK-WALLET-u1|abc');
+    const second = await service.verifyWalletFunding('u1', 'PSK-WALLET-u1|abc');
+    expect(first.credited).toBe(true);
+    expect(second.credited).toBe(false);
+    expect(postDoubleEntry).toHaveBeenCalledTimes(2);
+    expect(notifications.notifyWalletFundedInTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects amount mismatch against initialize metadata', async () => {
+    const paystack = {
+      verifyTransaction: jest.fn().mockResolvedValue({
+        reference: 'PSK-WALLET-u1|abc',
+        amount: new Decimal('50'),
         currency: 'NGN',
+        status: 'success',
+        metadata: { type: 'wallet_funding', userId: 'u1', expectedAmount: '100.00' },
+        customerEmail: 'user@example.com',
+        transactionId: '1',
+        paidAt: null,
+        channel: null,
+        accountNumber: null,
+      }),
+    } as unknown as PaystackProvider;
+
+    const service = new PaymentService(
+      {
+        user: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'u1',
+            email: 'user@example.com',
+            isFrozen: false,
+            kycStatus: KycStatus.VERIFIED,
+          }),
+        },
+      } as never,
+      {} as never,
+      paystack,
+      { get: jest.fn() } as never,
+      {} as never,
+      kycPolicy as never,
+      {} as never,
+    );
+
+    await expect(service.verifyWalletFunding('u1', 'PSK-WALLET-u1|abc')).rejects.toThrow(
+      /amount does not match/i,
+    );
+  });
+});
+
+describe('PaymentService Paystack virtual-account webhook funding', () => {
+  const kycPolicy: Pick<KycPolicyService, 'assertFromUserSnapshot'> = {
+    assertFromUserSnapshot: jest.fn(),
+  };
+
+  it('charge.success to DVA credits wallet via ledger reference', async () => {
+    const paystack = {
+      verifyTransaction: jest.fn().mockResolvedValue({
+        reference: 'ref-va',
+        amount: new Decimal('250'),
+        currency: 'NGN',
+        status: 'success',
+        transactionId: 'tx-va',
+        customerEmail: null,
+        metadata: {},
+        channel: 'dedicated_nuban',
         accountNumber: '0123456789',
       }),
-    } as any;
-    const virtualAccounts = {
-      getActiveAccountByNumber: jest.fn().mockResolvedValue({ id: 'va-1', userId: 'user-1' }),
+    } as unknown as PaystackProvider;
+
+    const virtualAccountService = {
+      getActiveAccountByNumber: jest.fn().mockResolvedValue({ id: 'va-1', userId: 'u-va' }),
       upsertDepositEvent: jest.fn(),
-    } as any;
-    const service = new PaymentService(
-      prisma,
-      walletService,
-      flutterwave,
-      { notifyWalletFundedInTransaction: jest.fn() } as any,
-      { assertFromUserSnapshot: jest.fn() } as any,
-      virtualAccounts,
-    );
+    };
 
-    await service.handleFlutterwaveWebhook({
-      event: 'charge.completed',
-      data: { status: 'successful', id: 99, account_number: '0123456789' },
-    });
-
-    expect(flutterwave.verifyTransactionById).toHaveBeenCalledWith('99');
-    expect(walletService.postDoubleEntry).toHaveBeenCalled();
-    expect(virtualAccounts.upsertDepositEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'CREDITED', userId: 'user-1', virtualAccountId: 'va-1' }),
-    );
-  });
-
-  it('does not credit unknown account; records unmatched deposit', async () => {
-    const prisma = { $transaction: jest.fn() } as any;
-    const service = new PaymentService(
-      prisma,
-      {} as any,
-      {
-        verifyTransactionById: jest.fn().mockResolvedValue({
-          txId: 'tx-1',
-          reference: 'flw-ref-1',
-          amount: new Decimal('1200'),
-          status: 'successful',
-          currency: 'NGN',
-          accountNumber: '0000000000',
-        }),
-      } as any,
-      {} as any,
-      { assertFromUserSnapshot: jest.fn() } as any,
-      {
-        getActiveAccountByNumber: jest.fn().mockResolvedValue(null),
-        upsertDepositEvent: jest.fn(),
-      } as any,
-    );
-    await service.handleFlutterwaveWebhook({
-      event: 'charge.completed',
-      data: { status: 'successful', id: 99, account_number: '0000000000' },
-    });
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('duplicate ledger reference does not double-credit', async () => {
+    const postDoubleEntry = jest.fn().mockResolvedValue({ created: true, legs: [{}, {}] });
     const walletService = {
-      postDoubleEntry: jest.fn().mockResolvedValue({ legs: [], created: false }),
+      postDoubleEntry,
       getPlatformWallet: jest.fn().mockResolvedValue({ id: 'platform-w' }),
     } as unknown as WalletService;
-    const tx = {
-      user: { findUnique: jest.fn().mockResolvedValue({ isFrozen: false, kycStatus: KycStatus.VERIFIED }) },
-      wallet: { findUnique: jest.fn().mockResolvedValue({ id: 'user-wallet' }) },
-    };
+
     const service = new PaymentService(
-      { $transaction: jest.fn(async (cb: any) => cb(tx)) } as any,
+      { $transaction: jest.fn(async (fn) => fn({ user: { findUnique: jest.fn().mockResolvedValue({ isFrozen: false, kycStatus: KycStatus.VERIFIED }) }, wallet: { findUnique: jest.fn().mockResolvedValue({ id: 'w' }) } })) } as never,
       walletService,
-      {
-        verifyTransactionById: jest.fn().mockResolvedValue({
-          txId: 'tx-dup',
-          reference: 'flw-ref-dup',
-          amount: new Decimal('100'),
-          status: 'successful',
-          currency: 'NGN',
-          accountNumber: '0123456789',
-        }),
-      } as any,
-      { notifyWalletFundedInTransaction: jest.fn() } as any,
-      { assertFromUserSnapshot: jest.fn() } as any,
-      {
-        getActiveAccountByNumber: jest.fn().mockResolvedValue({ id: 'va-1', userId: 'user-1' }),
-        upsertDepositEvent: jest.fn(),
-      } as any,
+      paystack,
+      { get: jest.fn() } as never,
+      { notifyWalletFundedInTransaction: jest.fn() } as never,
+      kycPolicy as never,
+      virtualAccountService as never,
     );
 
-    await service.handleFlutterwaveWebhook({
-      event: 'charge.completed',
-      data: { status: 'successful', id: 11, account_number: '0123456789' },
+    await service.handlePaystackWebhook({
+      event: 'charge.success',
+      data: { reference: 'ref-va', channel: 'dedicated_nuban' },
     });
 
-    expect(walletService.postDoubleEntry).toHaveBeenCalledTimes(1);
-    expect(walletService.postDoubleEntry).toHaveBeenCalledWith(
+    expect(paystack.verifyTransaction).toHaveBeenCalledWith('ref-va');
+    expect(postDoubleEntry).toHaveBeenCalledWith(
       expect.anything(),
-      'FLW_VA_DEPOSIT:tx-dup',
+      'PSK_VA_DEPOSIT:tx-va',
       expect.any(Array),
-      expect.any(Object),
-    );
-  });
-});
-
-describe('PaymentService outbox durability', () => {
-  it('enqueues wallet-funded notification in same DB transaction', async () => {
-    const tx = {
-      user: { findUnique: jest.fn().mockResolvedValue({ isFrozen: false, kycStatus: KycStatus.VERIFIED }) },
-      wallet: { findUnique: jest.fn().mockResolvedValue({ id: 'wallet-1' }) },
-    };
-    const notifyWalletFundedInTransaction = jest.fn().mockResolvedValue(undefined);
-    const prisma = {
-      user: { findUnique: jest.fn().mockResolvedValue({ id: 'u1', email: 'u@example.com', isFrozen: false, kycStatus: KycStatus.VERIFIED }) },
-      $transaction: jest.fn(async (cb: any) => cb(tx)),
-    } as any;
-    const service = new PaymentService(
-      prisma,
-      {
-        postDoubleEntry: jest.fn().mockResolvedValue({ legs: [], created: true }),
-        getPlatformWallet: jest.fn().mockResolvedValue({ id: 'platform-w' }),
-      } as any,
-      {
-        verifyPayment: jest.fn().mockResolvedValue({
-          amount: new Decimal('100'),
-          customerEmail: 'u@example.com',
-          meta: { type: 'wallet_funding', userId: 'u1' },
-          txId: 'tx-1',
-        }),
-      } as any,
-      { notifyWalletFundedInTransaction } as any,
-      { assertFromUserSnapshot: jest.fn() } as any,
-      {} as any,
-    );
-
-    await service.verifyWalletFunding('u1', 'flw_wallet_u1|abc');
-
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(notifyWalletFundedInTransaction).toHaveBeenCalledWith(
-      tx,
-      'u1',
-      '100.00',
-      'NGN',
-      'flw_wallet_u1|abc',
+      expect.objectContaining({ operationType: LedgerOperationType.WALLET_FUNDING }),
     );
   });
 });

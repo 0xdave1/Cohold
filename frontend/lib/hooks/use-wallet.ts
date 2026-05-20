@@ -2,8 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { useAuthReady } from '@/lib/hooks/use-auth-ready';
 import {
-  FLUTTERWAVE_WALLET_FUNDING_INITIALIZE_PATH,
-  flutterwaveWalletFundingVerifyPath,
+  WALLET_FUNDING_INITIALIZE_PATH,
+  walletFundingVerifyPath,
 } from '@/lib/constants/wallet-funding';
 import type Decimal from 'decimal.js';
 import { formatDecimalMoneyForDisplay } from '@/lib/money/format-display';
@@ -39,6 +39,8 @@ export interface VirtualAccount {
     | 'UNAVAILABLE'
     | 'UNKNOWN';
   accountNumber: string | null;
+  /** Masked last four digits when API provides them (e.g. dashboard summary). */
+  accountNumberLast4?: string | null;
   bankName: string | null;
   currency: string | null;
   accountName: string | null;
@@ -66,6 +68,8 @@ function normalizeVirtualAccount(raw: unknown): VirtualAccount {
     id: typeof row.id === 'string' ? row.id : undefined,
     status: (allowed.has(status) ? status : 'UNKNOWN') as VirtualAccount['status'],
     accountNumber: typeof row.accountNumber === 'string' ? row.accountNumber : null,
+    accountNumberLast4:
+      typeof row.accountNumberLast4 === 'string' ? row.accountNumberLast4 : null,
     bankName: typeof row.bankName === 'string' ? row.bankName : null,
     currency: typeof row.currency === 'string' ? row.currency : null,
     accountName: typeof row.accountName === 'string' ? row.accountName : null,
@@ -139,14 +143,14 @@ export interface InitializePaymentResponse {
 }
 
 /**
- * Starts Flutterwave-hosted checkout only (server: `PaymentsController` initialize).
+ * Starts Paystack-hosted checkout only (server: `POST /payments/initialize`).
  * Never use a removed self-credit wallet route.
  */
 export function useInitializeWalletPayment() {
   return useMutation({
     mutationFn: async (body: { amount: string; currency: 'NGN' }) => {
       const res = await apiClient.post<InitializePaymentResponse>(
-        FLUTTERWAVE_WALLET_FUNDING_INITIALIZE_PATH,
+        WALLET_FUNDING_INITIALIZE_PATH,
         body,
       );
       if (!res.success || !res.data?.checkoutUrl) {
@@ -157,12 +161,12 @@ export function useInitializeWalletPayment() {
   });
 }
 
-/** After Flutterwave redirect; confirms payment server-side before wallet balance updates. */
+/** After Paystack redirect; confirms payment server-side before wallet balance updates. */
 export function useVerifyWalletPayment() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (reference: string) => {
-      const res = await apiClient.get(flutterwaveWalletFundingVerifyPath(reference));
+      const res = await apiClient.get(walletFundingVerifyPath(reference));
       if (!res.success) {
         throw new Error(res.error ?? 'Failed to verify payment');
       }

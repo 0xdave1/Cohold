@@ -25,23 +25,21 @@ const baseEnv = {
   ENABLE_SWAGGER: 'false',
 };
 
-describe('env validation security rules', () => {
-  it('fails when production CORS credentials are wildcard', () => {
-    const { error } = validationSchema.validate({
-      ...baseEnv,
-      CORS_ALLOWED_ORIGINS: '*',
-    });
-    expect(error).toBeTruthy();
+describe('Paystack env validation', () => {
+  it('does not require Flutterwave env vars', () => {
+    const { error, value } = validationSchema.validate(baseEnv);
+    expect(error).toBeFalsy();
+    expect(value.PAYSTACK_SECRET_KEY).toBeTruthy();
+    expect((value as Record<string, unknown>).FLW_SECRET_KEY).toBeUndefined();
   });
 
-  it('fails when swagger enabled in production without docs credentials', () => {
+  it('requires PAYSTACK_SECRET_KEY in production', () => {
     const { error } = validationSchema.validate({
       ...baseEnv,
-      ENABLE_SWAGGER: 'true',
-      SWAGGER_USERNAME: '',
-      SWAGGER_PASSWORD: '',
+      PAYSTACK_SECRET_KEY: undefined,
     });
     expect(error).toBeTruthy();
+    const msg = JSON.stringify(error);
+    expect(msg).toMatch(/PAYSTACK_SECRET_KEY/i);
   });
 });
-

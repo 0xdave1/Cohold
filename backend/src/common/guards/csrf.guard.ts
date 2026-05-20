@@ -25,16 +25,16 @@ export class CsrfGuard implements CanActivate {
     '/api/v1/admin-auth/refresh',
   ];
 
-  /** Signature-verified Flutterwave webhook only (not all `/webhooks/*`). */
-  private static isFlutterwaveWebhookPath(path: string): boolean {
-    return path === '/api/v1/webhooks/flutterwave' || path.startsWith('/api/v1/webhooks/flutterwave?');
+  /** Signature-verified Paystack webhook only (not all `/webhooks/*`). */
+  private static isPaystackWebhookPath(path: string): boolean {
+    return path === '/api/v1/webhooks/paystack' || path.startsWith('/api/v1/webhooks/paystack?');
   }
 
   private static isExemptPath(path: string): boolean {
     if (CsrfGuard.EXEMPT_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))) {
       return true;
     }
-    return CsrfGuard.isFlutterwaveWebhookPath(path);
+    return CsrfGuard.isPaystackWebhookPath(path);
   }
 
   canActivate(context: ExecutionContext): boolean {

@@ -13,8 +13,7 @@ export class CreateFractionalInvestmentDto {
   clientReference?: string;
 
   /**
-   * Optional provider checkout reference (e.g. Flutterwave `tx_ref`). Name is legacy;
-   * wallet-settled flows use Flutterwave hosted pay, not Paystack.
+   * Optional provider checkout reference (e.g. Paystack `reference`).
    */
   @IsOptional()
   @IsString()

@@ -4,7 +4,7 @@ import { WithdrawalService } from './withdrawal.service';
 import { JobRegistryService } from '../outbox/job-registry.service';
 
 /**
- * Polls Flutterwave for stuck withdrawals (complement to webhooks).
+ * Polls Paystack for stuck withdrawals (complement to webhooks).
  * TODO: tune interval / batch via config if needed.
  */
 @Injectable()

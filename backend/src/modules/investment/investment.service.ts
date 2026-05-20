@@ -89,7 +89,7 @@ export class InvestmentService {
   }
 
   /**
-   * Create fractional investment. Assumes user wallet is already funded (e.g. via Flutterwave checkout).
+   * Create fractional investment. Assumes user wallet is already funded (e.g. via Paystack checkout).
    * Flow: User Wallet (debit) → Property Escrow (credit) + Platform Fee (credit).
    */
   async createFractional(userId: string, dto: CreateFractionalInvestmentDto) {

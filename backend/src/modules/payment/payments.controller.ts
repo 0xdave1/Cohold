@@ -21,47 +21,40 @@ import { InitializePaymentDto } from './dto/initialize-payment.dto';
 export class PaymentsController {
   constructor(private readonly paymentService: PaymentService) {}
 
-  @Post('flutterwave/initialize')
+  @Post('initialize')
   @Throttle({ default: { limit: 8, ttl: 60_000 } })
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Initialize Flutterwave wallet funding checkout' })
+  @ApiOperation({ summary: 'Initialize Paystack wallet funding checkout' })
   @ApiBody({
     type: InitializePaymentDto,
     examples: {
       walletFunding: {
         summary: 'Valid request payload',
-        value: {
-          amount: 5000,
-        },
+        value: { amount: 5000 },
       },
     },
   })
   @ApiOkResponse({
-    description: 'Flutterwave checkout initialized successfully',
+    description: 'Paystack checkout initialized successfully',
     schema: {
       example: {
-        checkoutUrl: 'https://checkout.flutterwave.com/v3/hosted/pay/abc123',
-        reference: 'flw_wallet_123e4567-e89b-12d3-a456-426614174000',
+        checkoutUrl: 'https://checkout.paystack.com/abc123',
+        authorizationUrl: 'https://checkout.paystack.com/abc123',
+        reference: 'PSK-WALLET-user-id|uuid',
       },
     },
   })
-  @ApiBadRequestResponse({
-    description: 'Validation failed (e.g., amount is missing, non-numeric, or below minimum)',
-  })
+  @ApiBadRequestResponse({ description: 'Validation failed' })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  async initializeFlutterwavePayment(
-    @Body() dto: InitializePaymentDto,
-    @Req() req: any,
-  ) {
-    const user = req.user as { id: string; email: string };
-    return this.paymentService.initializeFlutterwavePayment({
+  async initializePayment(@Body() dto: InitializePaymentDto, @Req() req: { user: { id: string; email: string } }) {
+    return this.paymentService.initializeWalletFunding({
       amount: dto.amount,
-      userId: user.id,
-      email: user.email,
+      userId: req.user.id,
+      email: req.user.email,
     });
   }
 
   @Get('verify/:reference')
+  @ApiOperation({ summary: 'Verify Paystack wallet funding and credit wallet if successful' })
   async verify(@CurrentUser() user: { id: string }, @Param('reference') reference: string) {
     return this.paymentService.verifyWalletFunding(user.id, reference);
   }

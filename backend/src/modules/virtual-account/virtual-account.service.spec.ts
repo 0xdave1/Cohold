@@ -34,7 +34,7 @@ describe('VirtualAccountService (Issue 6)', () => {
     jest.resetAllMocks();
     config.get = jest.fn((key: string) => {
       if (key === 'VIRTUAL_ACCOUNTS_ENABLED') return 'true';
-      if (key === 'FLUTTERWAVE_VIRTUAL_ACCOUNT_ENABLED') return 'true';
+      if (key === 'PAYSTACK_VIRTUAL_ACCOUNT_ENABLED') return 'true';
       return undefined;
     });
     const moduleRef = await Test.createTestingModule({
