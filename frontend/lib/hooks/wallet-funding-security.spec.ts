@@ -15,6 +15,8 @@ describe('wallet funding security', () => {
     const src = readFileSync(join(process.cwd(), 'lib/hooks/use-wallet.ts'), 'utf8');
     expect(src).toContain('WALLET_FUNDING_INITIALIZE_PATH');
     expect(src).toContain('walletFundingVerifyPath');
+    expect(src).toContain('amountNaira');
+    expect(src).not.toMatch(/post\([\s\S]*currency:\s*['"]NGN['"]/);
     expect(src).not.toContain('flutterwave');
   });
 });

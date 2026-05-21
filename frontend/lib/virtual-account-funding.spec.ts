@@ -29,5 +29,7 @@ describe('virtual account + wallet funding rails', () => {
     expect(fundCard).toContain('Pay securely');
     expect(fundCard).not.toMatch(/Flutterwave/i);
     expect(fundCard).not.toMatch(/instant balance/i);
+    expect(fundCard).toContain('amountNaira');
+    expect(fundCard).not.toContain('currency');
   });
 });

@@ -142,16 +142,24 @@ export interface InitializePaymentResponse {
   reference: string;
 }
 
+export interface VerifyWalletPaymentResponse {
+  ok: boolean;
+  reference: string;
+  amountNaira: string;
+  credited: boolean;
+  status?: string;
+}
+
 /**
  * Starts Paystack-hosted checkout only (server: `POST /payments/initialize`).
  * Never use a removed self-credit wallet route.
  */
 export function useInitializeWalletPayment() {
   return useMutation({
-    mutationFn: async (body: { amount: string; currency: 'NGN' }) => {
+    mutationFn: async (body: { amountNaira: string }) => {
       const res = await apiClient.post<InitializePaymentResponse>(
         WALLET_FUNDING_INITIALIZE_PATH,
-        body,
+        { amountNaira: body.amountNaira },
       );
       if (!res.success || !res.data?.checkoutUrl) {
         throw new Error(res.error ?? 'Failed to initialize payment');
@@ -166,7 +174,7 @@ export function useVerifyWalletPayment() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (reference: string) => {
-      const res = await apiClient.get(walletFundingVerifyPath(reference));
+      const res = await apiClient.get<VerifyWalletPaymentResponse>(walletFundingVerifyPath(reference));
       if (!res.success) {
         throw new Error(res.error ?? 'Failed to verify payment');
       }

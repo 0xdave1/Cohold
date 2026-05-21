@@ -8,7 +8,7 @@
 
 ## Card funding flow
 
-1. `POST /api/v1/payments/initialize` (JWT) – body `{ "amount": "5000", "currency": "NGN" }` → returns `authorizationUrl` and `reference`.
+1. `POST /api/v1/payments/initialize` (JWT) – body `{ "amountNaira": "1500.50" }` (string, no `currency`) → returns `checkoutUrl` / `authorizationUrl` and `reference`. Backend converts Naira → kobo for Paystack only.
 2. User completes payment on Paystack.
 3. Configure Paystack webhook to one of:
    - `POST /api/v1/webhook/paystack`

@@ -22,10 +22,19 @@ describe('Global ValidationPipe security posture', () => {
     ).rejects.toThrow();
   });
 
-  it('rejects invalid payment amount', async () => {
+  it('rejects invalid payment amountNaira format', async () => {
     await expect(
       pipe.transform(
-        { amount: 10 },
+        { amountNaira: '1500.555' },
+        { type: 'body', metatype: InitializePaymentDto } as any,
+      ),
+    ).rejects.toThrow();
+  });
+
+  it('rejects extra currency on payment initialize', async () => {
+    await expect(
+      pipe.transform(
+        { amountNaira: '1500', currency: 'NGN' },
         { type: 'body', metatype: InitializePaymentDto } as any,
       ),
     ).rejects.toThrow();

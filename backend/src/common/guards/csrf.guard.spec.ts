@@ -51,6 +51,16 @@ describe('CsrfGuard', () => {
     expect(guard.canActivate(context)).toBe(true);
   });
 
+  it('exempts payments/paystack/webhook POST without csrf', () => {
+    const context = makeContext({
+      method: 'POST',
+      originalUrl: '/api/v1/payments/paystack/webhook',
+      cookies: {},
+      headers: {},
+    });
+    expect(guard.canActivate(context)).toBe(true);
+  });
+
   it('does not exempt arbitrary webhook subpaths', () => {
     const context = makeContext({
       method: 'POST',

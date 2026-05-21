@@ -16,12 +16,15 @@ import {
   TransactionDirection,
   TransactionType,
   VirtualAccountDepositStatus,
+  WalletFundingPaymentStatus,
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import Decimal from 'decimal.js';
 import { KycPolicyService } from '../kyc/kyc-policy.service';
 import { VirtualAccountService } from '../virtual-account/virtual-account.service';
 import { toDecimal } from '../../common/money/decimal.util';
+import { nairaStringToKobo, parseNairaAmountString } from '../../common/money/naira-amount.util';
+import type { PaystackVerifyTransactionResult } from './providers/paystack.provider';
 
 const PSK_WALLET_TX_PREFIX = 'PSK-WALLET-';
 
@@ -58,26 +61,35 @@ export class PaymentService {
     return (
       this.configService.get<string>('config.paystack.callbackUrl') ??
       this.configService.get<string>('PAYSTACK_CALLBACK_URL') ??
-      `${(this.configService.get<string>('config.appBaseUrl') ?? 'http://localhost:3000').replace(/\/$/, '')}/dashboard/wallet?status=success`
+      `${(this.configService.get<string>('config.appBaseUrl') ?? 'http://localhost:3000').replace(/\/$/, '')}/dashboard/wallet?payment=callback`
     );
   }
 
   /**
    * Hosted Paystack checkout to fund wallet. No wallet credit on initialize.
    */
-  async initializeWalletFunding(params: { amount: number; userId: string; email: string }) {
+  async initializeWalletFunding(params: { amountNaira: string; userId: string; email: string }) {
     const user = await this.prisma.user.findUnique({ where: { id: params.userId } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
     this.kycPolicy.assertFromUserSnapshot({ isFrozen: user.isFrozen, kycStatus: user.kycStatus });
 
-    const amount = toDecimal(params.amount);
-    if (amount.lte(0)) {
-      throw new BadRequestException('Amount must be positive');
-    }
-
+    const amount = parseNairaAmountString(params.amountNaira);
+    const amountKobo = nairaStringToKobo(params.amountNaira);
     const reference = buildWalletFundingReference(params.userId);
+
+    await this.prisma.walletFundingPayment.create({
+      data: {
+        userId: params.userId,
+        internalReference: reference,
+        amountNaira: amount.toFixed(4),
+        amountKobo,
+        currency: Currency.NGN,
+        status: WalletFundingPaymentStatus.PENDING,
+      },
+    });
+
     const init = await this.paystack.initializeTransaction({
       email: params.email,
       amount,
@@ -89,6 +101,7 @@ export class PaymentService {
         purpose: 'wallet_funding',
         userId: params.userId,
         expectedAmount: amount.toFixed(2),
+        expectedAmountKobo: amountKobo,
       },
     });
 
@@ -117,35 +130,27 @@ export class PaymentService {
     }
 
     const verified = await this.paystack.verifyTransaction(reference);
-    this.assertVerifiedWalletFundingSession(user, verified, userId);
-
-    let didCredit = false;
-    await this.prisma.$transaction(async (tx) => {
-      const result = await this.processWalletFunding(tx, {
-        userId,
-        amount: verified.amount,
-        reference,
-        providerTransactionId: verified.transactionId ?? undefined,
-      });
-      didCredit = result.didCredit;
-      if (didCredit) {
-        await this.notificationsService.notifyWalletFundedInTransaction(
-          tx,
-          userId,
-          verified.amount.toFixed(2),
-          'NGN',
-          reference,
-        );
-      }
+    const { didCredit, paymentStatus } = await this.settleVerifiedWalletFundingCheckout({
+      userId,
+      userEmail: user.email,
+      reference,
+      verified,
     });
 
-    return { ok: true, reference, amount: verified.amount.toFixed(2), credited: didCredit };
+    return {
+      ok: true,
+      reference,
+      amountNaira: verified.amount.toFixed(2),
+      credited: didCredit,
+      status: paymentStatus,
+    };
   }
 
   private assertVerifiedWalletFundingSession(
     user: { email: string },
-    verified: Awaited<ReturnType<PaystackProvider['verifyTransaction']>>,
+    verified: PaystackVerifyTransactionResult,
     userId: string,
+    pending: { amountKobo: number; amountNaira: Prisma.Decimal; userId: string },
   ): void {
     const meta = verified.metadata ?? {};
     if (meta.type != null && String(meta.type) !== 'wallet_funding') {
@@ -157,18 +162,90 @@ export class PaymentService {
     if (verified.currency.toUpperCase() !== 'NGN') {
       throw new BadRequestException('Only NGN wallet funding is supported');
     }
-    const expectedRaw = meta.expectedAmount;
-    if (expectedRaw != null) {
-      const expected = toDecimal(String(expectedRaw));
-      if (!verified.amount.equals(expected)) {
-        throw new BadRequestException('Payment amount does not match the initialized funding session');
-      }
+    if (pending.userId !== userId) {
+      throw new BadRequestException('Payment does not match this wallet funding session');
+    }
+    if (verified.amountKobo !== pending.amountKobo) {
+      throw new BadRequestException('Payment amount does not match the initialized funding session');
+    }
+    const expectedNaira = toDecimal(pending.amountNaira.toString());
+    if (!verified.amount.equals(expectedNaira)) {
+      throw new BadRequestException('Payment amount does not match the initialized funding session');
+    }
+    const expectedKoboMeta = meta.expectedAmountKobo;
+    if (expectedKoboMeta != null && Number(expectedKoboMeta) !== verified.amountKobo) {
+      throw new BadRequestException('Payment amount does not match the initialized funding session');
     }
     if (
       verified.customerEmail &&
       user.email.trim().toLowerCase() !== verified.customerEmail.trim().toLowerCase()
     ) {
       throw new BadRequestException('Payment customer does not match the authenticated user');
+    }
+  }
+
+  private async settleVerifiedWalletFundingCheckout(params: {
+    userId: string;
+    userEmail: string;
+    reference: string;
+    verified: PaystackVerifyTransactionResult;
+  }): Promise<{ didCredit: boolean; paymentStatus: WalletFundingPaymentStatus }> {
+    const pending = await this.prisma.walletFundingPayment.findUnique({
+      where: { internalReference: params.reference },
+    });
+    if (!pending) {
+      throw new BadRequestException('No pending wallet funding session for this reference');
+    }
+    if (pending.status === WalletFundingPaymentStatus.COMPLETED) {
+      return { didCredit: false, paymentStatus: WalletFundingPaymentStatus.COMPLETED };
+    }
+
+    this.assertVerifiedWalletFundingSession(
+      { email: params.userEmail },
+      params.verified,
+      params.userId,
+      pending,
+    );
+
+    try {
+      let didCredit = false;
+      await this.prisma.$transaction(async (tx) => {
+        const result = await this.processWalletFunding(tx, {
+          userId: params.userId,
+          amount: params.verified.amount,
+          reference: params.reference,
+          providerTransactionId: params.verified.transactionId ?? undefined,
+        });
+        didCredit = result.didCredit;
+        if (didCredit) {
+          await this.notificationsService.notifyWalletFundedInTransaction(
+            tx,
+            params.userId,
+            params.verified.amount.toFixed(2),
+            'NGN',
+            params.reference,
+          );
+        }
+        await tx.walletFundingPayment.update({
+          where: { id: pending.id },
+          data: {
+            status: WalletFundingPaymentStatus.COMPLETED,
+            providerTransactionId: params.verified.transactionId ?? undefined,
+            completedAt: new Date(),
+          },
+        });
+      });
+      return { didCredit, paymentStatus: WalletFundingPaymentStatus.COMPLETED };
+    } catch (err) {
+      this.logger.error(
+        `Wallet funding settlement failed reference=${params.reference}; marking REQUIRES_RECONCILIATION`,
+        err,
+      );
+      await this.prisma.walletFundingPayment.update({
+        where: { id: pending.id },
+        data: { status: WalletFundingPaymentStatus.REQUIRES_RECONCILIATION },
+      });
+      throw err;
     }
   }
 
@@ -209,37 +286,23 @@ export class PaymentService {
       }
 
       try {
+        const user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { email: true },
+        });
+        if (!user?.email) {
+          this.logger.warn(`Paystack webhook: user missing for reference=${reference}`);
+          return { received: true };
+        }
         const verified = await this.paystack.verifyTransaction(reference);
-        if (verified.metadata?.type != null && String(verified.metadata.type) !== 'wallet_funding') {
-          this.logger.warn(`Paystack webhook: unexpected meta.type reference=${reference}`);
-          return { received: true };
-        }
-        if (verified.metadata?.userId != null && String(verified.metadata.userId) !== userId) {
-          this.logger.warn(`Paystack webhook: meta.userId mismatch reference=${reference}`);
-          return { received: true };
-        }
-
-        let didCredit = false;
-        await this.prisma.$transaction(async (tx) => {
-          const result = await this.processWalletFunding(tx, {
-            userId,
-            amount: verified.amount,
-            reference,
-            providerTransactionId: verified.transactionId ?? undefined,
-          });
-          didCredit = result.didCredit;
-          if (didCredit) {
-            await this.notificationsService.notifyWalletFundedInTransaction(
-              tx,
-              userId,
-              verified.amount.toFixed(2),
-              'NGN',
-              reference,
-            );
-          }
+        await this.settleVerifiedWalletFundingCheckout({
+          userId,
+          userEmail: user.email,
+          reference,
+          verified,
         });
       } catch (err) {
-        this.logger.error(`Paystack webhook: ledger post failed reference=${reference}`, err);
+        this.logger.error(`Paystack webhook: wallet funding settlement failed reference=${reference}`, err);
       }
       return { received: true };
     }

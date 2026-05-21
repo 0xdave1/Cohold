@@ -27,7 +27,12 @@ export class CsrfGuard implements CanActivate {
 
   /** Signature-verified Paystack webhook only (not all `/webhooks/*`). */
   private static isPaystackWebhookPath(path: string): boolean {
-    return path === '/api/v1/webhooks/paystack' || path.startsWith('/api/v1/webhooks/paystack?');
+    return (
+      path === '/api/v1/webhooks/paystack' ||
+      path.startsWith('/api/v1/webhooks/paystack?') ||
+      path === '/api/v1/payments/paystack/webhook' ||
+      path.startsWith('/api/v1/payments/paystack/webhook?')
+    );
   }
 
   private static isExemptPath(path: string): boolean {

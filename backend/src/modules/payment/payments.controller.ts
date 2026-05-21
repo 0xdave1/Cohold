@@ -29,7 +29,7 @@ export class PaymentsController {
     examples: {
       walletFunding: {
         summary: 'Valid request payload',
-        value: { amount: 5000 },
+        value: { amountNaira: '1500.50' },
       },
     },
   })
@@ -47,7 +47,7 @@ export class PaymentsController {
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   async initializePayment(@Body() dto: InitializePaymentDto, @Req() req: { user: { id: string; email: string } }) {
     return this.paymentService.initializeWalletFunding({
-      amount: dto.amount,
+      amountNaira: dto.amountNaira,
       userId: req.user.id,
       email: req.user.email,
     });

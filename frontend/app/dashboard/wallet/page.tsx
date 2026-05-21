@@ -11,43 +11,57 @@ import {
   useVerifyWalletPayment,
   useMyVirtualAccount,
   useRetryVirtualAccountProvisioning,
+  useWalletTransactions,
 } from '@/lib/hooks/use-wallet';
 import { mapFinancialIntegrityError } from '@/lib/finance/financial-errors';
 import { useKycStatus } from '@/lib/hooks/use-kyc';
 
+function isPaymentCallback(searchParams: URLSearchParams): boolean {
+  return (
+    searchParams.get('payment') === 'callback' ||
+    searchParams.get('status') === 'success'
+  );
+}
+
 function WalletPageInner() {
   const searchParams = useSearchParams();
-  const { data: balances, isLoading: balLoading } = useWalletBalances();
+  const { data: balances, isLoading: balLoading, refetch: refetchBalances } = useWalletBalances();
   const verifyPayment = useVerifyWalletPayment();
   const devCredit = useDevWalletCredit();
   const virtualAccount = useMyVirtualAccount();
   const retryProvisioning = useRetryVirtualAccountProvisioning();
   const { data: kyc } = useKycStatus();
+  const { refetch: refetchTransactions } = useWalletTransactions({ limit: 10 });
+
+  const paymentCallback = isPaymentCallback(searchParams);
 
   useEffect(() => {
-    if (searchParams.get('status') === 'success') {
-      const refFromQuery = searchParams.get('tx_ref') ?? searchParams.get('reference');
-      const refFromSession =
-        typeof window !== 'undefined' ? window.sessionStorage.getItem('walletFundingReference') : null;
-      const reference = refFromQuery ?? refFromSession;
-      if (reference && !verifyPayment.isPending) {
-        verifyPayment.mutate(reference, {
-          onSettled: () => {
-            if (typeof window !== 'undefined') {
-              window.sessionStorage.removeItem('walletFundingReference');
-            }
-          },
-        });
-      }
-      // Do not invalidate/refetch balances here — only after verify succeeds
-      // (`useVerifyWalletPayment` onSuccess). Avoid implying funds before server confirmation.
+    if (!paymentCallback) return;
+    const refFromQuery = searchParams.get('tx_ref') ?? searchParams.get('reference');
+    const refFromSession =
+      typeof window !== 'undefined' ? window.sessionStorage.getItem('walletFundingReference') : null;
+    const reference = refFromQuery ?? refFromSession;
+    if (reference && !verifyPayment.isPending && !verifyPayment.isSuccess && !verifyPayment.isError) {
+      verifyPayment.mutate(reference, {
+        onSettled: () => {
+          if (typeof window !== 'undefined') {
+            window.sessionStorage.removeItem('walletFundingReference');
+          }
+          void refetchBalances();
+          void refetchTransactions();
+        },
+      });
     }
-  }, [searchParams, verifyPayment]);
+    // Do not invalidate/refetch balances here — only after verify succeeds
+    // (`useVerifyWalletPayment` onSuccess). Callback also refetches on settled for honest pending UX.
+  }, [paymentCallback, searchParams, verifyPayment, refetchBalances, refetchTransactions]);
 
   const ngn = balances?.find((w) => w.currency === 'NGN');
   const isVerified = kyc?.status === 'VERIFIED';
-
   const isDev = process.env.NODE_ENV !== 'production';
+
+  const verifyStatus = verifyPayment.data?.status;
+  const requiresReconciliation = verifyStatus === 'REQUIRES_RECONCILIATION';
 
   return (
     <div className="space-y-6 px-4 pt-4 pb-24">
@@ -77,6 +91,43 @@ function WalletPageInner() {
           Balance always comes from the server after ledger settlement — not from checkout redirect alone.
         </p>
       </div>
+
+      {paymentCallback ? (
+        <div className="rounded-xl border border-dashboard-border bg-dashboard-card px-4 py-3 text-sm">
+          {verifyPayment.isPending ? (
+            <p className="text-amber-900">
+              Payment submitted. Confirming wallet funding… Your balance updates only after our servers verify
+              Paystack payment (this may take a moment if the webhook is delayed).
+            </p>
+          ) : verifyPayment.isSuccess && verifyPayment.data?.credited ? (
+            <p className="text-green-800">Payment verified. Your wallet balance has been refreshed from the server.</p>
+          ) : verifyPayment.isSuccess && !verifyPayment.data?.credited ? (
+            <p className="text-dashboard-body">
+              Payment already recorded. Refreshing wallet from the server…
+            </p>
+          ) : requiresReconciliation ? (
+            <p className="text-amber-950" role="alert">
+              Payment was received by Paystack but wallet settlement needs reconciliation. Please contact{' '}
+              <Link href="/dashboard/support" className="font-semibold text-cohold-blue underline">
+                support
+              </Link>{' '}
+              with your payment reference.
+            </p>
+          ) : verifyPayment.isError ? (
+            <p className="text-red-800" role="alert">
+              {mapFinancialIntegrityError(
+                verifyPayment.error,
+                'Payment could not be verified yet. Your balance was not changed. If you completed payment, wait a moment and refresh — or contact support.',
+              )}
+            </p>
+          ) : (
+            <p className="text-dashboard-body">
+              Payment submitted. Confirming wallet funding… If verification does not start, open Wallet again from the
+              menu.
+            </p>
+          )}
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-dashboard-border bg-dashboard-card p-4">
         <h2 className="mb-2 text-sm font-semibold text-dashboard-heading">Bank transfer (dedicated account)</h2>
@@ -144,31 +195,6 @@ function WalletPageInner() {
           </p>
         )}
       </div>
-
-      {searchParams.get('status') === 'success' ? (
-        <div className="rounded-xl border border-dashboard-border bg-dashboard-card px-4 py-3 text-sm">
-          {verifyPayment.isPending ? (
-            <p className="text-amber-800">
-              Verifying payment with the server… Your wallet updates only after Paystack confirms payment and
-              verification succeeds.
-            </p>
-          ) : verifyPayment.isSuccess ? (
-            <p className="text-green-800">Payment verified. Refreshing wallet from the server…</p>
-          ) : verifyPayment.isError ? (
-            <p className="text-red-800" role="alert">
-              {mapFinancialIntegrityError(
-                verifyPayment.error,
-                'Payment could not be verified. Your balance was not changed.',
-              )}
-            </p>
-          ) : (
-            <p className="text-dashboard-body">
-              Return from checkout detected. If verification did not start automatically, open Wallet again from the
-              menu.
-            </p>
-          )}
-        </div>
-      ) : null}
 
       <FundWalletCard />
 

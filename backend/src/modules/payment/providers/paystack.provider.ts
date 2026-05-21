@@ -31,6 +31,8 @@ export type PaystackInitializeResult = {
 export type PaystackVerifyTransactionResult = {
   reference: string;
   amount: Decimal;
+  /** Paystack amount field in kobo (integer). */
+  amountKobo: number;
   currency: string;
   status: string;
   paidAt: string | null;
@@ -221,13 +223,19 @@ export class PaystackProvider {
       }
 
       const currency = String(data.currency ?? 'NGN').toUpperCase();
-      const amount = this.fromSubunit((data.amount as number | string | undefined) ?? 0, currency);
+      const amountKoboRaw = data.amount as number | string | undefined;
+      const amountKobo = Number(amountKoboRaw ?? 0);
+      if (!Number.isFinite(amountKobo) || !Number.isSafeInteger(amountKobo) || amountKobo <= 0) {
+        throw new UnprocessableEntityException('Paystack verification returned invalid amount');
+      }
+      const amount = this.fromSubunit(amountKobo, currency);
       const metadata = (data.metadata as Record<string, unknown> | undefined) ?? {};
       const auth = (data.authorization as Record<string, unknown> | undefined) ?? {};
 
       return {
         reference: String(data.reference ?? reference),
         amount,
+        amountKobo,
         currency,
         status,
         paidAt: data.paid_at != null ? String(data.paid_at) : null,
