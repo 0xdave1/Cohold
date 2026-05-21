@@ -8,9 +8,19 @@ import { PaystackProvider } from './providers/paystack.provider';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { KycComplianceModule } from '../kyc/kyc-compliance.module';
 import { VirtualAccountModule } from '../virtual-account/virtual-account.module';
+import { WithdrawalModule } from '../withdrawal/withdrawal.module';
+import { PayoutModule } from '../payout/payout.module';
 
 @Module({
-  imports: [WalletModule, AuthModule, NotificationsModule, KycComplianceModule, VirtualAccountModule],
+  imports: [
+    WalletModule,
+    AuthModule,
+    NotificationsModule,
+    KycComplianceModule,
+    VirtualAccountModule,
+    WithdrawalModule,
+    PayoutModule,
+  ],
   controllers: [PaymentsController, PaymentsPaystackWebhookController],
   providers: [PaymentService, PaystackProvider],
   exports: [PaymentService, PaystackProvider],
